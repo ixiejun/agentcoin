@@ -84,6 +84,68 @@ pub fn dev_seed(name: &str) -> Result<SecretSeed, Error> {
     Ok(SecretSeed::new(derive(DEV_SEED_CONTEXT, name.as_bytes())?))
 }
 
+/// Context for per-epoch randomness secrets of validators. Never change it.
+pub const RANDOMNESS_SECRET_CONTEXT: &str = "agentcoin 2026-09 randomness-secret v1";
+
+/// Context for commitments to randomness secrets. Never change it.
+pub const RANDOMNESS_COMMIT_CONTEXT: &str = "agentcoin 2026-09 randomness-commit v1";
+
+/// A validator's commit–reveal secret for one epoch, wiped on drop. Secret until the
+/// validator reveals it on chain.
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+pub struct RandomnessSecret([u8; 32]);
+
+impl RandomnessSecret {
+    /// The secret bytes. Only for revealing on chain.
+    #[must_use]
+    pub const fn expose(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
+
+impl core::fmt::Debug for RandomnessSecret {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("RandomnessSecret(<redacted>)")
+    }
+}
+
+/// Derives a validator's randomness secret for `epoch` of the chain `genesis`:
+/// `derive_key(RANDOMNESS_SECRET_CONTEXT, seed ‖ genesis ‖ u64_le(epoch))`.
+///
+/// Deterministic, so a restarted validator can still reveal what it committed to; keyed by
+/// the validator's secret seed, so nobody else can predict it.
+///
+/// # Errors
+///
+/// [`Error::InvalidContext`] only if the built-in context were malformed (never in practice).
+pub fn randomness_secret(
+    seed: &SecretSeed,
+    genesis: &[u8; 32],
+    epoch: u64,
+) -> Result<RandomnessSecret, Error> {
+    let mut material = Zeroizing::new([0u8; 32 + 32 + 8]);
+    let (s, rest) = material.split_at_mut(32);
+    s.copy_from_slice(seed.expose());
+    let (g, e) = rest.split_at_mut(32);
+    g.copy_from_slice(genesis);
+    e.copy_from_slice(&epoch.to_le_bytes());
+    Ok(RandomnessSecret(derive(
+        RANDOMNESS_SECRET_CONTEXT,
+        material.as_slice(),
+    )?))
+}
+
+/// Commitment to a revealed or unrevealed randomness secret:
+/// `derive_key(RANDOMNESS_COMMIT_CONTEXT, secret)`. Takes raw bytes because the chain checks
+/// revealed secrets, which are public by then.
+///
+/// # Errors
+///
+/// [`Error::InvalidContext`] only if the built-in context were malformed (never in practice).
+pub fn randomness_commit(secret: &[u8; 32]) -> Result<crate::hash::Hash256, Error> {
+    derive(RANDOMNESS_COMMIT_CONTEXT, secret)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,6 +154,8 @@ mod tests {
     fn contexts_are_well_formed() {
         assert!(crate::hash::validate_context(WALLET_KEY_CONTEXT).is_ok());
         assert!(crate::hash::validate_context(DEV_SEED_CONTEXT).is_ok());
+        assert!(crate::hash::validate_context(RANDOMNESS_SECRET_CONTEXT).is_ok());
+        assert!(crate::hash::validate_context(RANDOMNESS_COMMIT_CONTEXT).is_ok());
     }
 
     // Requirement "助记词": same entropy, algorithm and index always give the same key.
@@ -125,5 +189,41 @@ mod tests {
         let e = WalletEntropy::new([0xAB; ENTROPY_LEN]);
         let s = alloc::format!("{e:?}");
         assert!(!s.contains("ab") && !s.contains("171"));
+    }
+
+    // chain/randomness Requirement "秘密值不可预测且可恢复": deterministic per (seed, genesis,
+    // epoch), different across epochs, chains and seeds, never printed.
+    #[test]
+    fn randomness_secrets() {
+        let seed = SecretSeed::new([5; 32]);
+        let g = [1u8; 32];
+        let a = randomness_secret(&seed, &g, 7).unwrap();
+        assert_eq!(
+            a.expose(),
+            randomness_secret(&seed, &g, 7).unwrap().expose()
+        );
+        assert_ne!(
+            a.expose(),
+            randomness_secret(&seed, &g, 8).unwrap().expose()
+        );
+        assert_ne!(
+            a.expose(),
+            randomness_secret(&seed, &[2; 32], 7).unwrap().expose()
+        );
+        assert_ne!(
+            a.expose(),
+            randomness_secret(&SecretSeed::new([6; 32]), &g, 7)
+                .unwrap()
+                .expose()
+        );
+        let commit = randomness_commit(a.expose()).unwrap();
+        assert_ne!(&commit, a.expose());
+        let hex_secret: alloc::string::String = a
+            .expose()
+            .iter()
+            .map(|b| alloc::format!("{b:02x}"))
+            .collect();
+        let printed = alloc::format!("{a:?}");
+        assert!(!printed.contains(&hex_secret[..8]) && printed.contains("redacted"));
     }
 }

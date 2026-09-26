@@ -64,10 +64,15 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 | `agentcoin 2026-09 dev-seed v1` | 哈希 | 由名称派生的公开开发种子 | 自 M1 起使用（仅限开发链） |
 | `agentcoin 2026-09 keystore-aad v1` | 哈希 | 加密私钥文件的附加认证数据 | 自 M1 起使用 |
 | `agentcoin 2026-09 os-rng v1` | 哈希 | `OsRng`（由操作系统播种）的输出流 | 自 M1 起使用 |
+| `agentcoin 2026-09 bft-message v1` | 哈希 | AC-BFT 消息的 32 字节签名载荷 | 自 M2 起使用（共识关键） |
+| `agentcoin 2026-09 randomness-secret v1` | 哈希 | 验证人每个纪元的随机数秘密值：`种子 ‖ 创世哈希 ‖ u64_le(纪元)` | 自 M2 起使用 |
+| `agentcoin 2026-09 randomness-commit v1` | 哈希 | 随机数秘密值的承诺 | 自 M2 起使用（共识关键） |
+| `agentcoin 2026-09 randomness v1` | 哈希 | 纪元随机数：`u64_le(纪元) ‖ 按账户 ID 排序的揭示值` | 自 M2 起使用（共识关键） |
+| `agentcoin 2026-09 randomness-subject v1` | 哈希 | 由纪元随机数按主题派生的值 | 自 M2 起使用 |
 | `agentcoin/tx/v1` | 签名 | 交易签名 | 自 M1 起使用（共识关键） |
 | `agentcoin/aura-seal/v1` | 签名 | Aura-PQ 区块封印 | 自 M1 起使用（共识关键） |
 | `agentcoin/key-rotation/v1` | 签名 | 轮换新密钥的持有证明 | 自 M1 起使用（共识关键） |
-| `agentcoin/bft-vote/v1` | 签名 | 最终性投票 | 为 M2 预留 |
+| `agentcoin/bft-vote/v1` | 签名 | AC-BFT 的全部消息（提议、投票、超时） | 自 M2 起使用（共识关键） |
 | `agentcoin/receipt/v1` | 签名 | 推理回执 | 为 M5 预留 |
 
 ## 加密私钥文件（格式 v1）

@@ -40,6 +40,8 @@ sp-runtime = { workspace = true }
 sp-trie = { workspace = true }
 
 [dev-dependencies]
+rand_core = { workspace = true }
+ac-crypto = { workspace = true, features = ["deterministic", "rand"] }
 # Independent reference implementation used only to cross-check the adapter.
 blake3 = { workspace = true }
 hex = { workspace = true, features = ["alloc"] }

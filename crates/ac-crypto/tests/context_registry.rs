@@ -5,7 +5,7 @@
 use ac_crypto::hash::validate_context;
 
 /// The registered hashing contexts, as listed in README.md.
-const REGISTERED: [&str; 7] = [
+const REGISTERED: [&str; 12] = [
     "agentcoin 2026-09 account-id v1",
     "agentcoin 2026-09 test-rng v1",
     "agentcoin 2026-09 tx-payload v1",
@@ -13,6 +13,11 @@ const REGISTERED: [&str; 7] = [
     "agentcoin 2026-09 dev-seed v1",
     "agentcoin 2026-09 keystore-aad v1",
     "agentcoin 2026-09 os-rng v1",
+    "agentcoin 2026-09 bft-message v1",
+    "agentcoin 2026-09 randomness-secret v1",
+    "agentcoin 2026-09 randomness-commit v1",
+    "agentcoin 2026-09 randomness v1",
+    "agentcoin 2026-09 randomness-subject v1",
 ];
 
 #[test]
@@ -37,6 +42,7 @@ fn readme_lists_every_context() {
         "agentcoin/tx/v1",
         "agentcoin/aura-seal/v1",
         "agentcoin/key-rotation/v1",
+        "agentcoin/bft-vote/v1",
     ] {
         assert!(readme.contains(context) && readme_zh.contains(context));
     }

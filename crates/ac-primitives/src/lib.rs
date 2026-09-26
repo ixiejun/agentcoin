@@ -4,9 +4,12 @@
 
 extern crate alloc;
 
+pub mod ac_bft;
 mod address;
 pub mod aura_pq;
+pub mod epoch;
 mod hashing;
+pub mod offences;
 pub mod profile;
 mod signature;
 

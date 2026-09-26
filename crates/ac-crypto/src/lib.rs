@@ -27,7 +27,9 @@ pub use account::{ACCOUNT_ID_CONTEXT, AccountId, account_id};
 pub use alg::{EXTENSION_MARKER, KemAlg, SigAlg};
 pub use error::{Error, MnemonicError};
 pub use keys::{
-    DEV_SEED_CONTEXT, ENTROPY_LEN, WALLET_KEY_CONTEXT, WalletEntropy, dev_seed, wallet_key_seed,
+    DEV_SEED_CONTEXT, ENTROPY_LEN, RANDOMNESS_COMMIT_CONTEXT, RANDOMNESS_SECRET_CONTEXT,
+    RandomnessSecret, WALLET_KEY_CONTEXT, WalletEntropy, dev_seed, randomness_commit,
+    randomness_secret, wallet_key_seed,
 };
 #[cfg(feature = "getrandom")]
 pub use os_rng::{OS_RNG_CONTEXT, OsRng};

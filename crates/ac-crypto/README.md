@@ -97,10 +97,15 @@ reused for another purpose.
 | `agentcoin 2026-09 dev-seed v1` | hash | public development seeds from a name | in use from M1 (dev chains only) |
 | `agentcoin 2026-09 keystore-aad v1` | hash | associated data of encrypted secret files | in use from M1 |
 | `agentcoin 2026-09 os-rng v1` | hash | output stream of `OsRng` (seeded from the OS) | in use from M1 |
+| `agentcoin 2026-09 bft-message v1` | hash | 32-byte signing payload of AC-BFT messages | in use from M2 (consensus-critical) |
+| `agentcoin 2026-09 randomness-secret v1` | hash | validators' per-epoch randomness secrets: `seed ‖ genesis ‖ u64_le(epoch)` | in use from M2 |
+| `agentcoin 2026-09 randomness-commit v1` | hash | commitments to randomness secrets | in use from M2 (consensus-critical) |
+| `agentcoin 2026-09 randomness v1` | hash | epoch randomness: `u64_le(epoch) ‖ reveals sorted by account ID` | in use from M2 (consensus-critical) |
+| `agentcoin 2026-09 randomness-subject v1` | hash | per-subject values derived from epoch randomness | in use from M2 |
 | `agentcoin/tx/v1` | signature | transaction signatures | in use from M1 (consensus-critical) |
 | `agentcoin/aura-seal/v1` | signature | Aura-PQ block seals | in use from M1 (consensus-critical) |
 | `agentcoin/key-rotation/v1` | signature | proof of possession of a rotated-in key | in use from M1 (consensus-critical) |
-| `agentcoin/bft-vote/v1` | signature | finality votes | reserved for M2 |
+| `agentcoin/bft-vote/v1` | signature | every AC-BFT message (proposals, votes, timeouts) | in use from M2 (consensus-critical) |
 | `agentcoin/receipt/v1` | signature | inference receipts | reserved for M5 |
 
 ## Encrypted secret files (format v1)
