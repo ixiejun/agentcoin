@@ -25,8 +25,10 @@ if [[ -z "$bencher" ]]; then
   fi
 fi
 
-cargo build -p ac-runtime --release --features runtime-benchmarks
-wasm="$repo_root/target/release/wbuild/ac-runtime/ac_runtime.compact.compressed.wasm"
+# Only the WASM runtime is benchmarked, and it is always built optimized: a release native
+# build of the whole runtime would add gigabytes of artifacts for nothing.
+WASM_BUILD_TYPE=release cargo build -p ac-runtime --features runtime-benchmarks
+wasm="$repo_root/target/debug/wbuild/ac-runtime/ac_runtime.compact.wasm"
 
 "$bencher" v1 benchmark pallet \
   --runtime "$wasm" \

@@ -162,9 +162,9 @@ pub mod pallet {
         #[pallet::weight_of_authorize(T::WeightInfo::authorize_report_equivocation())]
         pub fn report_equivocation(origin: OriginFor<T>, evidence: Evidence) -> DispatchResult {
             frame_system::ensure_authorized(origin)?;
-            // The authorization already verified the evidence for this block's state (the
-            // extension runs again when the transaction is applied); `record` only re-checks
-            // the cheap deduplication rules.
+            // Verified again against this block's state before recording (the benchmarked
+            // weight includes this second verification); invalid or stale evidence changes
+            // nothing.
             if let Ok(offence) = Self::check(&evidence) {
                 Self::record(offence);
             }
