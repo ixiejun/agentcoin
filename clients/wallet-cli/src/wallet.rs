@@ -246,8 +246,16 @@ mod tests {
         let text = std::fs::read_to_string(&path).unwrap();
         let entropy = mnemonic::from_mnemonic(&created.mnemonic).unwrap();
         assert!(!text.contains(&hex::encode(entropy.expose())));
-        for word in created.mnemonic.split(' ').filter(|w| w.len() > 4) {
-            assert!(!text.contains(word), "mnemonic word {word} in wallet file");
+        // Single words can collide with JSON field names ("current_alg") or hex, so look
+        // for the phrase and every adjacent pair of words instead.
+        assert!(!text.contains(created.mnemonic.as_str()));
+        let words: Vec<&str> = created.mnemonic.split(' ').collect();
+        for pair in words.windows(2) {
+            let pair = pair.join(" ");
+            assert!(
+                !text.contains(&pair),
+                "mnemonic words {pair} in wallet file"
+            );
         }
         let loaded = Wallet::load(&path).unwrap();
         assert_eq!(loaded.address(), created.wallet.address());
