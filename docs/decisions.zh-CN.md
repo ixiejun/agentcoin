@@ -1,6 +1,6 @@
 > 🌐 [English](decisions.md) | **简体中文**
 
-# AgentCoin 决策记录（D1–D34）
+# AgentCoin 决策记录（D1–D37）
 
 > 本文件是需求讨论的最终结论汇总。讨论过程见 `docs/research/01–07`（`*.zh-CN.md`），技术方案见 `docs/design/`。
 
@@ -40,3 +40,6 @@
 | D32 | 工程 | 采用规格驱动开发（SDD），工具为 OpenSpec（`openspec/`）；先写规范、再写代码 | R10 |
 | D33 | 文档 | 项目文档中英双语、英文为主（规范路径为英文，`*.zh-CN.md` 为中文，页首互链）；OpenSpec 产物只用中文；代码注释与提交信息用英文 | R11 |
 | D34 | 密码学 | AlgId 每类 1 字节，同时就是带标签类型的 SCALE 枚举序号：规范编码 = 链上 SCALE 编码 = TypeInfo 描述的格式（一种字节形式、一套编号）；`0x00` 不分配，`0xFF` 保留为扩展标记 | M0 实现 |
+| D35 | 密码学 | 链上哈希为 BLAKE3-256：区块哈希、外部交易根和状态树统一使用（`Hashing = Blake3Hasher`）。有记录的例外：SDK 模块的存储键哈希器（`Blake2_128Concat` / `Twox64Concat` / `Twox128`）只负责键的分布、不承担承诺；本项目自有模块以账户 ID 为键时用 `Identity`。随创世固定 | M1 实现 |
+| D36 | 签名 | 交易采用 v5 General 交易，由位于扩展管线首位的 `PqAuthorize` 授权：对 BLAKE3 `derive_key` 载荷做 ML-DSA 签名，上下文 `agentcoin/tx/v1`；首笔交易登记公钥，后续查表；旧式 `Signed` 交易关闭（`NoClassicSignature`）。取代 MVP 方案 §3.3 的“`AcMultiSignature` 实现 `Verify`” | M1 实现 |
+| D37 | 许可证 | 源码保持 MIT。带 Classpath 例外的 GPL-3.0 只允许出现在 `node/`（以及运行节点的 `tests/e2e`）的依赖闭包中；`crates/`、`pallets/`、`runtime/`、`clients/` 保持无 GPL，由 CI 强制检查。发布 `ac-node` 二进制时附 GPL 源码提供说明 | M1 实现 |

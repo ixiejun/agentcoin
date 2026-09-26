@@ -3,7 +3,7 @@
 # AgentCoin MVP 技术方案 v0.1
 
 > 状态：初版，待评审。日期：2026-09。
-> 依据：`docs/decisions.md`（D1–D34）。全量版方案见 `full-technical-plan.md`。
+> 依据：`docs/decisions.md`（D1–D37）。全量版方案见 `full-technical-plan.md`。
 > 约定：“**[预留]**” 表示 MVP 不实现，但接口或数据结构必须在 MVP 阶段就定义好，供全量版使用。
 
 ---

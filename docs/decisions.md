@@ -1,6 +1,6 @@
 > 🌐 **English** | [简体中文](decisions.zh-CN.md)
 
-# AgentCoin Decision Log (D1–D34)
+# AgentCoin Decision Log (D1–D37)
 
 > This file consolidates the final conclusions of the requirements discussion. The discussion itself is in `docs/research/01–07`; the technical plans are in `docs/design/`.
 
@@ -40,3 +40,6 @@
 | D32 | Engineering | Spec-driven development (SDD) with OpenSpec (`openspec/`); specs first, then code | R10 |
 | D33 | Documentation | Project docs are bilingual with English first (English at the canonical path, Chinese in `*.zh-CN.md`, linked at the top); OpenSpec artifacts are Chinese only; code comments and commit messages are English | R11 |
 | D34 | Cryptography | AlgId is 1 byte per category and is also the SCALE enum index of the tagged types, so canonical encoding = on-chain SCALE encoding = what TypeInfo describes (one byte form, one numbering); `0x00` never allocated, `0xFF` reserved as extension marker | M0 apply |
+| D35 | Cryptography | On-chain hashing is BLAKE3-256: block hashes, the extrinsics root and the state trie all use it (`Hashing = Blake3Hasher`). Documented exception: storage-key hashers of SDK pallets (`Blake2_128Concat` / `Twox64Concat` / `Twox128`) only spread keys and commit to nothing; AgentCoin's own pallets key by account ID with `Identity`. Fixed at genesis | M1 apply |
+| D36 | Signatures | Transactions are v5 General transactions authorized by the `PqAuthorize` extension (first in the pipeline): ML-DSA over a BLAKE3 `derive_key` payload with context `agentcoin/tx/v1`; the first transaction registers the public key, later ones look it up; the legacy `Signed` form is closed (`NoClassicSignature`). Replaces "`AcMultiSignature` implements `Verify`" in the MVP plan §3.3 | M1 apply |
+| D37 | Licensing | Source stays MIT. GPL-3.0 with Classpath exception is allowed only in the dependency closure of `node/` (and `tests/e2e`, which runs the node); `crates/`, `pallets/`, `runtime/` and `clients/` stay GPL-free, enforced in CI. `ac-node` binary releases ship a GPL source offer | M1 apply |

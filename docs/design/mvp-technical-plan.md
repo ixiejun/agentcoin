@@ -3,7 +3,7 @@
 # AgentCoin MVP Technical Plan v0.1
 
 > Status: first draft, under review. Date: 2026-09.
-> Basis: `docs/decisions.md` (D1–D34). For the full version see `full-technical-plan.md`.
+> Basis: `docs/decisions.md` (D1–D37). For the full version see `full-technical-plan.md`.
 > Convention: "**[reserved]**" means not implemented in the MVP, but the interface or data structure must already be defined in the MVP for the full version to use.
 
 ---
