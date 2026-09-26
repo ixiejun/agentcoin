@@ -1,100 +1,102 @@
-# 第七轮：宪法条款如何“不可变”——Polkadot、BTC、Cardano 对比
+> 🌐 **English** | [简体中文](07-constitution-immutability.zh-CN.md)
 
-> 状态：讨论稿（Round 7）。日期：2026-09。
+# Round 7: How Constitutional Clauses Become "Immutable" — Polkadot, Bitcoin and Cardano Compared
 
-## 新增已确认决策
+> Status: discussion draft (Round 7). Date: 2026-09.
 
-| # | 决策 |
+## Newly confirmed decisions
+
+| # | Decision |
 |---|---|
-| D27 | 私有能力：MVP 做 L0（私有转账、匿名推理凭证）；全量做 L1（私密投票、密封竞价算力采购、屏蔽池内私有兑换），电路自研、一次审计；L2 通用私有合约只预留接口，约 2028 年后再评估；不做 L3 |
-| D28 | 训练者 5% 分润：激励代替强制（血统声明 + 路由优先） |
-| D29 | 美元计价的过渡期：由治理设定参考汇率（设调整幅度上限），流动性足够后切换为预言机 |
+| D27 | Private capabilities: MVP ships L0 (private transfers, anonymous inference vouchers); the full version ships L1 (private voting, sealed-bid compute procurement, private swaps inside the shielded pool) with in-house circuits audited once; L2 general private contracts only have interfaces reserved and are re-evaluated around 2028; no L3 |
+| D28 | 5% trainer royalties: incentives instead of enforcement (lineage declaration + routing priority) |
+| D29 | Transition period for USD pricing: governance sets a reference rate (with a cap on each adjustment); switch to an oracle once liquidity is sufficient |
 
 ---
 
-## 1. Polkadot 的做法：**没有不可变条款，一切都可以投票修改**
+## 1. Polkadot's approach: **no immutable clauses — everything can be voted on**
 
-- **机制**：OpenGov 多轨道公投。
-  - **Root 轨道**：权限最高，可以替换整个 runtime。门槛极高：第 1 天要达到全网发行量 46.8% 的支持率和 88% 以上的赞成率；支持率曲线在 7 天内线性降到 25%，14 天时趋近于 0。准备期和执行延迟都很长。
-  - **Wish For Change 轨道**：**不执行任何代码**，只是链上的“意向表决”，用于在正式提案之前凝聚共识。
-  - **Technical Fellowship 白名单**：技术委员会可以把紧急修复加入白名单，走更短的流程（用于安全修复）。
-- **2.1B 硬顶的落地过程**：先由 Ref 1710 在 Wish For Change 轨道上以 81% 赞成通过，表达意向；再由 Ref 1828 等正式提案，通过 runtime 升级 v2.1.0（2026-03-12）写入协议。
-- **关键事实**：这个硬顶**写在 runtime 里**，而 runtime 可以通过 Root 公投整体替换。所以分析师普遍指出：“**治理驱动的供给变化存在执行风险，未来的投票理论上可以撤销它；而比特币的减半在数学上是必然的。**”
-- **结论**：Polkadot 的“宪法”是**高门槛的可变规则**，不是不可变条款。它依靠的是投票门槛高和时间长，而不是技术上的不可能。
+- **Mechanism**: OpenGov multi-track referenda.
+  - **Root track**: the highest privileges; can replace the entire runtime. Very high thresholds: on day 1 it needs support of 46.8% of total issuance and approval above 88%; the support curve falls linearly to 25% over 7 days and approaches 0 by day 14. Long preparation and enactment periods.
+  - **Wish For Change track**: **executes no code**; an on-chain "signal vote" used to build consensus before a formal proposal.
+  - **Technical Fellowship whitelist**: the technical fellowship can whitelist urgent fixes for a shorter process (for security fixes).
+- **How the 2.1B hard cap landed**: first Ref 1710 passed on the Wish For Change track with 81% approval as a signal; then formal proposals such as Ref 1828 wrote it into the protocol via runtime upgrade v2.1.0 (2026-03-12).
+- **Key fact**: the hard cap **lives in the runtime**, and the runtime can be replaced wholesale by a Root referendum. Analysts therefore point out that "**governance-driven supply changes carry execution risk — future votes could theoretically reverse them — while Bitcoin's halvings are mathematically inevitable.**"
+- **Conclusion**: Polkadot's "constitution" is **a high-threshold mutable rule**, not an immutable clause. It relies on high voting thresholds and long timelines, not technical impossibility.
 
-## 2. 比特币的做法：**节点客户端强制，改变需要硬分叉**
+## 2. Bitcoin's approach: **enforced by node clients; change requires a hard fork**
 
-- 2100 万上限不存在于任何治理系统里，而是由**每一个全节点在验证区块时独立检查**。一旦超发，这个区块就会被所有诚实节点拒绝。
-- 修改上限唯一的办法，是说服绝大多数节点运营者**自愿安装新的客户端软件**（硬分叉）。拒绝升级的人会继续留在原链上。
-- **结论**：不可变的本质是“**把修改成本提高到需要全社会自愿同意**”。技术上并没有绝对的不可变，但这是目前最强的形式。
+- The 21 million cap exists in no governance system; **every full node checks it independently when validating blocks**. Any over-issuance is rejected by all honest nodes.
+- The only way to change the cap is to convince the vast majority of node operators to **voluntarily install new client software** (a hard fork). Those who refuse stay on the original chain.
+- **Conclusion**: immutability really means "**raising the cost of change until it requires society-wide voluntary agreement**". There is no absolute technical immutability, but this is the strongest form available.
 
-## 3. Cardano 的做法：**成文宪法 + 宪法委员会 + 护栏脚本**
+## 3. Cardano's approach: **written constitution + constitutional committee + guardrails script**
 
-- 2025 年 Plomin 硬分叉之后，链上正式记录了宪法文本的哈希。
-- **宪法委员会**审查每一项治理行动是否违宪。
-- **护栏脚本（Guardrails Script）**：一个链上验证脚本，**自动拒绝**超出宪法规定范围的参数修改（例如某参数只能在 X–Y 之间调整）。
-- 修改宪法或护栏脚本本身，需要 65–90% 区间的更高门槛。
-- **结论**：介于 Polkadot 和 BTC 之间，是“**可变但有机器强制的边界**”。
+- Since the Plomin hard fork in 2025, the hash of the constitution text is formally recorded on chain.
+- The **constitutional committee** reviews whether each governance action is constitutional.
+- **Guardrails script**: an on-chain validation script that **automatically rejects** parameter changes outside the ranges the constitution allows (e.g. a parameter may only move between X and Y).
+- Amending the constitution or the guardrails script itself needs a higher threshold in the 65–90% range.
+- **Conclusion**: in between Polkadot and Bitcoin — "**mutable, but with machine-enforced boundaries**".
 
-## 4. 对比
+## 4. Comparison
 
 | | Polkadot | Cardano | Bitcoin |
 |---|---|---|---|
-| 核心条款所在的位置 | runtime（可升级） | 链上宪法 + 护栏脚本 | 节点客户端 |
-| 怎样才能修改 | Root 公投 | 更高门槛的宪法修改 | 硬分叉（节点自愿升级） |
-| 机器强制 | 否 | 部分（参数边界） | 是 |
-| 修改难度 | 高 | 更高 | 极高 |
-| 适应性 | 最好 | 中 | 最差 |
+| Where the core clauses live | Runtime (upgradable) | On-chain constitution + guardrails script | Node client |
+| How to change them | Root referendum | Higher-threshold constitutional amendment | Hard fork (nodes upgrade voluntarily) |
+| Machine enforcement | No | Partial (parameter bounds) | Yes |
+| Difficulty of change | High | Higher | Extremely high |
+| Adaptability | Best | Medium | Worst |
 
 ---
 
-## 5. AgentCoin 的设计：三层防护
+## 5. AgentCoin's design: three layers of protection
 
-把 BTC 的“节点强制”、Cardano 的“护栏”和 Polkadot 的“分轨治理”组合起来，分别用在不同重要程度的规则上。
+Combine Bitcoin's "node enforcement", Cardano's "guardrails" and Polkadot's "track-based governance", each applied to rules of a different level of importance.
 
-### 第 1 层：宪法级不变式，由节点客户端强制（BTC 模式）
+### Layer 1: constitutional invariants enforced by the node client (the Bitcoin model)
 
-适用于 D24 中可以机械检查的条款：
+For the clauses in D24 that can be checked mechanically:
 
-| 不变式 | 节点每个区块检查的内容 |
+| Invariant | What nodes check on every block |
 |---|---|
-| 总量上限 | `total_issuance ≤ 21,000,000 × 10^18` |
-| 排放曲线 / 无预挖 | 本 epoch 铸币量 ≤ 计划额 + 可动用储备（按创世写死的公式计算）；不存在排放通道之外的铸币 |
-| PoA → PoS 切换 | 条件满足后，下一个 era 必须完成切换，否则区块被拒绝 |
+| Supply cap | `total_issuance ≤ 21,000,000 × 10^18` |
+| Emission curve / no premine | This epoch's minting ≤ scheduled amount + drawable reserve (computed by the formula fixed at genesis); no minting outside the emission path |
+| PoA → PoS switch | Once conditions are met, the switch must complete by the next era, or blocks are rejected |
 
-实现要点：
-- 检查逻辑写在**节点客户端（native 代码）**里，**不在 runtime 里**，因此 runtime 升级改不了它。
-- 节点在执行完区块后，读取约定好的存储键（例如总发行量）并校验。如果 runtime 升级后这些存储键不见了或者格式变了，就**默认拒绝**（fail-closed）。
-- 想修改这些条款，只能**硬分叉**：发布新的客户端，由节点运营者自愿升级。
+Implementation notes:
+- The check logic lives in the **node client (native code)**, **not in the runtime**, so runtime upgrades cannot change it.
+- After executing a block, the node reads agreed storage keys (e.g. total issuance) and validates them. If a runtime upgrade removes those keys or changes their format, the node **rejects by default** (fail-closed).
+- Changing these clauses is only possible via a **hard fork**: release a new client and let node operators upgrade voluntarily.
 
-### 第 2 层：宪法 + 护栏（Cardano 模式）
+### Layer 2: constitution + guardrails (the Cardano model)
 
-适用于**无法完全机械化**或**需要一定灵活性**的条款：
+For clauses that **cannot be fully mechanized** or **need some flexibility**:
 
-- **链上宪法文本**（哈希上链），其中包括“协议中立：协议层不得加入内容审查或地域封锁”。
-- **护栏 pallet**：所有参数修改都必须落在宪法规定的范围内。例如：
-  - 金库比例只能在 0–20% 之间；
-  - 销毁比例只能在规定区间内；
-  - 参考汇率单次调整不超过 ±20%。
-- **禁止类检查**：runtime 升级提案在执行前，需要附带公开的代码差异报告；由贡献者院 + 代币院双院审议是否违宪。
-- 修改宪法本身：**两院都要超级多数**（例如各 75%），外加更长的延迟期（例如 90 天）。
+- **On-chain constitution text** (its hash on chain), including "protocol neutrality: no content censorship or geo-blocking at the protocol layer".
+- **Guardrails pallet**: every parameter change must fall within the ranges the constitution specifies, e.g.:
+  - treasury share only between 0–20%;
+  - burn ratio only within the specified interval;
+  - each reference-rate adjustment at most ±20%.
+- **Prohibition checks**: before execution, a runtime-upgrade proposal must include a public code-diff report; both houses (contributor house + token house) review whether it is constitutional.
+- Amending the constitution itself: **supermajorities in both houses** (e.g. 75% each) plus a longer delay (e.g. 90 days).
 
-### 第 3 层：日常治理（Polkadot OpenGov 模式）
+### Layer 3: day-to-day governance (the Polkadot OpenGov model)
 
-- 分轨道公投：Root（runtime 升级）、参数、金库、安全委员会等轨道，各自设定门槛曲线和执行延迟。
-- **意向轨道**（类似 Wish For Change）：只表达意向、不执行代码，用于在重大提案前凝聚共识。
-- **安全委员会快速通道**（类似 Fellowship 白名单）：**只能暂停模块和吊销 TEE 证明**，不能触碰第 1、2 层的条款，并且事后必须经过全民投票追认。
-- runtime 升级通过后，强制等待 28 天才生效，让不同意的人有时间退出。
+- Track-based referenda: Root (runtime upgrades), parameters, treasury, security council and other tracks, each with its own threshold curves and enactment delay.
+- **Signal track** (like Wish For Change): expresses intent only and executes no code, used to build consensus before major proposals.
+- **Security-council fast track** (like the Fellowship whitelist): **can only pause modules and revoke TEE attestations**, never touches layer-1 or layer-2 clauses, and must be ratified by a full vote afterwards.
+- After a runtime upgrade passes, a mandatory 28-day wait before it takes effect gives dissenters time to exit.
 
-### 诚实的说明
+### An honest caveat
 
-绝对的不可变并不存在。BTC 的 2100 万上限，本质上也是由社会共识维护的。我们能做到的是：
-- 第 1 层条款达到 **BTC 同等级别**的修改难度；
-- 第 2 层达到 **Cardano 级别**；
-- 其余规则保持 **Polkadot 式的可演进性**。
+Absolute immutability does not exist. Bitcoin's 21 million cap is ultimately maintained by social consensus too. What we can achieve:
+- layer-1 clauses as hard to change as **Bitcoin's**;
+- layer 2 at **Cardano's** level;
+- everything else keeps **Polkadot-style evolvability**.
 
-## 来源
+## Sources
 
-- Polkadot 硬顶落地：https://www.bitget.com/news/detail/12560605240453 · https://rwatimes.substack.com/p/polkadot-dot-price-prediction-2026-10b · https://www.kucoin.com/news/articles/polkadot-set-to-implement-landmark-2-1-billion-dot-supply-cap-in-march-2026
-- OpenGov：https://wiki.polkadot.com/learn/learn-polkadot-opengov/ · https://wiki.polkadot.com/learn/learn-polkadot-opengov-origins/ · https://wiki.polkadot.com/learn/learn-polkadot-technical-fellowship/ · https://docs.polkadot.com/reference/governance/
-- Cardano：https://cips.cardano.org/cip/CIP-1694 · https://docs.intersectmbo.org/archive/cardano-governance-archive/cardano-constitution/read-the-cardano-constitution · https://www.theblock.co/post/337680/cardano-plans-transition-to-full-decentralized-governance-after-wednesdays-plomin-hard-fork · https://developers.cardano.org/docs/governance/cardano-governance/submitting-governance-actions/
+- Polkadot hard cap: https://www.bitget.com/news/detail/12560605240453 · https://rwatimes.substack.com/p/polkadot-dot-price-prediction-2026-10b · https://www.kucoin.com/news/articles/polkadot-set-to-implement-landmark-2-1-billion-dot-supply-cap-in-march-2026
+- OpenGov: https://wiki.polkadot.com/learn/learn-polkadot-opengov/ · https://wiki.polkadot.com/learn/learn-polkadot-opengov-origins/ · https://wiki.polkadot.com/learn/learn-polkadot-technical-fellowship/ · https://docs.polkadot.com/reference/governance/
+- Cardano: https://cips.cardano.org/cip/CIP-1694 · https://docs.intersectmbo.org/archive/cardano-governance-archive/cardano-constitution/read-the-cardano-constitution · https://www.theblock.co/post/337680/cardano-plans-transition-to-full-decentralized-governance-after-wednesdays-plomin-hard-fork · https://developers.cardano.org/docs/governance/cardano-governance/submitting-governance-actions/

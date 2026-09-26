@@ -67,7 +67,7 @@ def main():
     w = out.append
     w("# Rust 编码规范索引（AgentCoin 本地副本）\n")
     w("> 自动生成，请勿手改：`python3 scripts/gen-rust-guidelines-index.py`。")
-    w("> 上游：<https://rust-coding-guidelines.github.io/rust-coding-guidelines-zh/>，来源与版本见 `SOURCE.md`，许可证 MIT（`LICENSE`）。")
+    w("> 上游：<https://rust-coding-guidelines.github.io/rust-coding-guidelines-zh/>，来源与版本见 `SOURCE.md`（English）/ `SOURCE.zh-CN.md`（中文），许可证 MIT（`LICENSE`）。")
     w("> 编号约定：`P.*` 为原则（Principle），`G.*` 为规则（Guideline），详见 `src/safe-guides/overview/convention.md`。")
     w("> 查找方式：`grep -n '<关键词或编号>' docs/rust-guidelines/rules.tsv`，再打开对应文件。\n")
     w(f"共 {len(rules)} 条（原则 {sum(1 for r in rules if r[0].startswith('P'))}，规则 {sum(1 for r in rules if r[0].startswith('G'))}）。\n")

@@ -1,338 +1,349 @@
-# AgentCoin 全量技术方案 v0.1
+> 🌐 **English** | [简体中文](full-technical-plan.zh-CN.md)
 
-> 状态：初版，待评审。日期：2026-09。
-> 依据：`docs/decisions.md`（D1–D30）。本文描述 MVP 之后（P2–P4）的目标架构，以及它**依赖 MVP 预留的哪些接口**。
-> MVP 细节见 `mvp-technical-plan.md`，本文不重复。
+# AgentCoin Full Technical Plan v0.1
+
+> Status: first draft, under review. Date: 2026-09.
+> Basis: `docs/decisions.md` (D1–D33). This document describes the target architecture after the MVP (P2–P4) and **which interfaces reserved in the MVP it depends on**.
+> MVP details are in `mvp-technical-plan.md` and are not repeated here.
 
 ---
 
-## 0. 全量目标
+## 0. Full-version goals
 
-AgentCoin 最终形态：一个**抗量子、天生隐私、无许可**的 L1，覆盖大模型的**预训练 → 后训练 → 推理**全链路，由全球异构算力（数据中心 GPU、消费级 GPU、CPU、存储）提供，服务体验对标中心化云；EVM 生态、Agent 经济和两院制 DAO 运行在其上。
+AgentCoin's end state: a **post-quantum, privacy-native, permissionless** L1 covering the full large-model pipeline of **pre-training → post-training → inference**, powered by the world's heterogeneous compute (data-center GPUs, consumer GPUs, CPUs, storage), with a service experience on par with centralized clouds; the EVM ecosystem, the agent economy and a bicameral DAO run on top of it.
 
-### 0.1 阶段总览
+### 0.1 Phase overview
 
-| 阶段 | 时间（主网后，粗估） | 主题 | 标志性能力 |
+| Phase | Timing (after mainnet, rough) | Theme | Signature capabilities |
 |---|---|---|---|
-| **P2 服务扩展** | +0–18 个月 | 更快、更私密、能训练 | 500ms 出块 / ≤1s 最终性；TEE 机密推理；RL 后训练；微调；专用存储层；私密投票；密封竞价；两院制治理 |
-| **P3 训练与共识** | +12–36 个月 | 自己训练模型，矿工进入共识 | 去中心化预训练；社区模型分润；工作加权验证者选举；屏蔽池私有兑换；中继 / 混合网络；以太坊 STARK 桥；稳定币可选支付；预言机 |
-| **P4 前沿化** | +36 个月以后 | 追平前沿 | 大规模 MoE 去中心化训练；STARK 签名聚合支撑 1000 个验证者；评估 L2 通用私有合约；评估迁移到 JAM 式执行 |
+| **P2 Service expansion** | +0–18 months | Faster, more private, able to train | 500ms blocks / ≤1s finality; TEE confidential inference; RL post-training; fine-tuning; dedicated storage layer; private voting; sealed bids; bicameral governance |
+| **P3 Training and consensus** | +12–36 months | Train our own models; miners join consensus | Decentralized pre-training; community-model royalties; work-weighted validator election; private swaps in the shielded pool; relays / mixnet; STARK bridge to Ethereum; optional stablecoin payments; oracle |
+| **P4 Frontier** | +36 months and beyond | Catch up with the frontier | Large-scale decentralized MoE training; STARK signature aggregation supporting 1,000 validators; evaluate L2 general private contracts; evaluate migrating to JAM-style execution |
 
 ---
 
-### 0.2 开发语言（D31）
+### 0.2 Development language (D31)
 
-全量版延续 MVP 的 Rust 优先原则：共识、runtime、密码学、电路、编排器（RL / 微调 / 预训练协调器）、存储节点、网关、各类代理都用 Rust。
+The full version keeps the MVP's Rust-first principle: consensus, runtime, cryptography, circuits, orchestrators (RL / fine-tuning / pre-training coordinators), storage nodes, gateways and all agents are Rust.
 
-训练和推理的**计算本身**运行在第三方框架中（PyTorch、vLLM、SGLang，都是 Python 生态）。对它们只做**薄插件**：提取 TOPLOC 激活值、导出和导入伪梯度与检查点、上报可复现算子的中间结果。插件通过本地 socket 或共享内存与 Rust 代理通信，插件内不含任何协议或结算逻辑。
+The **computation itself** for training and inference runs in third-party frameworks (PyTorch, vLLM, SGLang — all Python ecosystem). For these we write only **thin plugins**: extracting TOPLOC activations, exporting and importing pseudo-gradients and checkpoints, and reporting intermediate results of reproducible operators. Plugins talk to the Rust agents over local sockets or shared memory and contain no protocol or settlement logic.
 
-RepOps 式可复现算子优先评估 Rust 实现（例如基于 candle / Burn 的自定义内核），以减少对 Python 框架的依赖。
+For RepOps-style reproducible operators, Rust implementations are evaluated first (e.g. custom kernels on candle / Burn) to reduce dependence on Python frameworks.
 
-## 1. 目标架构
+## 1. Target architecture
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────┐
-│ 应用层：EVM DApp · Agent（会话密钥、HTTP 402、MCP）· 私有功能（投票 / 竞价 / 兑换）  │
+│ Application: EVM DApps · agents (session keys, HTTP 402, MCP) ·               │
+│              private features (voting / bidding / swaps)                       │
 ├───────────────────────────────────────────────────────────────────────────────┤
-│ 服务层                                                                         │
-│  推理市场（T0 机密 / T1 / T2）· RL 编排器 · 微调任务 · 预训练协调器 · 存储市场     │
-│  模型注册（血统 + 分润）· SLA 信誉 · 密封竞价采购 · 预言机                         │
+│ Services                                                                       │
+│  inference market (T0 confidential / T1 / T2) · RL orchestrator · fine-tuning  │
+│  jobs · pre-training coordinator · storage market                              │
+│  model registry (lineage + royalties) · SLA reputation · sealed-bid            │
+│  procurement · oracle                                                          │
 ├───────────────────────────────────────────────────────────────────────────────┤
-│ 验证层（ELVES 式：乐观执行 → 随机隐蔽审计 → 升级复核 → 罚没）                      │
-│  TOPLOC · RepOps 可复现算子 + 裁判式争议 · 冗余执行 · TEE 证明 · 存储挑战          │
+│ Verification (ELVES-style: optimistic execution → random covert audits →       │
+│   escalated re-checks → slashing)                                              │
+│  TOPLOC · RepOps reproducible operators + refereed disputes · redundant        │
+│  execution · TEE attestation · storage challenges                              │
 ├───────────────────────────────────────────────────────────────────────────────┤
-│ 共识层：快慢双路径 BFT（500ms / ≤1s）· 工作加权选举 · 哈希签名 + STARK 聚合        │
-│ 宪法层：节点不变式（第 1 层）· 宪法 + 护栏（第 2 层）· 两院制分轨治理（第 3 层）     │
+│ Consensus: fast/slow dual-path BFT (500ms / ≤1s) · work-weighted election ·    │
+│   hash-based signatures + STARK aggregation                                    │
+│ Constitution: node invariants (layer 1) · constitution + guardrails (layer 2)  │
+│   · bicameral track governance (layer 3)                                       │
 ├───────────────────────────────────────────────────────────────────────────────┤
-│ 密码学层：AlgId 可插拔（ML-DSA / SLH-DSA / FN-DSA / XMSS）· ML-KEM 混合 · STARK    │
+│ Cryptography: pluggable AlgId (ML-DSA / SLH-DSA / FN-DSA / XMSS) ·             │
+│   ML-KEM hybrid · STARK                                                        │
 ├───────────────────────────────────────────────────────────────────────────────┤
-│ 资源层：T0 TEE GPU · T1 数据中心 GPU · T2 消费级 GPU · T3 CPU · T4 存储            │
+│ Resources: T0 TEE GPU · T1 data-center GPU · T2 consumer GPU · T3 CPU ·        │
+│   T4 storage                                                                   │
 └───────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 2. 共识层（P2–P4）
+## 2. Consensus layer (P2–P4)
 
-### 2.1 快慢双路径 BFT（P2）
+### 2.1 Fast/slow dual-path BFT (P2)
 
-- 参考 Alpenglow（Votor）的思路：
-  - **快速路径**：一轮投票达到 ≥80% 权重，直接最终确认（目标 100–300ms）；
-  - **慢速路径**：两轮投票达到 ≥60%，兜底（目标 ≤1s）。
-- 出块：500ms 时隙，确定性轮换 + 质押加权；使用纠删码分片广播区块（类似 Rotor / Turbine），降低 leader 的带宽瓶颈。
-- 由 MVP 的 AC-BFT 演进而来：投票消息格式与最终性证明格式保持向后兼容（带版本号）。
+- Following the Alpenglow (Votor) approach:
+  - **Fast path**: one voting round reaching ≥80% of weight finalizes directly (target 100–300ms);
+  - **Slow path**: two rounds reaching ≥60% as the fallback (target ≤1s).
+- Block production: 500ms slots, deterministic rotation + stake weighting; blocks are broadcast as erasure-coded shreds (similar to Rotor / Turbine) to relieve the leader's bandwidth bottleneck.
+- Evolves from the MVP's AC-BFT: the vote-message and finality-proof formats remain backward compatible (versioned).
 
-### 2.2 共识签名：哈希签名 + STARK 聚合（P2 研发，P3 上线）
+### 2.2 Consensus signatures: hash-based signatures + STARK aggregation (R&D in P2, live in P3)
 
-- 验证者签名从 ML-DSA-65 迁移到 `SigAlg::XmssLean`（有状态哈希签名，参考以太坊 leanSig），通过 `rotate_session_key` 交易完成，**使用 MVP 的 AlgId 机制，零硬分叉**。
-- 聚合者把一轮的 n 个签名折叠成一个 STARK 证明（参考 leanMultisig / EIP-8288 的思路）。最终性证明从 O(n × 2.4KB) 降到 O(一个证明)，这是验证者规模从 100 扩展到 300、再到 1000 的前提。
-- 有状态签名的风险（重复使用一次性密钥）：由节点本地的状态持久化 + 启动时自检来防护；**签名状态文件损坏时拒绝签名**（宁可离线，不可双用）。
+- Validator signatures migrate from ML-DSA-65 to `SigAlg::XmssLean` (stateful hash-based signatures, modelled on Ethereum's leanSig) via the `rotate_session_key` transaction — **using the MVP's AlgId mechanism, with zero hard forks**.
+- An aggregator folds a round's n signatures into one STARK proof (following leanMultisig / EIP-8288). The finality proof shrinks from O(n × 2.4 KB) to O(one proof), the prerequisite for scaling validators from 100 to 300 and then 1,000.
+- Stateful-signature risk (reusing a one-time key): guarded by local state persistence on the node plus a self-check at startup; **if the signing-state file is corrupted, the node refuses to sign** (better offline than a double use).
 
-### 2.3 工作加权验证者选举（P3，D25 的前置条件）
+### 2.3 Work-weighted validator election (P3, prerequisite for D25)
 
 ```
-weight(v) = stake(v)^α × (1 + workscore(v))^β        // 初始 α = β = 0.5
-workscore(v) = Σ_{近 30 天} 已验证工作的 USD 价值（经过审计），单个节点上限为全网的 5%
-约束：stake(v) ≥ MinValidatorStake（保证罚没有效）
+weight(v) = stake(v)^α × (1 + workscore(v))^β        // initially α = β = 0.5
+workscore(v) = Σ_{last 30 days} USD value of verified (audited) work, capped at 5% of the network total per node
+constraint: stake(v) ≥ MinValidatorStake (so slashing stays meaningful)
 ```
 
-- 替换 MVP 中 `ValidatorElection` trait 的实现，输入 `(stake, workscore)` 在 MVP 阶段就已预留。
-- 工作分必须**滞后**（使用已经过了挑战期的数据），并且**只统计经过审计的工作**，防止突击刷分。
+- Replaces the implementation of the MVP's `ValidatorElection` trait, whose `(stake, workscore)` input is already reserved in the MVP.
+- Work scores must be **lagged** (only data past its challenge period) and **count audited work only**, to prevent burst gaming.
 
-### 2.4 链上随机数升级
+### 2.4 On-chain randomness upgrade
 
-- 承诺-揭示 + **基于哈希的 VDF**（顺序哈希链，用 STARK 证明计算正确性，抗量子），消除“最后揭示者”的 1 比特偏置。
+- Commit–reveal + a **hash-based VDF** (a sequential hash chain whose correct computation is proven by a STARK, post-quantum), removing the "last revealer" 1-bit bias.
 
 ---
 
-## 3. AI 服务层
+## 3. AI service layer
 
-### 3.1 T0 机密推理（P2）
+### 3.1 T0 confidential inference (P2)
 
-| 项 | 设计 |
+| Item | Design |
 |---|---|
-| 硬件 | H100 / H200 / B200 / GB200 的机密计算模式 + CPU TEE（TDX / SEV-SNP） |
-| 证明验证 | 审计员在链下验证 NVIDIA 和 CPU 厂商的证明报告 → 提交签名的结论上链（MVP 已预留 `Provider.attestation`）；P3 演进为 STARK 证明“我正确验证了该报告” |
-| 链上状态 | `TrustedMeasurements`（允许的固件、驱动、镜像哈希白名单）、`RevokedKeys`（吊销列表）；**安全委员会快速通道**只能在这两张表中做吊销操作 |
-| 质押 | 高门槛（例如 $10k 等值）；可证明的违规（例如同一证明密钥在两个不同节点上出现）罚没 100% |
-| 用户侧 | 客户端 SDK 本地验证证明链 → 用 ML-KEM 混合加密直接加密到 TEE 内生成的公钥 → **网关也看不到 prompt 明文** |
-| 风险定位 | TEE 只是“提高攻击成本的一层”（研究 02 §4）；身份隐私仍由匿名凭证保证 |
+| Hardware | Confidential-computing mode on H100 / H200 / B200 / GB200 + CPU TEE (TDX / SEV-SNP) |
+| Attestation verification | Auditors verify NVIDIA and CPU-vendor attestation reports off-chain → submit a signed verdict on chain (the MVP reserves `Provider.attestation`); in P3 this evolves into a STARK proving "I verified this report correctly" |
+| On-chain state | `TrustedMeasurements` (allow-list of firmware, driver and image hashes), `RevokedKeys` (revocation list); the **security council fast track** may only revoke entries in these two tables |
+| Stake | High bar (e.g. $10k equivalent); provable misconduct (e.g. the same attestation key appearing on two different nodes) is slashed 100% |
+| User side | The client SDK verifies the attestation chain locally → encrypts with ML-KEM hybrid directly to a public key generated inside the TEE → **even the gateway cannot see the prompt in plaintext** |
+| Risk positioning | TEE is only "a layer that raises the cost of attack" (research 02 §4); identity privacy is still guaranteed by anonymous vouchers |
 
-### 3.2 SLA 与信誉（P2）
+### 3.2 SLA and reputation (P2)
 
-- 审计员的神秘顾客测量结果累积为 `SlaMetrics`（首 token 延迟 P50/P95、吞吐、错误率、审计通过率、在线率），按指数衰减加权。
-- 网关路由分数 = `f(价格, SLA, 信誉, 血统标识)`，公式开源，网关可以自行调整，SDK 默认采用标准公式。
+- Auditors' mystery-shopper measurements accumulate into `SlaMetrics` (TTFT P50/P95, throughput, error rate, audit pass rate, uptime) with exponential-decay weighting.
+- Gateway routing score = `f(price, SLA, reputation, lineage badge)`; the formula is open source, gateways may tune it, and the SDK uses the standard formula by default.
 
-### 3.3 密封竞价的算力采购（P2，L1 私有功能）
+### 3.3 Sealed-bid compute procurement (P2, L1 private feature)
 
-- 场景：大额训练任务、长期推理容量、公共任务的批量采购。
-- 流程：
-  1. 买方发布需求（规格、时长、预算上限）；
-  2. 提供者在屏蔽池中提交**加密出价**（承诺 + STARK 证明“出价有效、质押充足”）；
-  3. 揭示期内按规则揭示（第二价格或第一价格，由买方选择）；
-  4. 未揭示的出价罚没保证金。
-- 效果：提供者无法看到彼此的报价，也就无法串通。
+- Use cases: large training jobs, long-term inference capacity, bulk procurement for public jobs.
+- Flow:
+  1. The buyer publishes a request (spec, duration, budget cap);
+  2. Providers submit **encrypted bids** in the shielded pool (commitment + STARK proof that "the bid is valid and stake is sufficient");
+  3. Bids are revealed during the reveal window per the rules (second-price or first-price, chosen by the buyer);
+  4. Unrevealed bids forfeit their deposit.
+- Effect: providers cannot see each other's quotes and therefore cannot collude.
 
-### 3.4 Agent 经济（P2）
+### 3.4 Agent economy (P2)
 
-- **会话密钥**（PQ 账户抽象）：
+- **Session keys** (PQ account abstraction):
   ```
   SessionGrant { parent: AccountId, session_pk: PqPublicKey,
                  spend_limit_usd, expiry, allowed: {models, contracts, gateways}, nonce }
   ```
-  主密钥签名授权后，Agent 使用子密钥进行支付，可以随时撤销。
-- **HTTP 402 式支付**：网关对无凭证的请求返回 `402 Payment Required`，附带报价和可接受的凭证类型；Agent SDK 自动附上凭证后重试。与业内的 x402 类机器支付标准保持交互兼容。
-- **MCP 服务器**：把“付费推理”“查询余额”“铸造凭证”暴露为 MCP 工具，Agent 框架可以直接调用。
-- 可选的链上 Agent 身份（公钥 + 元数据），协议不做任何 KYC（D6）。
+  Once authorized by the master key, the agent pays with the sub-key, which can be revoked at any time.
+- **HTTP 402-style payments**: the gateway answers requests without a voucher with `402 Payment Required`, a quote and the accepted voucher types; the agent SDK attaches a voucher and retries automatically. Interoperable with x402-style machine-payment standards used in the industry.
+- **MCP server**: exposes "paid inference", "check balance" and "mint vouchers" as MCP tools that agent frameworks can call directly.
+- Optional on-chain agent identity (public key + metadata); the protocol performs no KYC (D6).
 
 ---
 
-## 4. 训练
+## 4. Training
 
-### 4.1 RL 后训练（P2，最先落地的训练能力）
+### 4.1 RL post-training (P2, the first training capability to ship)
 
-参照 PRIME-RL / INTELLECT-2 的异步架构：
+Following the asynchronous architecture of PRIME-RL / INTELLECT-2:
 
 ```
-┌──────────────┐  策略权重（存储层广播）   ┌───────────────────────┐
-│ 训练节点 T1    │ ───────────────────────► │ Rollout 工作者 T2 × N   │
-│ （策略更新）    │ ◄─────────────────────── │ （生成样本 + TOPLOC）    │
-└──────┬───────┘   rollout + 奖励 + 证明   └───────────────────────┘
-       │ 检查点（存储层）
+┌──────────────┐  policy weights (storage-layer broadcast)  ┌───────────────────────┐
+│ Trainer T1    │ ─────────────────────────────────────────► │ Rollout workers T2 × N │
+│ (policy update)│ ◄───────────────────────────────────────── │ (samples + TOPLOC)     │
+└──────┬───────┘      rollouts + rewards + proofs            └───────────────────────┘
+       │ checkpoints (storage layer)
        ▼
-  RL 编排器（链上任务 + 链下协调）：派发任务、验证 rollout、结算
+  RL orchestrator (on-chain jobs + off-chain coordination): dispatch, verify rollouts, settle
 ```
 
-- **链上对象**：
+- **On-chain object**:
   ```
   RlJob { id, base_model, reward_spec_hash, env_hash, budget, policy_version,
           rollout_price, trainer_set, checkpoint_refs }
   ```
-- **验证**：
-  - rollout 用 TOPLOC 验证“由指定版本的策略生成”；
-  - 奖励计算（可复现的环境、判分器）做冗余执行和抽查；
-  - 训练节点的更新步用 RepOps 式可复现算子 + 裁判式争议（见 §4.3）。
-- **付费方**：用户（例如企业定制模型）或 DAO（公共工作排放，D16）。
+- **Verification**:
+  - TOPLOC verifies that rollouts were "generated by the specified policy version";
+  - reward computation (reproducible environments, graders) uses redundant execution and spot checks;
+  - trainer update steps use RepOps-style reproducible operators + refereed disputes (see §4.3).
+- **Payers**: users (e.g. enterprise custom models) or the DAO (public-work emission, D16).
 
-### 4.2 微调任务（P2）
+### 4.2 Fine-tuning jobs (P2)
 
-- 支持 LoRA 和 SFT 任务：`FinetuneJob { base_model, dataset_ref, method, hyperparams_hash, budget }`。
-- 验证：训练过程可复现性抽查 + 在留出集上评测（冗余评测）。
-- 产出的模型自动注册，并标注血统（D28）。
+- LoRA and SFT jobs: `FinetuneJob { base_model, dataset_ref, method, hyperparams_hash, budget }`.
+- Verification: reproducibility spot checks of the training process + evaluation on a held-out set (redundant evaluation).
+- The resulting model is registered automatically with its lineage (D28).
 
-### 4.3 去中心化预训练（P3–P4）
+### 4.3 Decentralized pre-training (P3–P4)
 
-| 项 | 设计 |
+| Item | Design |
 |---|---|
-| 算法 | DiLoCo / SparseLoCo 类低通信训练：本地多步 + 外层同步，伪梯度采用 4–8 位量化和稀疏化（通信量比朴素数据并行少 100–2000 倍） |
-| 拓扑 | 数据并行为主；P4 引入流水线 / 专家并行，服务于 MoE 模型 |
-| 参与者 | T1（主力）；T2 在模型规模允许时参与，或者承担数据预处理和评测 |
-| 验证 | ① **RepOps 式可复现算子**：在异构硬件上保证逐位一致的结果，使训练步可以复算；② **裁判式委托**：验证者对可疑的更新发起二分争议，把争议缩小到单个算子，由链上或审计员裁决；③ 伪梯度质量抽查（在验证集上测量损失下降） |
-| 协调 | 链上 `PretrainRun { spec_hash, data_recipe_hash, schedule, participants, checkpoints }`；训练提案由 DAO 发起（贡献者院 + 代币院审议），资金来自公共工作排放 + 社区众筹 |
-| 数据 | 数据配方公开（D26 / 研究 05 C4）；数据集存放在专用存储层，并登记哈希 |
+| Algorithm | DiLoCo / SparseLoCo-style low-communication training: many local steps + outer synchronization, pseudo-gradients quantized to 4–8 bits and sparsified (100–2000× less communication than naive data parallelism) |
+| Topology | Mainly data parallel; P4 adds pipeline / expert parallelism for MoE models |
+| Participants | T1 (main force); T2 when model size allows, or for data preprocessing and evaluation |
+| Verification | ① **RepOps-style reproducible operators**: bitwise-identical results on heterogeneous hardware so training steps can be recomputed; ② **refereed delegation**: verifiers open a bisection dispute on a suspicious update, narrowing it to a single operator that the chain or auditors adjudicate; ③ pseudo-gradient quality spot checks (loss decrease measured on a validation set) |
+| Coordination | On-chain `PretrainRun { spec_hash, data_recipe_hash, schedule, participants, checkpoints }`; training proposals are initiated by the DAO (reviewed by the contributor house + token house) and funded by public-work emission + community crowdfunding |
+| Data | Public data recipes (D26 / research 05 C4); datasets stored in the dedicated storage layer with registered hashes |
 
-### 4.4 社区模型的分润（D22、D28）
+### 4.4 Community-model royalties (D22, D28)
 
-- 模型注册时设置 `RoyaltySpec { rate: 5%, beneficiaries: ContributionLedger }`。`ContributionLedger` 根据训练期间经过审计的工作量自动生成，是一棵 Merkle 树，按贡献比例分配。
-- 在本网络推理该模型时，结算模块自动从提供者收入中划出 5% 给贡献者。
-- **血统激励**：衍生模型声明 `lineage` 后，获得“已验证血统”标识和路由加权，并自动向上游模型分润（比例递减，例如父模型 5%、祖父模型 2.5%）；未声明血统的衍生模型没有这些优待。密码学上无法强制，完全依靠激励。
+- A model is registered with `RoyaltySpec { rate: 5%, beneficiaries: ContributionLedger }`. The `ContributionLedger` is generated automatically from the audited work performed during training — a Merkle tree distributing by contribution share.
+- When the model is used for inference on this network, settlement automatically diverts 5% of provider revenue to the contributors.
+- **Lineage incentives**: a derived model that declares its `lineage` gets a "verified lineage" badge and routing weight, and automatically pays royalties upstream (decreasing shares, e.g. 5% to the parent and 2.5% to the grandparent); undeclared derivatives get none of these benefits. Cryptographically unenforceable — it relies entirely on incentives.
 
 ---
 
-## 5. 专用存储层（P2，D26）
+## 5. Dedicated storage layer (P2, D26)
 
-| 项 | 设计 |
+| Item | Design |
 |---|---|
-| 范围 | 只存模型权重、检查点、数据集、证明数据；**不做通用存储** |
-| 编码 | 纠删码（例如 Reed-Solomon，k/n = 1/3），分片分散到不同节点 |
-| 证明 | 随机挑战的可检索性证明（PoR）：每个 epoch 用链上随机数挑战若干分片的随机位置，节点返回数据 + Merkle 路径；外加抽样下载测试（测量带宽）。全部基于哈希，抗量子 |
-| 分发 | 权重广播采用类似 BitTorrent 的 P2P 分发（SHARDCAST 式），服务于 RL 策略的版本更新 |
-| 激励 | 存储费（由付费方支付）+ 市场工作排放（按“已证明存储 × 时长 × 被读取量”计算）；丢失数据罚没质押 |
-| 链上对象 | `StorageDeal { content_root, size, redundancy, duration, price, providers[] }` |
+| Scope | Only model weights, checkpoints, datasets and proof data; **no general-purpose storage** |
+| Encoding | Erasure coding (e.g. Reed-Solomon, k/n = 1/3), shards spread across different nodes |
+| Proofs | Randomly challenged proofs of retrievability (PoR): each epoch, on-chain randomness challenges random positions in several shards and nodes return data + Merkle paths; plus sampled download tests (measuring bandwidth). All hash-based and post-quantum |
+| Distribution | Weight broadcast via BitTorrent-like P2P distribution (SHARDCAST-style), serving RL policy version updates |
+| Incentives | Storage fees (paid by the payer) + market-work emission (computed from "proven storage × duration × reads"); lost data is slashed |
+| On-chain object | `StorageDeal { content_root, size, redundancy, duration, price, providers[] }` |
 
 ---
 
-## 6. 隐私（全量）
+## 6. Privacy (full version)
 
-### 6.1 L1 私有功能（D27），全部基于同一个屏蔽池
+### 6.1 L1 private features (D27), all on the same shielded pool
 
-MVP 已预留 `ShieldedAction` 枚举，全量版逐个启用：
+The MVP reserves the `ShieldedAction` enum; the full version enables the variants one by one:
 
-| 功能 | 阶段 | 电路要点 |
+| Feature | Phase | Circuit essentials |
 |---|---|---|
 | `Transfer` / `MintVoucher` | MVP | — |
-| **`Vote`（私密投票）** | P2 | 证明“我拥有 x 票的投票权（代币余额或锁定时长加权，或者工作分），并且只投一次”，**不暴露投票人和票向**；计票结束后公开总数。**这是两院制上线的前提**（防贿选） |
-| **`Bid`（密封竞价）** | P2 | 见 §3.3 |
-| **`Swap`（屏蔽池内私有兑换）** | P3 | 与屏蔽池内的批量拍卖 AMM 撮合（批量清算，统一价格），**使隐私不再在 DEX 处断裂**，同时消除抢跑 |
+| **`Vote` (private voting)** | P2 | Proves "I hold x votes of voting power (token balance or lock-duration weighted, or work score) and vote only once" **without revealing the voter or the choice**; totals are published after tallying. **A prerequisite for the bicameral system** (prevents vote buying) |
+| **`Bid` (sealed bids)** | P2 | See §3.3 |
+| **`Swap` (private swaps in the shielded pool)** | P3 | Matched against a batch-auction AMM inside the shielded pool (batch clearing at a uniform price), **so privacy no longer breaks at the DEX**, and front-running disappears |
 
-- **审计要求**：每个新电路都要单独经过外部审计才能启用；链上不变式“屏蔽池总额 ≤ 累计入金 − 累计出金”永久生效。
+- **Audit requirement**: every new circuit is externally audited separately before it is enabled; the on-chain invariant "shielded pool total ≤ cumulative deposits − cumulative withdrawals" is permanent.
 
-### 6.2 L2 通用私有合约（只预留，约 2028 年后评估）
+### 6.2 L2 general private contracts (reserved only; evaluate around 2028)
 
-- MVP 已预留 `stark_verify` 预编译，以及“私有执行 → 证明 → 公开合约验证”的调用约定。
-- 评估前提：出现成熟的 **PQ 安全**证明后端 + 开发语言和工具链（现有的 Aztec / Noir 后端基于 BN254，不满足要求）。
+- The MVP reserves the `stark_verify` precompile and the calling convention "private execution → proof → verification by a public contract".
+- Preconditions for evaluation: a mature **PQ-secure** proof backend plus language and tooling (the current Aztec / Noir backend is BN254-based and does not qualify).
 
-### 6.3 网络层隐私（P3）
+### 6.3 Network-layer privacy (P3)
 
-| 流量 | 方案 |
+| Traffic | Approach |
 |---|---|
-| 推理请求 | 可选的 1–2 跳中继，采用 Oblivious HTTP 式分工：中继知道用户是谁但看不到内容，网关看到内容但不知道用户是谁；增加延迟 ≤50ms |
-| 链上交易、凭证铸造 | 可选的混合网络（PQ Sphinx 类分组格式，例如 KEM 混合的 Sphinx 变体），延迟容忍度高 |
-| 节点 P2P | ML-KEM 混合加密（MVP 已完成） |
+| Inference requests | Optional 1–2 hop relays with an Oblivious-HTTP-style split: the relay knows who the user is but cannot see content; the gateway sees content but not who the user is; ≤50ms added latency |
+| On-chain transactions, voucher minting | Optional mixnet (PQ Sphinx-style packet format, e.g. a KEM-hybrid Sphinx variant), latency tolerant |
+| Node P2P | ML-KEM hybrid encryption (done in the MVP) |
 
-### 6.4 选择性披露
+### 6.4 Selective disclosure
 
-- 查看密钥分级：`full_view`（所有收支）、`incoming_view`（只看收入）、`payment_proof`（证明某一笔付款）。由用户自愿提供给审计方或交易所，协议不强制。
+- Tiered view keys: `full_view` (all income and spending), `incoming_view` (income only), `payment_proof` (proves one specific payment). Users provide them voluntarily to auditors or exchanges; the protocol never compels it.
 
 ---
 
-## 7. 治理与宪法（全量，D25、D30）
+## 7. Governance and constitution (full version, D25, D30)
 
-### 7.1 两院制（P2 起，私密投票上线后启用）
+### 7.1 Bicameral system (from P2, enabled once private voting is live)
 
-| | 代币院 | 贡献者院 |
+| | Token house | Contributor house |
 |---|---|---|
-| 投票权 | ATC 余额 × 锁定时长加权（conviction） | 近 180 天经过审计的工作分（开平方后计票，削弱大矿场） |
-| 投票方式 | 私密投票（`ShieldedAction::Vote`） | 私密投票 |
-| 反女巫 | 天然（代币有成本） | 工作分需要真实付费且经过审计的工作；可选的质押门槛 |
+| Voting power | ATC balance × lock-duration weighting (conviction) | Audited work score over the last 180 days (square-rooted to dampen large mining farms) |
+| Voting method | Private voting (`ShieldedAction::Vote`) | Private voting |
+| Sybil resistance | Inherent (tokens cost money) | Work scores require real paid, audited work; optional stake threshold |
 
-**轨道设计**
+**Tracks**
 
-| 轨道 | 能力 | 通过条件 | 执行延迟 |
+| Track | Power | Passing condition | Enactment delay |
 |---|---|---|---|
-| 意向（Signal） | 不执行代码，只表达意向 | 代币院简单多数 | — |
-| 参数 | 在护栏范围内调整参数 | 代币院通过 + 贡献者院不否决 | 7 天 |
-| 金库（持币人） | 大额支出 | 代币院通过；超过阈值需要两院通过 | 7 天 |
-| 社区赠款 | 小额赠款 | 独立赠款委员会（由两院选举）审批 | — |
-| Runtime 升级 | 替换 runtime | **两院都通过** + 附带公开的代码差异报告 | **28 天** |
-| 宪法修改（第 2 层） | 修改宪法文本或护栏 | 两院各 ≥75% + 最低投票率 | **90 天** |
-| 安全委员会 | **只能暂停模块、吊销 TEE 证明** | 7 选 5 多签（由两院选举） | 立即生效；14 天内必须经全民投票追认，否则自动失效 |
-| 第 1 层不变式 | **无轨道**，只能硬分叉 | — | — |
+| Signal | Executes no code, only expresses intent | Simple majority in the token house | — |
+| Parameters | Adjust parameters within guardrails | Token house passes + contributor house does not veto | 7 days |
+| Treasury (holders) | Large spending | Token house passes; above a threshold both houses must pass | 7 days |
+| Community grants | Small grants | Approved by an independent grants committee (elected by both houses) | — |
+| Runtime upgrade | Replace the runtime | **Both houses pass** + a public code-diff report | **28 days** |
+| Constitutional amendment (layer 2) | Change the constitution text or guardrails | ≥75% in each house + minimum turnout | **90 days** |
+| Security council | **Can only pause modules and revoke TEE attestations** | 5-of-7 multisig (elected by both houses) | Immediate; must be ratified by a full vote within 14 days or it lapses automatically |
+| Layer-1 invariants | **No track** — hard fork only | — | — |
 
-### 7.2 宪法三层（D30）
+### 7.2 Three constitutional layers (D30)
 
-- **第 1 层（节点强制）**：总量、排放曲线 / 无预挖、PoA → PoS 切换，MVP 已实现，全量版保持不变。
-- **第 2 层（宪法 + 护栏）**：协议中立、参数边界；由两院审议；贡献者院的加入使“纯资本俘获”更难。
-- **第 3 层（日常治理）**：见上面的轨道表。
-
----
-
-## 8. 互操作与计价
-
-### 8.1 预言机（P3，替换 MVP 中由治理设定的参考汇率）
-
-- 接口：MVP 已预留 `PriceSource` trait。
-- 实现：多个独立报价者（需要质押）提交价格 → 链上取中位数 → 计算 TWAP → 设置偏离熔断（与上一个 TWAP 偏离超过 X% 时暂停并回退到治理价格）。
-- 数据源：链上 DEX（在屏蔽池私有兑换的批量拍卖价格可用之后）+ 外部报价者。
-
-### 8.2 以太坊桥（P3）
-
-- 以太坊 → AgentCoin：在 AgentCoin 上运行以太坊轻客户端（验证同步委员会签名，或使用以太坊状态的 STARK 证明）。
-- AgentCoin → 以太坊：在以太坊上部署验证 AgentCoin 最终性证明的合约。验证 PQ 签名的聚合 STARK 在以太坊上的成本较高，因此**只在 STARK 聚合（§2.2）上线后开放**。
-- 桥上资产统一标记为 `NonPqAsset`；钱包界面提示“该资产的安全性取决于以太坊，目前不抗量子”。
-
-### 8.3 稳定币可选支付（P3，D23）
-
-- 桥接过来的稳定币可以用来铸造推理凭证；结算时由协议通过屏蔽池私有兑换转换为 ATC，**提供者始终收到 ATC**，排放和销毁逻辑不变。
-- 明确风险：稳定币发行方可以在以太坊上冻结地址；AgentCoin 链上无法冻结，但桥可能受影响。
+- **Layer 1 (node-enforced)**: supply cap, emission curve / no premine, PoA → PoS switch — implemented in the MVP and unchanged in the full version.
+- **Layer 2 (constitution + guardrails)**: protocol neutrality, parameter bounds; reviewed by both houses; the contributor house makes "pure capital capture" harder.
+- **Layer 3 (day-to-day governance)**: see the track table above.
 
 ---
 
-## 9. JAM 路线（P4 评估）
+## 8. Interoperability and pricing
 
-| MVP 起已遵循的约定 | 意义 |
+### 8.1 Oracle (P3, replaces the MVP's governance-set reference rate)
+
+- Interface: the MVP reserves the `PriceSource` trait.
+- Implementation: multiple independent (staked) reporters submit prices → on-chain median → TWAP → deviation circuit breaker (if the deviation from the previous TWAP exceeds X%, pause and fall back to the governance price).
+- Sources: on-chain DEX (once batch-auction prices from private swaps in the shielded pool are available) + external reporters.
+
+### 8.2 Ethereum bridge (P3)
+
+- Ethereum → AgentCoin: run an Ethereum light client on AgentCoin (verifying sync-committee signatures, or STARK proofs of Ethereum state).
+- AgentCoin → Ethereum: deploy a contract on Ethereum that verifies AgentCoin finality proofs. Verifying an aggregated STARK over PQ signatures on Ethereum is costly, so this direction **opens only after STARK aggregation (§2.2) is live**.
+- Bridged assets are uniformly tagged `NonPqAsset`; wallets warn that "this asset's security depends on Ethereum and is not currently post-quantum".
+
+### 8.3 Optional stablecoin payments (P3, D23)
+
+- Bridged stablecoins can mint inference vouchers; at settlement the protocol converts them to ATC through private swaps in the shielded pool, so **providers always receive ATC** and the emission and burning logic stays unchanged.
+- Stated risk: stablecoin issuers can freeze addresses on Ethereum; nothing can be frozen on AgentCoin itself, but the bridge may be affected.
+
+---
+
+## 9. JAM path (evaluated in P4)
+
+| Convention followed since the MVP | Why it matters |
 |---|---|
-| 所有 AI 工作都是“链下 refine → 工作报告 → 链上 accumulate” | 与 JAM 的 work package / work report 模型同构 |
-| 审计采用 ELVES 式（随机、隐蔽、升级） | 与 JAM 的安全模型一致 |
-| 执行逻辑与状态转换分离（pallet 中的 accumulate 函数是纯函数式的） | 便于移植到 PVM 服务 |
+| All AI work is "off-chain refine → work report → on-chain accumulate" | Isomorphic to JAM's work package / work report model |
+| Audits are ELVES-style (random, covert, escalating) | Consistent with JAM's security model |
+| Execution logic separated from state transition (accumulate functions in pallets are pure) | Eases porting to PVM services |
 
-**评估条件**：JAM 进入生产环境（Polkadot 计划 2027 年）且运行稳定 ≥1 年；JAM 解决 PQ 问题（SAFROLE 依赖 Bandersnatch Ring-VRF）；迁移不违反宪法第 1 层。
-**选项**：(a) 继续作为独立 L1；(b) 把 AgentCoin 链改造成 JAM 协议的独立实例（自有验证者）；(c) 作为 Polkadot JAM 上的服务（会失去主权和 PQ 自主，原则上不考虑）。
+**Evaluation conditions**: JAM is in production (Polkadot plans 2027) and stable for ≥1 year; JAM solves its PQ issue (SAFROLE depends on Bandersnatch Ring-VRF); migration does not violate constitution layer 1.
+**Options**: (a) remain a standalone L1; (b) turn the AgentCoin chain into an independent instance of the JAM protocol (own validators); (c) become a service on Polkadot JAM (loses sovereignty and PQ autonomy; ruled out in principle).
 
 ---
 
-## 10. 全量代币经济补充
+## 10. Full-version token economics additions
 
-| 项 | 全量版的变化 |
+| Item | Full-version change |
 |---|---|
-| 市场工作排放（50%） | 细分为推理 / 训练 / 存储 / 审计四类子池，比例由治理在护栏范围内调整 |
-| 公共工作排放（20%） | 主要资助 DAO 训练提案（预训练、RL），其次是评测和数据集 |
-| 验证者排放（10%） | 按工作加权选举后的权重分配 |
-| 训练者分润 | 5%，来自推理费，不来自排放 |
-| 存储费 | 由付费方直接支付；丢失数据罚没 |
+| Market-work emission (50%) | Split into four sub-pools — inference / training / storage / audits — with ratios set by governance within guardrails |
+| Public-work emission (20%) | Mainly funds DAO training proposals (pre-training, RL), then evaluations and datasets |
+| Validator emission (10%) | Distributed by weight after work-weighted election |
+| Trainer royalties | 5%, from inference fees, not from emission |
+| Storage fees | Paid directly by the payer; lost data is slashed |
 
 ---
 
-## 11. MVP 预留接口清单（全量版依赖项）
+## 11. Interfaces the MVP must reserve (full-version dependencies)
 
-| 接口 / 结构 | 所在的 MVP 模块 | 全量版的用途 |
+| Interface / structure | MVP module | Full-version use |
 |---|---|---|
-| `SigAlg::{SlhDsa, FnDsa512, XmssLean}` | `ac-crypto` | 后备签名；共识签名聚合 |
-| `rotate_key` / `rotate_session_key` | `pallet-pq-accounts` / `validator-set` | 算法迁移零硬分叉 |
-| `stark_verify` 预编译（地址已保留） | `pallet-revive` 集成 | L2 私有合约；桥 |
-| `ValidatorElection(stake, workscore)` | `pallet-validator-set` | 工作加权选举 |
-| `Credit` trait | `pallet-credits` | 稳定币凭证、会话密钥凭证 |
-| `ShieldedAction::{Vote, Bid, Swap}` | `pallet-shielded` | L1 私有功能 |
-| `Provider.attestation`、`Tier::T0` | `pallet-providers` | TEE 机密推理 |
-| `Model.lineage`、`Model.royalty` | `pallet-model-registry` | 分润与血统激励 |
-| `PriceSource` trait | `pallet-ref-rate` | 预言机 |
-| `JobKind` 枚举（`Eval`、`DataClean`、`Embed`，预留 `Rl`、`Finetune`、`Pretrain`、`Storage`） | `pallet-public-jobs` / `pallet-work` | 训练和存储任务 |
-| 最终性证明版本号 | `ac-bft` | 共识升级兼容 |
-| 治理轨道表可扩展、`Origin` 可组合 | `pallet-referenda` 配置 | 两院制 |
+| `SigAlg::{SlhDsa, FnDsa512, XmssLean}` | `ac-crypto` | Fallback signatures; consensus signature aggregation |
+| `rotate_key` / `rotate_session_key` | `pallet-pq-accounts` / `validator-set` | Algorithm migration with zero hard forks |
+| `stark_verify` precompile (address reserved) | `pallet-revive` integration | L2 private contracts; bridges |
+| `ValidatorElection(stake, workscore)` | `pallet-validator-set` | Work-weighted election |
+| `Credit` trait | `pallet-credits` | Stablecoin vouchers, session-key vouchers |
+| `ShieldedAction::{Vote, Bid, Swap}` | `pallet-shielded` | L1 private features |
+| `Provider.attestation`, `Tier::T0` | `pallet-providers` | TEE confidential inference |
+| `Model.lineage`, `Model.royalty` | `pallet-model-registry` | Royalties and lineage incentives |
+| `PriceSource` trait | `pallet-ref-rate` | Oracle |
+| `JobKind` enum (`Eval`, `DataClean`, `Embed`; reserved `Rl`, `Finetune`, `Pretrain`, `Storage`) | `pallet-public-jobs` / `pallet-work` | Training and storage jobs |
+| Finality-proof version number | `ac-bft` | Consensus-upgrade compatibility |
+| Extensible governance track table, composable `Origin` | `pallet-referenda` configuration | Bicameral system |
 
 ---
 
-## 12. 全量阶段的里程碑（粗粒度）
+## 12. Full-version milestones (coarse)
 
-| 阶段 | 里程碑 | 验收标准 |
+| Phase | Milestone | Acceptance criteria |
 |---|---|---|
-| P2 | 快慢双路径 BFT | 500ms 出块；最终性 P95 ≤1s（100 个验证者，跨洲部署） |
-| P2 | T0 机密推理 | SDK 端到端验证证明；网关无法获得明文；吊销在 1 个 epoch 内生效 |
-| P2 | RL 后训练 | 在网络上用 ≥100 个 T2 节点完成一次 7B–32B 模型的 RL 训练，并且效果可以复现 |
-| P2 | 存储层 | 百 GB 级权重 3 倍冗余存储；随机挑战通过率 ≥99.9% |
-| P2 | 私密投票 + 两院制 | 一次真实的 runtime 升级经两院私密投票通过 |
-| P3 | 工作加权选举 | 验证者集合中出现“矿工型”验证者；安全性仿真通过 |
-| P3 | 去中心化预训练 | 完成一次 ≥10B 参数的无许可预训练，全程可复现验证 |
-| P3 | 私有兑换 + 预言机 + 桥 | 稳定币 → 凭证 → 推理全程无隐私断点 |
-| P4 | STARK 聚合 + 1000 个验证者 | 最终性证明大小与验证者数量无关 |
-| P4 | 前沿规模训练 | 社区模型在主流基准上进入开源第一梯队 |
+| P2 | Fast/slow dual-path BFT | 500ms blocks; finality P95 ≤1s (100 validators across continents) |
+| P2 | T0 confidential inference | SDK verifies attestation end to end; gateways cannot obtain plaintext; revocation takes effect within 1 epoch |
+| P2 | RL post-training | An RL run on a 7B–32B model completed on the network with ≥100 T2 nodes, with reproducible results |
+| P2 | Storage layer | Hundreds of GB of weights stored with 3× redundancy; ≥99.9% pass rate on random challenges |
+| P2 | Private voting + bicameral system | A real runtime upgrade passed by private votes in both houses |
+| P3 | Work-weighted election | "Miner-type" validators appear in the validator set; security simulation passes |
+| P3 | Decentralized pre-training | A permissionless pre-training run of ≥10B parameters, verifiably reproducible end to end |
+| P3 | Private swaps + oracle + bridge | Stablecoin → voucher → inference with no privacy break anywhere |
+| P4 | STARK aggregation + 1,000 validators | Finality-proof size independent of the number of validators |
+| P4 | Frontier-scale training | A community model reaches the top tier of open models on mainstream benchmarks |

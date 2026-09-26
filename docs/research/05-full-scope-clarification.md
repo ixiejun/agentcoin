@@ -1,210 +1,212 @@
-# 第五轮：全量版细节澄清
+> 🌐 **English** | [简体中文](05-full-scope-clarification.zh-CN.md)
 
-> 状态：讨论稿（Round 5）。日期：2026-09。
-> 目标：把全量版每个子系统的关键设计选择说清楚，确认后输出两套技术方案（MVP 版 + 全量版）。
-> 每个问题都给出选项和**推荐**；如果你同意推荐，回复“同意”即可。
+# Round 5: Clarifying the Full Version
 
-## 新增已确认决策
+> Status: discussion draft (Round 5). Date: 2026-09.
+> Goal: settle the key design choices for every subsystem of the full version, then produce two technical plans (MVP + full).
+> Each question lists options and a **recommendation**; if you agree with the recommendation, just reply "agree".
 
-| # | 决策 |
+## Newly confirmed decisions
+
+| # | Decision |
 |---|---|
-| D18 | 金库 = 实际排放的 20% + 5% 保底（保底线性锁定 2 年，只能用于审计和冷启动）；拆成“社区赠款”和“持币人金库”两个账户；创始人通过公开的赠款申请获得资金 |
-| D19 | 创世阶段 PoA 验证者**不领取安全预算**（这部分滚存）；质押量 ≥ 流通量的 10% 且验证者人数 ≥ N 时，**链上代码自动切换到 PoS**，任何人都不能推迟 |
-| D20 | MVP 采用折中方案：统一的 `Credit` 接口；α 版就落实非 ZK 隐私措施；测试网只用透明额度；**主网上线必须等匿名凭证通过外部审计** |
-| D21 | 输出两套技术方案：MVP 版和全量版 |
+| D18 | Treasury = 20% of actual emission + a 5% floor (the floor vests linearly over 2 years and may only fund audits and cold start); split into "community grants" and "holder treasury" accounts; the founder is funded through public grant applications |
+| D19 | During genesis, PoA validators **receive no security budget** (it rolls over); once stake ≥ 10% of circulating supply and validators ≥ N, **on-chain code switches to PoS automatically**, and nobody can delay it |
+| D20 | The MVP takes the compromise: a unified `Credit` interface; α implements non-ZK privacy measures; the testnet uses only transparent credits; **mainnet launch waits until anonymous vouchers pass an external audit** |
+| D21 | Produce two technical plans: MVP and full version |
 
 ---
 
-## A. 共识层（全量）
+## A. Consensus layer (full)
 
-**A1. 快速 BFT 协议**
-- 选项：(a) HotStuff-2 / Jolteon（2 轮投票，Aptos 和 Monad 系的思路）；(b) Alpenglow 式（Votor：一轮快速路径约 100–150ms，两轮慢速路径兜底）；(c) 保留 GRANDPA
-- **推荐**：MVP 用 (a) 的简化实现；全量版演进到 (b) 式的“快慢双路径”，目标是 500ms 出块、约 1s 最终性。
+**A1. Fast BFT protocol**
+- Options: (a) HotStuff-2 / Jolteon (two voting rounds, the Aptos and Monad lineage); (b) Alpenglow style (Votor: a one-round fast path ~100–150ms with a two-round slow-path fallback); (c) keep GRANDPA
+- **Recommendation**: a simplified (a) for the MVP; evolve to a (b)-style "fast/slow dual path" in the full version, targeting 500ms blocks and ~1s finality.
 
-**A2. 验证者规模**
-- 选项：100 / 300 / 1000
-- **推荐**：MVP 50–100 个；全量 300 个。PQ 签名体积大，1000 个验证者需要 STARK 聚合成熟后才现实。
+**A2. Validator count**
+- Options: 100 / 300 / 1000
+- **Recommendation**: 50–100 in the MVP; 300 in the full version. PQ signatures are large; 1,000 validators is realistic only once STARK aggregation matures.
 
-**A3. 共识签名的抗量子路线**
-- 选项：(a) ML-DSA 逐个广播（O(n) 带宽）；(b) 哈希签名（XMSS 类）+ STARK 聚合，与以太坊 leanSig / leanMultisig 路线一致；(c) ML-DSA + STARK 折叠
-- **推荐**：MVP 用 (a)；全量用 (b)。(b) 的原语只依赖哈希，安全假设最保守；2026 年二进制域证明系统（如 Flock）已经能达到约 66 万次 BLAKE3/s，聚合开始变得实用。签名方案通过 `alg_id` 可插拔。
+**A3. Post-quantum path for consensus signatures**
+- Options: (a) ML-DSA broadcast individually (O(n) bandwidth); (b) hash-based signatures (XMSS family) + STARK aggregation, in line with Ethereum's leanSig / leanMultisig; (c) ML-DSA + STARK folding
+- **Recommendation**: (a) for the MVP; (b) for the full version. (b) relies only on hashes, the most conservative security assumption; in 2026 binary-field proof systems (e.g. Flock) reach ~660k BLAKE3 compressions/s, making aggregation practical. The signature scheme stays pluggable via `alg_id`.
 
-**A4. 矿工参与共识（L1 工作加权选举）的参数**
-- 权重 = `stake^α × workscore^β`，工作分用 30 天滑动窗口，并设最低质押门槛。
-- **推荐**：初始 α = β = 0.5；工作分上限为全网的 5%，防止单个大矿场垄断。参数由治理调整，有调整幅度限制。
+**A4. Parameters for miners in consensus (L1 work-weighted election)**
+- Weight = `stake^α × workscore^β`, work score over a 30-day sliding window, with a minimum stake threshold.
+- **Recommendation**: initially α = β = 0.5; work score capped at 5% of the network total to stop any single large farm from dominating. Parameters adjustable by governance within step limits.
 
-**A5. 罚没力度**
-- **推荐**：双签或等价签名罚没 100%；离线只扣排放、不罚本金；工作层作弊按照**层级质押的百分比**罚没（见 B3）。
+**A5. Slashing severity**
+- **Recommendation**: 100% for double-signing or equivocation; downtime only forfeits emission, not principal; work-layer cheating is slashed as **a percentage of the tier's stake** (see B3).
 
 ---
 
-## B. AI 服务层（全量）
+## B. AI service layer (full)
 
-**B1. 定价机制**
-- 选项：(a) 提供者挂牌价 + 网关路由；(b) 订单簿；(c) 按请求的实时拍卖
-- **推荐**：(a)。延迟最低，与 OpenRouter 的模式一致。价格以 **USD 计价、ATC 结算**（见 G2）。
+**B1. Pricing mechanism**
+- Options: (a) providers post prices + gateway routing; (b) order book; (c) per-request real-time auction
+- **Recommendation**: (a). Lowest latency, same model as OpenRouter. Prices are **denominated in USD and settled in ATC** (see G2).
 
-**B2. 服务质量（SLA）与信誉**
-- 链上记录每个提供者的：首 token 延迟 P50/P95、吞吐、错误率、审计通过率。网关按这些指标路由。
-- **推荐**：信誉数据由审计员抽样测量后上链（签名的测量报告），不信任提供者自报的数据。
+**B2. Service quality (SLA) and reputation**
+- Recorded on chain per provider: TTFT P50/P95, throughput, error rate, audit pass rate. Gateways route on these metrics.
+- **Recommendation**: reputation data is measured by auditors through sampling and put on chain as signed measurement reports; providers' self-reported numbers are not trusted.
 
-**B3. 各层级的质押门槛**
+**B3. Stake thresholds per tier**
 
-| 层级 | 最低质押（草案，以 USD 等值计） | 理由 |
+| Tier | Minimum stake (draft, USD equivalent) | Rationale |
 |---|---|---|
-| T0 TEE | 高（例如 $10k 等值） | 承担隐私数据，TEE 可能被物理攻破 |
-| T1 数据中心 | 中 | 大模型推理 |
-| T2 消费级 | 低 | 降低门槛 |
-| T3 CPU / 审计员 | 低 | |
-| T4 存储 | 按容量 | |
+| T0 TEE | High (e.g. $10k equivalent) | Handles private data; TEEs can be broken physically |
+| T1 data center | Medium | Large-model inference |
+| T2 consumer | Low | Lower barrier to entry |
+| T3 CPU / auditor | Low | |
+| T4 storage | By capacity | |
 
-- 问题：冷启动时矿工还没有 ATC，怎么质押？**推荐**：新矿工可以**零质押接入“公共工作队列”**，只挖不接付费单；攒够 ATC 后再升级到付费层。这也是公平发行的一部分。
+- Issue: at cold start miners have no ATC, so how can they stake? **Recommendation**: new miners can join the **"public job queue" with zero stake**, mining without taking paid jobs; once they have accumulated ATC they upgrade to a paid tier. This is also part of the fair launch.
 
-**B4. 模型注册表**
-- 每个模型记录：权重哈希（每个分片）、架构、量化方式、许可证标签、来源。
-- **推荐**：协议只校验“你声明的模型哈希 = 你实际运行的模型”（通过 TOPLOC 或 TEE 证明），**不审查许可证**（D6 协议中立），许可证标签只作为信息展示。
+**B4. Model registry**
+- Each model records: weight hashes (per shard), architecture, quantization, license tag, provenance.
+- **Recommendation**: the protocol only checks that "the model hash you declared = the model you actually run" (via TOPLOC or TEE attestation) and **does not police licenses** (D6, protocol neutrality); the license tag is informational only.
 
-**B5. T0 TEE 层的证明验证**
-- 选项：(a) 链上直接验证 NVIDIA 和 Intel/AMD 的证书链（ECDSA/RSA，不抗量子，而且证书链很大）；(b) 由审计员链下验证，把结果签名后上链；(c) 用 STARK 证明“我验证过这份证明报告”
-- **推荐**：(b) 起步，全量演进到 (c)。链上维护**可信测量值白名单**和**吊销列表**，由治理快速通道更新。
-
----
-
-## C. 训练（全量）
-
-**C1. RL 后训练架构**
-- 参照 PRIME-RL / INTELLECT-2：
-  - T2 消费级 GPU 生成 rollout；
-  - 用 TOPLOC 验证 rollout 确实由声明的策略模型生成；
-  - T1 训练节点做策略更新；
-  - 通过 T4 存储层广播新权重（SHARDCAST 式）。
-- ECHO-2 等 2026 年的工作证明，大规模分布式 rollout 可以显著降低成本。
-- **推荐**：这是全量版最先落地的训练能力（P2 阶段）。
-
-**C2. 去中心化预训练**
-- 算法：DiLoCo / SparseLoCo（8 位或 4 位量化 + 稀疏化，**通信量比朴素数据并行少 100–2000 倍**）；Templar 已经用这类方法训练了 72B 模型。
-- 验证：Verde 式可复现算子 + 争议仲裁，外加对梯度贡献的随机抽查。
-- **推荐**：P3 阶段落地；“训练提案”由 DAO 发起，出资来自公共工作排放（20%）加上社区众筹。
-
-**C3. 社区训练模型的归属（关键问题）**
-- 选项：
-  - (a) 完全开源（Apache 2.0 / MIT），谁都能用，包括闭源公司；
-  - (b) 开源权重，但**在本网络上推理时自动分润**给训练贡献者；
-  - (c) 网络专有许可，只能在本网络上运行
-- **推荐**：(b)。权重开源符合普惠理念；在本网络上推理这个模型时，每次付费自动抽取一小部分（例如 5%），按工作量证明记录的贡献分配给训练者，形成“训练 → 模型 → 收入 → 更多训练”的飞轮。在网络外使用不收费，也无法收费。
-
-**C4. 训练数据**
-- 协议中立，不审查数据；数据集登记哈希和来源，存放在 T4。
-- **推荐**：DAO 资助的训练任务要求**数据集来源公开**（透明的数据配方），以便复现和审计。
+**B5. Attestation verification for the T0 TEE tier**
+- Options: (a) verify NVIDIA and Intel/AMD certificate chains directly on chain (ECDSA/RSA — not post-quantum, and the chains are large); (b) auditors verify off-chain and put signed results on chain; (c) a STARK proving "I verified this attestation report"
+- **Recommendation**: start with (b), evolve to (c) in the full version. The chain maintains a **trusted-measurement allow-list** and a **revocation list**, updated through a governance fast track.
 
 ---
 
-## D. 存储层（全量）
+## C. Training (full)
 
-**D1. 范围**
-- 选项：(a) **专用**：只存模型权重、检查点、数据集、证明数据；(b) **通用**：Filecoin / Arweave 式的通用存储市场
-- **推荐**：(a)。通用存储是另一个巨大的赛道，会稀释精力；专用存储可以针对大文件、高带宽分发（权重广播）做优化。
+**C1. RL post-training architecture**
+- Following PRIME-RL / INTELLECT-2:
+  - T2 consumer GPUs generate rollouts;
+  - TOPLOC verifies that rollouts were really generated by the declared policy model;
+  - T1 trainer nodes perform policy updates;
+  - new weights are broadcast through the T4 storage layer (SHARDCAST style).
+- 2026 work such as ECHO-2 shows that large-scale distributed rollouts can cut costs substantially.
+- **Recommendation**: this is the first training capability to ship in the full version (P2).
 
-**D2. 存储证明**
-- 选项：(a) Filecoin 式 PoRep / PoSt（封装成本高、实现复杂）；(b) 纠删码 + 随机挑战的可检索性证明（PoR）+ 抽样下载测试
-- **推荐**：(b)，简单实用，而且只依赖哈希，抗量子。
+**C2. Decentralized pre-training**
+- Algorithm: DiLoCo / SparseLoCo (8- or 4-bit quantization + sparsification, **100–2000× less communication than naive data parallelism**); Templar has already trained a 72B model this way.
+- Verification: Verde-style reproducible operators + dispute arbitration, plus random spot checks of gradient contributions.
+- **Recommendation**: ship in P3; "training proposals" are initiated by the DAO and funded by public-work emission (20%) plus community crowdfunding.
 
----
+**C3. Ownership of community-trained models (key question)**
+- Options:
+  - (a) fully open (Apache 2.0 / MIT), usable by anyone including closed-source companies;
+  - (b) open weights, but **inference on this network automatically pays royalties** to training contributors;
+  - (c) a network-proprietary license: runs only on this network
+- **Recommendation**: (b). Open weights fit the mission of universal access; each paid inference of the model on this network automatically diverts a small share (e.g. 5%) to trainers in proportion to their proven work, creating a "training → model → revenue → more training" flywheel. Use outside the network is free and cannot be charged anyway.
 
-## E. 隐私（全量）
-
-**E1. 私有智能合约**
-- 选项：
-  - (a) Aztec 式双状态（私有函数在客户端执行并证明，需要专门的语言，如 Noir）；
-  - (b) TEE 机密 EVM（Oasis Sapphire 式；体验好，但有信任假设，而且 TEE 可能被物理攻破）；
-  - (c) FHE 协处理器（Zama 式；性能差，而且多数方案依赖格密码，可以抗量子）；
-  - (d) 暂不做
-- **推荐**：P3 阶段先做 (a) 的精简版：只做“私有转账 + 私有凭证 + 选择性披露”这几种固定电路，**不做通用私有合约**。通用私有合约再观望 1–2 年。
-
-**E2. 网络层隐私（混合网络）**
-- 混合网络会增加几百毫秒到几秒的延迟，与流式推理的体验冲突。
-- 选项：(a) 集成现成的混合网络（如 Nym）；(b) 自建轻量的单跳或两跳中继；(c) 只在“提交交易 / 兑换凭证”这类低频操作上走混合网络
-- **推荐**：(c) + (b)。低频的链上操作走混合网络；推理流量走可选的 1–2 跳中继（类似 Oblivious HTTP：中继知道你是谁但看不到内容，网关看到内容但不知道你是谁）。
-
-**E3. 选择性披露**
-- **推荐**：支持查看密钥（view key），用户可以自愿向审计方或交易所披露自己的交易历史。协议不强制。
+**C4. Training data**
+- The protocol is neutral and does not police data; datasets register hashes and provenance and are stored on T4.
+- **Recommendation**: DAO-funded training requires **public dataset provenance** (transparent data recipes) for reproducibility and auditing.
 
 ---
 
-## F. 治理（全量）
+## D. Storage layer (full)
 
-**F1. runtime 升级权**
-- runtime 升级 = 可以改写一切规则的“上帝权限”，这是整个治理设计中最敏感的地方。
-- **推荐**：
-  - 升级必须通过代币投票；
-  - 通过后设**强制延迟期**（例如 28 天），让不同意的人有时间退出；
-  - 设**宪法级不可变条款**，修改门槛极高（例如 75% 投票率加绝对多数）或者根本不允许修改：
-    1. 总量 2100 万；
-    2. 协议中立（协议层不得加入内容审查或地域封锁）；
-    3. 无预挖原则（任何增发不得绕过排放规则）；
-    4. PoA 切换到 PoS 的条件。
+**D1. Scope**
+- Options: (a) **dedicated**: only model weights, checkpoints, datasets and proof data; (b) **general-purpose**: a Filecoin / Arweave-style storage market
+- **Recommendation**: (a). General-purpose storage is a huge market of its own and would dilute focus; a dedicated layer can be optimized for large files and high-bandwidth distribution (weight broadcast).
 
-**F2. 投票权结构**
-- 选项：(a) 纯代币投票（1 币 1 票）；(b) 代币 + 时间锁定加权（Polkadot conviction 投票）；(c) 两院制：代币院 + “贡献者院”（按工作分，矿工也有投票权）
-- **推荐**：(b) 起步，全量演进到 (c)。两院制可以防止纯资本俘获，也回应了“矿工参与治理”的诉求。
-
-**F3. 紧急通道**
-- 例如 TEE 被攻破后需要快速吊销，或发现严重漏洞后需要暂停某个模块。
-- **推荐**：一个由选举产生的**安全委员会**（例如 7 选 5 多签），**只能暂停和吊销，不能修改规则或动用资金**；任何暂停在 N 天内必须经全民投票追认，否则自动失效。
+**D2. Storage proofs**
+- Options: (a) Filecoin-style PoRep / PoSt (expensive sealing, complex implementation); (b) erasure coding + randomly challenged proofs of retrievability (PoR) + sampled download tests
+- **Recommendation**: (b) — simple, practical, hash-only and post-quantum.
 
 ---
 
-## G. 互操作与稳定计价（全量）
+## E. Privacy (full)
 
-**G1. 跨链桥**
-- 难点：对方链（以太坊、BTC）目前不抗量子，桥的安全性等于最弱的一端。
-- 选项：(a) 不做桥；(b) 做基于轻客户端和 STARK 证明的桥，并明确标注“对方链的安全性”；(c) 多签桥（不推荐）
-- **推荐**：P3 做 (b)，只连以太坊（为了引入稳定币和流动性）；桥上资产在链上**标注为“非 PQ 资产”**。
+**E1. Private smart contracts**
+- Options:
+  - (a) Aztec-style dual state (private functions executed and proven on the client; needs a dedicated language such as Noir);
+  - (b) a TEE confidential EVM (Oasis Sapphire style; good UX, but trust assumptions, and TEEs can be broken physically);
+  - (c) an FHE coprocessor (Zama style; poor performance; most schemes are lattice-based and can be post-quantum);
+  - (d) not for now
+- **Recommendation**: in P3, start with a slim version of (a): only fixed circuits for "private transfers + private vouchers + selective disclosure", **no general private contracts**. Wait 1–2 years on general private contracts.
 
-**G2. 推理的计价单位（关键问题）**
-- 用户和 Agent 需要**稳定的价格**（“每百万 token 0.5 美元”），但 ATC 价格会波动。
-- 选项：(a) 纯 ATC 计价；(b) **USD 计价、ATC 结算**（通过预言机换算）；(c) 引入桥接的稳定币（USDC 等）直接支付；(d) 原生去中心化稳定币
-- **推荐**：MVP 用 (b)，全量增加 (c)。(c) 需要注意：USDC 发行方可以冻结地址，这与抗审查的理念冲突，所以只能作为选项，不能作为唯一方式。**预言机本身是新的攻击面**，需要多源中位数加 TWAP。
+**E2. Network-layer privacy (mixnets)**
+- Mixnets add hundreds of milliseconds to seconds of latency, conflicting with streaming inference.
+- Options: (a) integrate an existing mixnet (e.g. Nym); (b) build lightweight one- or two-hop relays; (c) use the mixnet only for low-frequency operations such as "submit transaction / redeem voucher"
+- **Recommendation**: (c) + (b). Low-frequency on-chain operations go through the mixnet; inference traffic takes optional 1–2 hop relays (like Oblivious HTTP: the relay knows who you are but cannot see content; the gateway sees content but not who you are).
 
----
-
-## H. Agent 经济（全量）
-
-**H1. Agent 账户**
-- **推荐**：基于 PQ 账户抽象的“会话密钥”：主密钥授权 Agent 一个子密钥，附带额度、有效期、可调用的合约或模型白名单，随时可以撤销。
-
-**H2. Agent 支付协议**
-- 业内已有 HTTP 402 式的机器支付标准（例如 x402）。
-- **推荐**：网关兼容 HTTP 402 式的“按请求付费”交互，底层使用匿名凭证。同时提供 MCP 服务器，让 Agent 框架可以直接把“付费推理”当作一个工具来调用。
-
-**H3. Agent 身份与信誉**
-- **推荐**：可选的链上 Agent 身份（公钥 + 元数据），由协议外的服务自行构建信誉；协议不强制任何 KYC。
+**E3. Selective disclosure**
+- **Recommendation**: support view keys so users can voluntarily disclose their transaction history to auditors or exchanges. The protocol never compels it.
 
 ---
 
-## I. 长期：JAM 迁移
+## F. Governance (full)
 
-- **推荐**：AI 工作层从 MVP 起就按 refine（链下重计算，产出报告）/ accumulate（链上结算）的结构编写；审计按 ELVES 式“随机、隐蔽、升级”设计。2027 年以后如果 JAM 成熟、且解决了 PQ 问题（SAFROLE 依赖椭圆曲线），再评估迁移，或者把 AgentCoin 作为一个 JAM 服务。
+**F1. Runtime upgrade authority**
+- A runtime upgrade is a "god power" that can rewrite every rule — the most sensitive point in the whole governance design.
+- **Recommendation**:
+  - upgrades must pass a token vote;
+  - after passing, a **mandatory delay** (e.g. 28 days) gives dissenters time to exit;
+  - **constitutional immutable clauses** with extremely high amendment thresholds (e.g. 75% turnout plus an absolute majority) or no amendment at all:
+    1. total supply of 21 million;
+    2. protocol neutrality (no content censorship or geo-blocking at the protocol layer);
+    3. the no-premine principle (no issuance may bypass the emission rules);
+    4. the conditions for switching from PoA to PoS.
+
+**F2. Voting-power structure**
+- Options: (a) pure token voting (one coin, one vote); (b) tokens + lock-time weighting (Polkadot conviction voting); (c) bicameral: a token house + a "contributor house" (weighted by work score, so miners also vote)
+- **Recommendation**: start with (b), evolve to (c) in the full version. A bicameral system prevents pure capital capture and answers the call for "miners in governance".
+
+**F3. Emergency channel**
+- E.g. fast revocation after a TEE is broken, or pausing a module after a critical bug.
+- **Recommendation**: an elected **security council** (e.g. a 5-of-7 multisig) that **can only pause and revoke, never change rules or move funds**; every pause must be ratified by a full vote within N days or it lapses automatically.
 
 ---
 
-## 需要你明确回答的关键问题
+## G. Interoperability and stable pricing (full)
 
-1. **C3 社区模型的归属**：(a) 完全开源，(b) 开源 + 网内推理分润，还是 (c) 网络专有？
-2. **G2 推理的计价单位**：是否接受 USD 计价、ATC 结算？是否允许桥接的稳定币作为可选支付方式？
-3. **F1 宪法级不可变条款**：上面 4 条是否合适？还要加什么？
-4. **F2 两院制**：是否希望矿工最终拥有治理投票权（贡献者院）？
-5. **D1 存储层**：专用还是通用？
-6. **E1 私有合约**：是否接受全量版只做固定电路的私有功能，不做通用私有合约？
+**G1. Cross-chain bridges**
+- Difficulty: counterpart chains (Ethereum, Bitcoin) are not post-quantum today, so a bridge is only as safe as its weakest end.
+- Options: (a) no bridge; (b) a light-client + STARK-proof bridge, clearly labelling "the counterpart chain's security"; (c) a multisig bridge (not recommended)
+- **Recommendation**: build (b) in P3, connecting only to Ethereum (to bring in stablecoins and liquidity); bridged assets are **labelled "non-PQ assets"** on chain.
 
-其余各项如果没有异议，就按推荐执行。
+**G2. Unit of account for inference (key question)**
+- Users and agents need **stable prices** ("$0.50 per million tokens"), but the ATC price fluctuates.
+- Options: (a) price purely in ATC; (b) **price in USD, settle in ATC** (converted via an oracle); (c) accept bridged stablecoins (USDC etc.) directly; (d) a native decentralized stablecoin
+- **Recommendation**: (b) for the MVP, add (c) in the full version. Caveat for (c): the USDC issuer can freeze addresses, which conflicts with censorship resistance, so it can only be an option, never the only way. **The oracle itself is a new attack surface** and needs a multi-source median plus TWAP.
 
-## 来源
+---
 
-- INTELLECT-2 / PRIME-RL：https://arxiv.org/pdf/2505.07291 · https://www.primeintellect.ai/blog/intellect-2
-- ECHO-2：https://arxiv.org/pdf/2602.02192
-- RL 权重更新稀疏性：https://arxiv.org/pdf/2602.03839
-- INTELLECT-1 / DiLoCo：https://arxiv.org/pdf/2412.01152
-- Epoch AI：https://epoch.ai/gradient-updates/how-far-can-decentralized-training-over-the-internet-scale
-- PQ 共识聚合：https://hackmd.io/@goatresearch/H1G2tOCwGx · https://eips.ethereum.org/EIPS/eip-8288 · https://cic.iacr.org/p/2/1/13
-- PQ 混合网络：https://arxiv.org/pdf/2501.02933
+## H. Agent economy (full)
+
+**H1. Agent accounts**
+- **Recommendation**: "session keys" built on PQ account abstraction: the master key authorizes a sub-key for the agent with a spending limit, expiry and an allow-list of callable contracts or models, revocable at any time.
+
+**H2. Agent payment protocol**
+- The industry already has HTTP 402-style machine-payment standards (e.g. x402).
+- **Recommendation**: gateways support HTTP 402-style "pay per request" interactions backed by anonymous vouchers. Also provide an MCP server so agent frameworks can call "paid inference" directly as a tool.
+
+**H3. Agent identity and reputation**
+- **Recommendation**: optional on-chain agent identity (public key + metadata); reputation is built by services outside the protocol; the protocol mandates no KYC.
+
+---
+
+## I. Long term: JAM migration
+
+- **Recommendation**: from the MVP onward, write the AI work layer in the refine (off-chain heavy compute producing reports) / accumulate (on-chain settlement) structure, with ELVES-style "random, covert, escalating" audits. After 2027, if JAM has matured and solved its PQ issue (SAFROLE depends on elliptic curves), evaluate migrating or running AgentCoin as a JAM service.
+
+---
+
+## Key questions for you to answer
+
+1. **C3 ownership of community models**: (a) fully open, (b) open + royalties on in-network inference, or (c) network-proprietary?
+2. **G2 unit of account for inference**: do you accept USD pricing with ATC settlement? Are bridged stablecoins allowed as an optional payment method?
+3. **F1 constitutional immutable clauses**: are the four above right? Anything to add?
+4. **F2 bicameral system**: should miners eventually have governance votes (the contributor house)?
+5. **D1 storage layer**: dedicated or general-purpose?
+6. **E1 private contracts**: do you accept that the full version only ships fixed-circuit private features, without general private contracts?
+
+Everything else follows the recommendations unless you object.
+
+## Sources
+
+- INTELLECT-2 / PRIME-RL: https://arxiv.org/pdf/2505.07291 · https://www.primeintellect.ai/blog/intellect-2
+- ECHO-2: https://arxiv.org/pdf/2602.02192
+- Sparsity of RL weight updates: https://arxiv.org/pdf/2602.03839
+- INTELLECT-1 / DiLoCo: https://arxiv.org/pdf/2412.01152
+- Epoch AI: https://epoch.ai/gradient-updates/how-far-can-decentralized-training-over-the-internet-scale
+- PQ consensus aggregation: https://hackmd.io/@goatresearch/H1G2tOCwGx · https://eips.ethereum.org/EIPS/eip-8288 · https://cic.iacr.org/p/2/1/13
+- PQ mixnets: https://arxiv.org/pdf/2501.02933

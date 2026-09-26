@@ -1,296 +1,306 @@
-# AGENT.md — AgentCoin 编码智能体工作守则
+> 🌐 **English** | [简体中文](AGENT.zh-CN.md)
 
-> 本文件是所有编码智能体（以及人类贡献者）在本仓库工作时必须遵循的规则。
-> 开始任何工作前先完整阅读本文件；与本文件冲突的做法一律以本文件为准，除非用户在当前对话中明确给出不同指示。
+# AGENT.md — AgentCoin Coding-Agent Guide
 
-**指令优先级**（高 → 低）：
-1. 用户在当前对话中的明确指示
-2. 本文件（`AGENT.md`）
-3. `openspec/config.yaml` 中的项目上下文与规则
-4. 当前 OpenSpec 变更的 proposal / specs / design / tasks
-5. `docs/rust-guidelines/`（Rust 编码规范，本文件 §7 对个别条款有覆盖）
-6. 社区通用惯例
+> Every coding agent (and every human contributor) working in this repository must follow these rules.
+> Read this whole file before starting any work. Where a practice conflicts with this file, this file wins, unless the user explicitly instructs otherwise in the current conversation.
+
+**Instruction precedence** (high → low):
+1. Explicit instructions from the user in the current conversation
+2. This file (`AGENT.md`)
+3. Project context and rules in `openspec/config.yaml`
+4. The proposal / specs / design / tasks of the current OpenSpec change
+5. `docs/rust-guidelines/` (Rust coding guidelines; §7 of this file overrides a few items)
+6. General community conventions
 
 ---
 
-## 1. 项目概览
+## 1. Project overview
 
-AgentCoin（代币 **ATC**）是一个**抗量子、天生隐私、无许可**的 L1 公链，把全球异构算力（数据中心 GPU、消费级 GPU、CPU、存储）组织起来，为大模型的**推理 → 后训练 → 预训练**提供去中心化服务，并兼容 EVM。
+AgentCoin (token **ATC**) is a **post-quantum, privacy-native, permissionless** L1 that organizes the world's heterogeneous compute (data-center GPUs, consumer GPUs, CPUs, storage) into a decentralized service for large-model **inference → post-training → pre-training**, and is EVM compatible.
 
-- 链框架：Polkadot SDK（Substrate）独立链；EVM 用 `pallet-revive`
-- 主要语言：**Rust**（D31）；Python 仅限推理/训练引擎内部的薄插件
-- 开发方式：**规格驱动开发（SDD）+ OpenSpec**（D32）
-- 当前阶段：MVP，里程碑 M0（工程底座 + PQ 密码库）
+- Chain framework: standalone Polkadot SDK (Substrate) chain; EVM via `pallet-revive`
+- Primary language: **Rust** (D31); Python only for thin plugins inside inference/training engines
+- Development method: **spec-driven development (SDD) + OpenSpec** (D32)
+- Current stage: MVP, milestone M0 (engineering foundation + PQ crypto library)
 
-### 1.1 权威文档地图
+### 1.1 Authoritative document map
 
-| 文档 | 作用 | 何时读 |
+| Document | Purpose | When to read |
 |---|---|---|
-| `docs/decisions.md` | **全部已确认决策 D1–D32（最高设计依据）** | 每次开始新任务 |
-| `docs/design/mvp-technical-plan.md` | MVP 架构、模块、数据结构、里程碑 | 做 MVP 任务时 |
-| `docs/design/full-technical-plan.md` | 全量版架构与 MVP 必须预留的接口（§11） | 设计任何接口时 |
-| `docs/research/01–07` | 决策的调研依据与讨论过程 | 需要理解“为什么”时 |
-| `openspec/specs/` | 已归档的系统规范（行为契约） | 修改已有能力时 |
-| `openspec/changes/<name>/` | 进行中的变更（本地，不入库） | 执行 apply 时 |
-| `docs/rust-guidelines/INDEX.md` | Rust 编码规范索引 | 写任何 Rust 代码时 |
+| `docs/decisions.md` (Chinese: `.zh-CN.md`) | **All confirmed decisions D1–D33 (highest design authority)** | At the start of every task |
+| `docs/design/mvp-technical-plan.md` | MVP architecture, modules, data structures, milestones | For MVP tasks |
+| `docs/design/full-technical-plan.md` | Full-version architecture and interfaces the MVP must reserve (§11) | When designing any interface |
+| `docs/research/01–07` | Research and discussion behind the decisions | When you need the "why" |
+| `openspec/specs/` | Archived system specs (behavior contracts) | When modifying an existing capability |
+| `openspec/changes/<name>/` | In-progress change (local only, not committed) | During apply |
+| `docs/rust-guidelines/INDEX.md` | Index of the Rust coding guidelines | Whenever writing Rust |
 
-发现文档之间有冲突时：**不要自行裁决**，在回复中指出冲突并询问用户；决策以 `docs/decisions.md` 为准。
-
----
-
-## 2. 红线（任何情况下不得违反）
-
-违反下列任何一条的改动都不得提交。若任务要求与红线冲突，停止并向用户说明。
-
-1. **100% 后量子**（D4、D13）
-   - 账户授权与共识签名只用 ML-DSA（预留 SLH-DSA / FN-DSA / XMSS）；**禁止** secp256k1、Ed25519、sr25519、BLS 用于账户授权或共识。
-   - 加密只用 ML-KEM-768 + X25519 混合（X-Wing）或纯 PQ KEM；禁止单独使用经典 ECDH 保护长期机密数据。
-   - 零知识证明只用 STARK / FRI 系；**禁止** Groth16、PLONK-KZG、任何基于 BN254 / BLS12 配对的方案。
-   - 所有哈希输出 256 位（BLAKE3 / SHA3-256 / Poseidon2）。
-2. **算法可插拔**：所有公钥、签名、密文、证明都必须带 AlgId（`ac-crypto` 的带标签类型）。**不得**在 `ac-crypto` 之外直接调用具体算法实现。
-3. **宪法第 1 层由节点强制**（D24、D30）：总量上限 21,000,000 ATC、排放上限 / 无预挖、PoA→PoS 切换条件，必须在节点客户端（native）中检查，**不能只写在 runtime**。约定存储键（well-known keys）一经发布不得重命名或改格式。
-4. **无预挖**（D9）：创世不得分配任何 ATC；除排放规则外不存在任何铸币路径。
-5. **金库公式**（D18）：`treasury = max(5% × 计划额, 20/70 × 实际工作排放)`，取较大值，**不相加**。
-6. **隐私**（D20、D27）：prompt 与推理输出**永不上链**、网关不记录请求内容；主网付费路径只有匿名凭证。
-7. **协议中立**（D6、D24）：协议层不得加入内容审查、地址黑名单、地域封锁。
-8. **链不在推理数据路径上**：链下 refine → 工作报告 → 链上 accumulate。
-9. **不自研密码学原语**：只封装经过审阅的实现（RustCrypto 等）；新增原语必须有官方测试向量。
-10. **不提交秘密**：私钥、助记词、API key、`.env` 一律不入库。
+If documents conflict: **do not decide on your own** — point out the conflict in your reply and ask the user. Decisions in `docs/decisions.md` prevail.
 
 ---
 
-## 3. 开发流程：SDD + OpenSpec
+## 2. Red lines (never violate)
 
-**没有经过用户确认的 OpenSpec 变更，不写功能代码。**
+No change that violates any item below may be committed. If a task conflicts with a red line, stop and explain it to the user.
+
+1. **100% post-quantum** (D4, D13)
+   - Account authorization and consensus signatures use only ML-DSA (SLH-DSA / FN-DSA / XMSS reserved). **Forbidden** for account authorization or consensus: secp256k1, Ed25519, sr25519, BLS.
+   - Encryption uses only ML-KEM-768 + X25519 hybrid (X-Wing) or a pure PQ KEM; classic ECDH alone must never protect long-lived secrets.
+   - Zero-knowledge proofs use only the STARK / FRI family. **Forbidden**: Groth16, PLONK-KZG, anything based on BN254 / BLS12 pairings.
+   - All hash outputs are 256 bits (BLAKE3 / SHA3-256 / Poseidon2).
+2. **Algorithm agility**: every public key, signature, ciphertext and proof carries an AlgId (the tagged types in `ac-crypto`). Concrete algorithm implementations must **never** be called outside `ac-crypto`.
+3. **Constitution layer 1 is enforced by the node** (D24, D30): the 21,000,000 ATC supply cap, the emission ceiling / no premine, and the PoA→PoS switch conditions must be checked in the native node client, **not only in the runtime**. Published well-known storage keys must never be renamed or change format.
+4. **No premine** (D9): genesis allocates no ATC; there is no minting path other than the emission rules.
+5. **Treasury formula** (D18): `treasury = max(5% × scheduled amount, 20/70 × actual work emission)` — take the larger, **never add**.
+6. **Privacy** (D20, D27): prompts and inference outputs **never go on chain**; gateways do not log request content; on mainnet the only payment path is anonymous vouchers.
+7. **Protocol neutrality** (D6, D24): no content censorship, address blacklists or geo-blocking at the protocol layer.
+8. **The chain is not on the inference data path**: off-chain refine → work report → on-chain accumulate.
+9. **No home-made cryptographic primitives**: only wrap reviewed implementations (RustCrypto etc.); every new primitive needs official test vectors.
+10. **No secrets in the repo**: private keys, mnemonics, API keys and `.env` files are never committed.
+
+---
+
+## 3. Workflow: SDD + OpenSpec
+
+**No feature code without an OpenSpec change the user has confirmed.**
 
 ```
-/opsx:explore（可选，厘清需求）
-   → /opsx:propose  生成 proposal / specs / design / tasks
-   → 用户审阅确认                         ← 必须等待，不得跳过
-   → /opsx:apply    按 tasks.md 逐项实现并勾选
-   → 全部任务完成 + CI 通过
-   → /opsx:archive  规范合入 openspec/specs/
+/opsx:explore (optional, clarify requirements)
+   → /opsx:propose  generate proposal / specs / design / tasks
+   → user review and confirmation           ← mandatory, never skip
+   → /opsx:apply    implement tasks.md in order, ticking each box
+   → all tasks done + CI green
+   → /opsx:archive  merge specs into openspec/specs/
 ```
 
-规则：
-- **提案**（遵循 `openspec/config.yaml` 的 rules）：必须引用决策编号 Dxx 和技术方案章节；必须有 Non-goals；涉及密码学/共识的变更必须说明对抗量子性与宪法第 1 层的影响；design 必须说明与全量版预留接口的衔接。
-- **specs 写行为，不写实现**：不出现库名、函数名；每条 Requirement 至少一个可测试的 Scenario（`####` 四级标题）；用 SHALL / MUST。
-- **tasks**：每项 ≤ 约半天工作量，并写明可自动化的验收方式；测试与文档随所在任务组一起交付，不集中到最后。
-- **apply**：严格按 tasks.md 顺序；每完成一项立即勾选 `- [x]`；发现 tasks 与 specs/design 矛盾或需要扩大范围时，**停止并提出**，用 `/opsx:update` 修订计划，不要边做边改范围。
-- **archive**：归档前确认 specs 已同步；新产生的决策补记到 `docs/decisions.md`（新编号，注明来源）。
-- `openspec/changes/` 已被 `.gitignore` 忽略（不入库）；云端容器会被回收，因此**变更完成后尽快归档**。
-- **可以不走 OpenSpec 的小改动**：错别字、纯文档措辞、CI 配置的非行为修复、依赖的补丁版本升级。凡改变外部可观察行为或接口的，都必须走 OpenSpec。
-- **不要手工编辑** `openspec/specs/`（只能通过 archive 更新），除非修复 archive 留下的 `TBD` Purpose。
+Rules:
+- **Proposals** (follow the rules in `openspec/config.yaml`): cite decision numbers Dxx and technical-plan sections; include Non-goals; for crypto/consensus changes, state the impact on post-quantum security and constitution layer 1; the design must explain how it connects to the full-version reserved interfaces.
+- **Specs describe behavior, not implementation**: no library or function names; every Requirement has at least one testable Scenario (a `####` heading); use SHALL / MUST.
+- **Tasks**: each ≤ about half a day, with an automatable acceptance check; tests and docs ship with their own task group, never collected at the end.
+- **Apply**: follow tasks.md in order; tick `- [x]` immediately after finishing each item; if tasks conflict with specs/design or the scope must grow, **stop and raise it**, revise the plan with `/opsx:update` — never change scope on the fly.
+- **Archive**: make sure specs are synced; record any new decision in `docs/decisions.md` (new number, with source), in both language versions.
+- `openspec/changes/` is git-ignored (not committed). Cloud containers get reclaimed, so **archive changes promptly** once done.
+- **OpenSpec artifacts are written in Simplified Chinese.**
+- **Small changes that may skip OpenSpec**: typos, pure wording in docs, non-behavioral CI fixes, patch-level dependency bumps. Anything that changes externally observable behavior or interfaces must go through OpenSpec.
+- **Do not hand-edit** `openspec/specs/` (it is updated only by archive), except to fix a `TBD` Purpose left by archive.
 
 ---
 
-## 4. 仓库结构与模块边界
+## 4. Repository layout and module boundaries
 
 ```
 AGENT.md · CLAUDE.md · README.md · Cargo.toml · rust-toolchain.toml · deny.toml
 docs/{decisions.md, design/, research/, rust-guidelines/}
-openspec/{config.yaml, specs/, changes/(本地)}
-crates/      通用库：ac-crypto、ac-primitives、ac-invariants、ac-toploc
-node/        ac-node：共识（aura-pq、ac-bft）、节点不变式检查器
-runtime/     WASM runtime 组装
-pallets/     链上模块（pq-accounts、emission、credits、work、audit …）
-circuits/    STARK 电路（β）
-services/    gateway、provider、auditor、eth-rpc
-clients/     wallet-cli、sdk（Rust 核心）、sdk-bindings（PyO3 / wasm-bindgen）
-contracts/   示例 Solidity 合约
-tests/       e2e、经济仿真
-scripts/     工具脚本
+openspec/{config.yaml, specs/, changes/(local)}
+crates/      shared libraries: ac-crypto, ac-primitives, ac-invariants, ac-toploc
+node/        ac-node: consensus (aura-pq, ac-bft), node invariant checker
+runtime/     WASM runtime assembly
+pallets/     on-chain modules (pq-accounts, emission, credits, work, audit …)
+circuits/    STARK circuits (β)
+services/    gateway, provider, auditor, eth-rpc
+clients/     wallet-cli, sdk (Rust core), sdk-bindings (PyO3 / wasm-bindgen)
+contracts/   example Solidity contracts
+tests/       e2e, economic simulation
+scripts/     tooling scripts
 ```
 
-- **目录按需创建**：不要为未来模块预先建空目录或空 crate。
-- **依赖方向**：`crates/*` 不依赖 `node`/`runtime`/`pallets`/`services`；`pallets` 只依赖 `crates` 与 Polkadot SDK；`services`/`clients` 不依赖 `node` 内部实现，只通过 RPC / 公共类型交互。
-- **密码学只在 `ac-crypto`**；共享数据类型只在 `ac-primitives`；节点不变式是 `ac-invariants` 中的**纯函数**（便于形式化验证）。
+- **Create directories on demand**: never pre-create empty directories or crates for future modules.
+- **Dependency direction**: `crates/*` never depend on `node` / `runtime` / `pallets` / `services`; `pallets` depend only on `crates` and the Polkadot SDK; `services` / `clients` never depend on `node` internals and interact only through RPC / shared types.
+- **Cryptography lives only in `ac-crypto`**; shared data types only in `ac-primitives`; node invariants are **pure functions** in `ac-invariants` (to enable formal verification).
 
 ---
 
-## 5. Rust 工程规范
+## 5. Rust engineering rules
 
-### 5.1 工具链与工作区
-- 工具链固定在 `rust-toolchain.toml`，不得在命令中临时切换版本。
-- 所有 crate 是根工作区成员；依赖版本统一在根 `Cargo.toml` 的 `[workspace.dependencies]` 声明，成员用 `dep = { workspace = true }`。
-- 版本号精确到次版本（如 `"0.1"`），**禁止通配符**（G.CAR.04）；新增依赖前检查：维护状态、许可证（`deny.toml` 白名单）、是否支持 `no_std`、是否重复引入同一库的多个版本（P.SEC.01）。
-- 每个 crate 的 `Cargo.toml` 必须有 `description`、`license`、`repository`、`edition`（从 workspace 继承）（G.CAR.02）。
+### 5.1 Toolchain and workspace
+- The toolchain is pinned in `rust-toolchain.toml`; never switch versions ad hoc on the command line.
+- Every crate is a member of the root workspace; dependency versions are declared once in the root `Cargo.toml` under `[workspace.dependencies]`, and members use `dep = { workspace = true }`.
+- Pin versions to the minor version (e.g. `"0.1"`), **no wildcards** (G.CAR.04). Before adding a dependency check: maintenance status, license (`deny.toml` allow-list), `no_std` support, and whether it pulls in duplicate versions of a library (P.SEC.01).
+- Every crate's `Cargo.toml` has `description`, `license`, `repository`, `edition` (inherited from the workspace) (G.CAR.02).
 
-### 5.2 Lint 与格式（CI 强制）
-- `cargo fmt --all -- --check` 必须通过（P.FMT.01）。
-- `cargo clippy --workspace --all-targets --all-features -- -D warnings` 必须通过。
-- 工作区 lints：`unsafe_code = "forbid"`；非测试代码 deny `clippy::unwrap_used`、`clippy::expect_used`、`clippy::panic`、`clippy::indexing_slicing`（链上与密码学 crate）、`clippy::arithmetic_side_effects`（链上与经济相关 crate）。
-- 不得用 `#[allow(...)]` 绕过 lint，除非附一行注释说明理由；禁止 crate 级别的 `#![allow(clippy::all)]` 之类的大范围豁免。
+### 5.2 Lints and formatting (enforced by CI)
+- `cargo fmt --all -- --check` must pass (P.FMT.01).
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings` must pass.
+- Workspace lints: `unsafe_code = "forbid"`; in non-test code deny `clippy::unwrap_used`, `clippy::expect_used`, `clippy::panic`, `clippy::indexing_slicing` (on-chain and crypto crates), `clippy::arithmetic_side_effects` (on-chain and economics crates).
+- Never silence a lint with `#[allow(...)]` without a one-line comment explaining why; crate-wide blanket exemptions such as `#![allow(clippy::all)]` are forbidden.
 
-### 5.3 错误处理（覆盖上游 P.ERR.02 / G.ERR.02）
-- **非测试代码禁止 `unwrap()` / `expect()` / `panic!` / `unreachable!` / `todo!` / `unimplemented!`**；用 `?` 与显式错误类型。
-- 库 crate 用自定义错误枚举（`#[non_exhaustive]`，实现 `core::fmt::Display`；`std` feature 下实现 `std::error::Error`）；不在库中使用 `anyhow`。二进制程序（services、CLI）可以在最外层使用 `anyhow`。
-- 公开的返回 `Result` 的函数在 rustdoc 中写 `# Errors` 小节（G.CMT.01）。
-- 测试代码可以使用 `unwrap` / `expect`。
+### 5.3 Error handling (overrides upstream P.ERR.02 / G.ERR.02)
+- **In non-test code, `unwrap()` / `expect()` / `panic!` / `unreachable!` / `todo!` / `unimplemented!` are forbidden**; use `?` and explicit error types.
+- Library crates use custom error enums (`#[non_exhaustive]`, implementing `core::fmt::Display`, plus `std::error::Error` under the `std` feature); no `anyhow` in libraries. Binaries (services, CLI) may use `anyhow` at the outermost layer.
+- Public functions returning `Result` document an `# Errors` section in rustdoc (G.CMT.01).
+- Test code may use `unwrap` / `expect`.
 
-### 5.4 整数与数值（链上确定性）
-- 余额、排放、价格一律用**无符号整数**（余额 `u128`，18 位小数的最小单位）；**runtime、共识、结算代码禁止使用浮点数**。
-- 所有可能溢出的运算用 `checked_*` / `saturating_*`，并说明选择理由；禁止依赖 release 模式下的回绕（G.TYP.INT.01）。
-- 类型转换用 `From` / `TryFrom`，**禁止用 `as` 做可能截断或改变符号的转换**（G.TYP.01、G.TYP.03、G.TYP.INT.02）。
-- 比例、分成用基点（1/10_000）或 `Perbill` / `Permill` 等定点类型，写明舍入方向（向下取整，余数进储备或销毁，不得凭空产生）。
-- 数组 / 切片访问用 `get()`，禁止可能越界的索引（G.TYP.ARR.02）。
+### 5.4 Integers and numerics (on-chain determinism)
+- Balances, emission and prices are **unsigned integers** (balances are `u128` in the smallest unit, 18 decimals); **floating point is forbidden in runtime, consensus and settlement code**.
+- Every operation that can overflow uses `checked_*` / `saturating_*` with the reason for the choice; never rely on release-mode wrapping (G.TYP.INT.01).
+- Conversions use `From` / `TryFrom`; **`as` is forbidden for conversions that can truncate or change sign** (G.TYP.01, G.TYP.03, G.TYP.INT.02).
+- Ratios and shares use basis points (1/10_000) or fixed-point types such as `Perbill` / `Permill`, with the rounding direction stated (round down; remainders go to the reserve or are burned — never created out of thin air).
+- Access arrays / slices with `get()`; indexing that can go out of bounds is forbidden (G.TYP.ARR.02).
 
-### 5.5 no_std 与 runtime 兼容
-- 会被 runtime 使用的 crate 必须 `#![no_std]`，按需 `extern crate alloc`；`std` 作为 feature 提供。
-- CI 中以 `--no-default-features --target wasm32-unknown-unknown` 构建这些 crate。
-- runtime 代码中不得出现：浮点、`HashMap`（非确定性迭代顺序，用 `BTreeMap`）、系统时间、随机数（用链上随机数模块）、无界集合（用 `BoundedVec` 等有界类型）。
+### 5.5 no_std and runtime compatibility
+- Crates used by the runtime must be `#![no_std]`, with `extern crate alloc` as needed; `std` is provided as a feature.
+- CI builds these crates with `--no-default-features --target wasm32-unknown-unknown`.
+- Runtime code must not contain: floating point, `HashMap` (non-deterministic iteration order — use `BTreeMap`), system time, randomness (use the on-chain randomness module), or unbounded collections (use `BoundedVec` and other bounded types).
 
-### 5.6 类型与 API 设计
-- 用新类型表达语义，不直接暴露原生类型（P.TYP.01）：如 `AccountId`、`Balance`、`AlgId`。
-- 对外公开的 struct / enum 默认加 `#[non_exhaustive]`（G.TYP.SCT.01、G.TYP.ENM.05）；**例外**：线格式 / 链上编码类型的变体集合由 AlgId 等显式数值决定，必须显式标注判别值（G.TYP.ENM.07）。
-- 函数参数不超过 5 个，多个 `bool` 参数改用枚举或配置结构体（G.FUD.01、G.FUD.03）。
-- 不使用通配符导入 `use foo::*`，测试模块中的 `use super::*` 除外（G.MOD.03）。
-- 可见性最小化：默认私有，按需 `pub(crate)`，对外 API 在 `lib.rs` 统一重导出（P.MOD.01、G.MOD.02）。
-- Cargo feature 名用肯定式、无多余前后缀（P.NAM.02、G.CAR.03），不滥用 feature（P.CAR.02）。
+### 5.6 Types and API design
+- Express semantics with newtypes instead of exposing primitives (P.TYP.01): `AccountId`, `Balance`, `AlgId`, etc.
+- Public structs / enums get `#[non_exhaustive]` by default (G.TYP.SCT.01, G.TYP.ENM.05). **Exception**: wire-format / on-chain encoding types whose variants are defined by explicit values such as AlgId must spell out their discriminants (G.TYP.ENM.07).
+- At most 5 function parameters; replace several `bool` parameters with an enum or a config struct (G.FUD.01, G.FUD.03).
+- No glob imports `use foo::*`, except `use super::*` in test modules (G.MOD.03).
+- Minimal visibility: private by default, `pub(crate)` as needed, public API re-exported from `lib.rs` (P.MOD.01, G.MOD.02).
+- Cargo feature names are affirmative and free of redundant prefixes/suffixes (P.NAM.02, G.CAR.03); do not abuse features (P.CAR.02).
 
-### 5.7 异步与并发（链下服务）
-- 异步运行时统一用 **tokio**；不在 async 上下文中执行阻塞操作（G.ASY.05），CPU 密集任务用 `spawn_blocking`。
-- 不跨 `.await` 持有同步锁（G.ASY.02）；优先使用 channel / 消息传递。
+### 5.7 Async and concurrency (off-chain services)
+- The async runtime is **tokio**; never block inside async contexts (G.ASY.05); use `spawn_blocking` for CPU-heavy work.
+- Never hold a synchronous lock across `.await` (G.ASY.02); prefer channels / message passing.
 
 ### 5.8 unsafe
-- 默认 `forbid`。确需例外（FFI、经过审阅的性能关键路径）时：在该 crate 局部改为 `deny` 并对具体块 `allow`；每个 `unsafe` 块前写 `// SAFETY:` 注释说明不变式（P.UNS.SAS.09）；公开 unsafe 函数写 `# Safety` 文档（G.UNS.SAS.01）；必须经用户确认。
+- `forbid` by default. For a justified exception (FFI, a reviewed performance-critical path): relax to `deny` locally in that crate and `allow` the specific block; put a `// SAFETY:` comment stating the invariant before every `unsafe` block (P.UNS.SAS.09); document `# Safety` on public unsafe functions (G.UNS.SAS.01); the user must approve.
 
 ---
 
-## 6. 密码学编码规范
+## 6. Cryptography coding rules
 
-1. **只通过 `ac-crypto` 使用密码学**：其他 crate 不得直接依赖 `ml-dsa`、`ml-kem`、`x-wing`、`blake3` 等底层库（`cargo deny` 可配置 bans 强制）。
-2. **签名必须带上下文字符串**：格式 `agentcoin/<用途>/v<版本>`（如 `agentcoin/tx/v1`、`agentcoin/bft-vote/v1`、`agentcoin/receipt/v1`）。每个新用途在 `crates/ac-crypto/README.md` 的上下文登记表中登记，**不得复用**已有用途的上下文。
-3. **域分离哈希**：上下文格式 `agentcoin <YYYY-MM> <用途> v<版本>`，同样登记，不得复用。
-4. **线格式稳定**：AlgId 编号、带标签编码、账户 ID 派生规则一经发布**永不修改**；需要变化时新增编号 / 新版本上下文。相关回归测试不得删除或放宽。
-5. **秘密材料**：实现 `Zeroize` / `ZeroizeOnDrop`；`Debug` 输出脱敏；不写日志、不进错误信息、不序列化到非加密存储。
-6. **随机数**：只用密码学安全随机源（`rand_core::CryptoRng`）；测试中用固定种子的确定性 RNG 须明确限定在 `#[cfg(test)]` 或测试 feature。
-7. **比较秘密**用常数时间比较（`subtle`），禁止 `==`。
-8. **测试向量**：每个算法必须通过官方向量（NIST ACVP、IETF 草案附录）；向量文件记录来源 URL、上游 SHA-256 与筛选规则，并可由脚本复现。
-9. **验证失败统一返回错误/`false`**，不得 panic，不得回退到其他算法。
+1. **Use cryptography only through `ac-crypto`**: other crates must not depend directly on `ml-dsa`, `ml-kem`, `x-wing`, `blake3` or other low-level libraries (can be enforced with `cargo deny` bans).
+2. **Signatures always carry a context string**: format `agentcoin/<purpose>/v<version>` (e.g. `agentcoin/tx/v1`, `agentcoin/bft-vote/v1`, `agentcoin/receipt/v1`). Register every new purpose in the context registry in `crates/ac-crypto/README.md`; **never reuse** an existing purpose's context.
+3. **Domain-separated hashing**: context format `agentcoin <YYYY-MM> <purpose> v<version>`, also registered and never reused.
+4. **Stable wire formats**: AlgId numbers, tagged encodings and the account-ID derivation rule **never change** once published; changes require a new number / new context version. The related regression tests must never be deleted or loosened.
+5. **Secret material**: implement `Zeroize` / `ZeroizeOnDrop`; redact `Debug` output; never log it, put it in error messages, or serialize it to unencrypted storage.
+6. **Randomness**: only cryptographically secure sources (`rand_core::CryptoRng`); deterministic seeded RNGs in tests must be confined to `#[cfg(test)]` or a test feature.
+7. **Compare secrets in constant time** (`subtle`); `==` is forbidden.
+8. **Test vectors**: every algorithm must pass official vectors (NIST ACVP, IETF draft appendices); vector files record the source URL, upstream SHA-256 and the filtering rules, and are reproducible by script.
+9. **Verification failures always return an error / `false`**; never panic, never fall back to another algorithm.
 
 ---
 
-## 7. Rust 编码规范（docs/rust-guidelines）
+## 7. Rust coding guidelines (docs/rust-guidelines)
 
-本项目采用《Rust 编码规范》（中文版，MIT 许可）作为编码风格与实践基线，本地副本位于 `docs/rust-guidelines/`。
+The project adopts the *Rust Coding Guidelines* (Chinese edition, MIT licensed) as its baseline for style and practice. A local copy lives in `docs/rust-guidelines/`; its content is upstream Chinese and is not translated.
 
-### 7.1 如何查阅
-- **索引**：`docs/rust-guidelines/INDEX.md`
-  - §1 AgentCoin 重点规则（**编码前必读**）
-  - §2 AgentCoin 取舍（覆盖 / 不采纳的条款）
-  - §3 章节目录、§4 全部 255 条条款及文件链接
-- **按关键词或编号检索**：
+### 7.1 How to look things up
+- **Index**: `docs/rust-guidelines/INDEX.md`
+  - §1 AgentCoin focus rules (**read before coding**)
+  - §2 AgentCoin overrides (items overridden or not adopted)
+  - §3 table of contents, §4 all 255 items with file links
+- **Search by keyword or ID**:
   ```bash
-  grep -n '整数\|溢出' docs/rust-guidelines/rules.tsv
+  grep -n '整数\|溢出' docs/rust-guidelines/rules.tsv     # "integer", "overflow"
   grep -n 'G.TYP.INT.01' docs/rust-guidelines/rules.tsv
   ```
-  找到后打开对应 `src/...md` 阅读正例 / 反例。
-- 编号含义：`P.*` 为原则（方向性），`G.*` 为规则（具体、多数可由 clippy 检测）。
+  Then open the referenced `src/...md` to read the good / bad examples.
+- ID meaning: `P.*` are principles (directional), `G.*` are guidelines (concrete, mostly checkable by clippy).
 
-### 7.2 使用要求
-- 写代码前阅读 INDEX.md §1 的重点规则；涉及某类特性（unsafe、async、宏、no_std、整数、字符串等）时，先检索对应章节。
-- Code review（包括自审）时，对照相关条款；在 PR / 提交说明中如有意偏离某条款，写明编号与理由。
-- 规范文件是**只读的上游快照**：不得修改 `docs/rust-guidelines/src/`；更新用 `scripts/update-rust-guidelines.sh`，索引用 `scripts/gen-rust-guidelines-index.py` 重新生成，不得手改 `INDEX.md` / `rules.tsv`。
+### 7.2 Requirements
+- Before coding, read §1 of INDEX.md; when touching a feature area (unsafe, async, macros, no_std, integers, strings, …) search the corresponding chapter first.
+- During code review (including self-review) check against the relevant items; when deliberately deviating from an item, state its ID and the reason in the commit / PR description.
+- The guideline files are a **read-only upstream snapshot**: never edit `docs/rust-guidelines/src/`; update with `scripts/update-rust-guidelines.sh`; regenerate the index with `scripts/gen-rust-guidelines-index.py`; never hand-edit `INDEX.md` / `rules.tsv`.
 
-### 7.3 AgentCoin 对上游条款的覆盖
-| 条款 | AgentCoin 规定 |
+### 7.3 AgentCoin overrides of upstream items
+| Item | AgentCoin rule |
 |---|---|
-| P.ERR.02、G.ERR.02 | 非测试代码**禁止** `unwrap` / `expect`（比上游更严格），见 §5.3 |
-| P.NAM.09 | 不采纳 `G_` 前缀；静态变量用 `SCREAMING_SNAKE_CASE` |
-| G.TYP.BOL.07 | 不采纳；使用 `!` 取反 |
-| P.CMT.04 | 不要求文件头版权注释（仓库级 LICENSE） |
-| G.MTH.LCK.03 / 04 | runtime（no_std）不适用；链下服务可用 `parking_lot` / `crossbeam` / `tokio::sync` |
-| G.TYP.SCT.01、G.TYP.ENM.05 | 默认采纳；线格式 / 链上编码枚举例外（见 §5.6） |
-| （补充） | 链上与经济代码禁止浮点、禁止 `HashMap`、禁止无界集合（§5.4、§5.5） |
+| P.ERR.02, G.ERR.02 | `unwrap` / `expect` are **forbidden** in non-test code (stricter than upstream), see §5.3 |
+| P.NAM.09 | `G_` prefix not adopted; statics use `SCREAMING_SNAKE_CASE` |
+| G.TYP.BOL.07 | Not adopted; use `!` for negation |
+| P.CMT.04 | No per-file copyright header required (repository-level LICENSE) |
+| G.MTH.LCK.03 / 04 | Not applicable to the runtime (no_std); off-chain services may use `parking_lot` / `crossbeam` / `tokio::sync` |
+| G.TYP.SCT.01, G.TYP.ENM.05 | Adopted by default; wire-format / on-chain encoding enums are exempt (see §5.6) |
+| (addition) | On-chain and economics code: no floating point, no `HashMap`, no unbounded collections (§5.4, §5.5) |
 
-新增覆盖时：同时修改本表与 `scripts/gen-rust-guidelines-index.py` 中的 `OVERRIDES`，并重新生成索引。
-
----
-
-## 8. Substrate / Runtime 专项规范（M1 起适用）
-
-- **runtime 中不得 panic**：所有 extrinsic 返回 `DispatchResult`；存储读写失败返回错误。
-- **每个 extrinsic 必须有 benchmark 与权重**（`frame-benchmarking`），不得使用硬编码的占位权重进入测试网。
-- **存储**：只用有界类型；存储结构变更必须附带迁移（`OnRuntimeUpgrade`）与迁移测试；宪法第 1 层使用的约定存储键不得改名、改格式。
-- `on_initialize` / `on_finalize` 的工作量必须有上限并计入权重。
-- **排放、销毁、罚没**：每条路径都要有“总量守恒”测试（铸造 − 销毁 = 发行量变化）。
-- **治理参数**：必须登记护栏（`pallet-guardrails`）边界，不得出现无边界的可治理参数。
-- 节点不变式（`ac-invariants`）的任何修改都视为**硬分叉级变更**，必须单独走 OpenSpec 并由用户明确确认。
+To add an override: update this table (in both language versions) and `OVERRIDES` in `scripts/gen-rust-guidelines-index.py`, then regenerate the index.
 
 ---
 
-## 9. 测试规范
+## 8. Substrate / runtime rules (from M1)
 
-- **每个 spec Scenario 至少对应一个自动化测试**；测试名或注释中注明对应的 Requirement / Scenario 名称，便于追溯。
-- 测试类型：
-  - 单元测试：与代码同文件 `#[cfg(test)] mod tests`，或 `tests/` 集成测试（P.MOD.02 建议大型测试移至单独文件）。
-  - 向量测试：密码学与编码格式（`tests/vectors/`）。
-  - 属性测试：编解码往返、算术守恒等用 `proptest`。
-  - 模糊测试：解码器与所有处理外部输入的代码（`cargo fuzz`，M1 起）。
-  - 端到端：多节点网络（`tests/e2e/`）；经济仿真（`tests/sim/`）。
-- 测试必须确定性：固定种子，不依赖网络（向量获取脚本除外）、不依赖系统时间。
-- **不得为了让 CI 通过而删除、跳过（`#[ignore]`）或放宽测试**；测试失败要找根因。
+- **The runtime never panics**: every extrinsic returns `DispatchResult`; storage failures return errors.
+- **Every extrinsic has a benchmark and weights** (`frame-benchmarking`); hard-coded placeholder weights must not reach a testnet.
+- **Storage**: bounded types only; storage layout changes ship with a migration (`OnRuntimeUpgrade`) and migration tests; well-known storage keys used by constitution layer 1 are never renamed or reformatted.
+- `on_initialize` / `on_finalize` work is bounded and accounted in weights.
+- **Emission, burning, slashing**: every path has a "total conservation" test (minted − burned = change in issuance).
+- **Governance parameters**: every one is registered with guardrail bounds (`pallet-guardrails`); no unbounded governable parameter.
+- Any change to the node invariants (`ac-invariants`) is a **hard-fork-level change**: it needs its own OpenSpec change and explicit user confirmation.
 
 ---
 
-## 10. 文档与注释
+## 9. Testing rules
 
-- 语言：**文档、OpenSpec 产物用中文**；**代码标识符、rustdoc、代码注释、提交信息用英文**（面向国际开源协作）。
-- 所有公开项必须有 rustdoc；返回 `Result` 的写 `# Errors`，可能 panic 的写 `# Panics`（本项目原则上不应存在），unsafe 写 `# Safety`（G.CMT.01、G.CMT.02、G.UNS.SAS.01）。
-- 注释说明“为什么”，不复述代码（P.CMT.01）；使用 `//` 行注释（P.CMT.03）；`TODO` / `FIXME` 必须附带简短说明（P.CMT.05）。
-- 每个 crate 有 `README.md`：用途、feature 说明、最小示例（作为 doctest 运行）。
-- 接口或行为变化时，同步更新相关 README 与 `docs/`。
-
----
-
-## 11. Git 与提交规范
-
-- 在用户指定的分支上工作；不向其他分支推送，不 force push，不改写已推送历史。
-- **提交信息**：英文，Conventional Commits 风格：`feat(ac-crypto): ...`、`fix(...)`、`docs: ...`、`chore: ...`、`test: ...`、`ci: ...`；正文说明动机与影响，引用 OpenSpec 变更名与任务编号（如 `m0-foundation-pq-crypto 4.2`）。
-- 按系统提示要求附加 attribution 行；**不得**在提交、PR、代码中写入模型标识。
-- 小步提交：一个任务（或一个紧密相关的任务组）一次提交；每次提交都应能通过 fmt / clippy / test。
-- 推送前运行完整检查（§13）；网络失败按 2s、4s、8s、16s 退避重试最多 4 次。
-- 未经用户明确要求，不创建 Pull Request。
-- 不提交：构建产物（`target/`）、OpenSpec 中间产物（`openspec/changes/`）、秘密、个人本地配置（见 `.gitignore`）。
+- **Every spec Scenario maps to at least one automated test**; the test name or a comment names the Requirement / Scenario for traceability.
+- Test types:
+  - Unit tests: `#[cfg(test)] mod tests` in the same file, or integration tests under `tests/` (P.MOD.02 suggests moving large tests into separate files).
+  - Vector tests: cryptography and encoding formats (`tests/vectors/`).
+  - Property tests: encode/decode round trips, arithmetic conservation, etc. with `proptest`.
+  - Fuzzing: decoders and all code handling external input (`cargo fuzz`, from M1).
+  - End-to-end: multi-node networks (`tests/e2e/`); economic simulation (`tests/sim/`).
+- Tests are deterministic: fixed seeds, no network (except the vector fetch scripts), no system time.
+- **Never delete, skip (`#[ignore]`) or loosen tests to make CI pass**; find the root cause of failures.
 
 ---
 
-## 12. 智能体行为准则
+## 10. Documentation and comments
 
-1. **先读后写**：修改文件前阅读它及其相关测试；修改接口前搜索所有调用方。
-2. **不扩大范围**：只做当前任务要求的事；发现额外问题时记录并告知用户，不顺手修改。
-3. **不猜测关键事实**：库 API、版本、协议细节以实际源码 / 文档 / 编译结果为准；不确定时先验证。
-4. **遇到歧义就问**：会改变规范、接口、验收标准或违背决策的问题，必须先问用户；细枝末节可以做合理假设并在产物中记录。
-5. **诚实报告**：测试失败、跳过了哪一步、哪些没验证，都要如实说明并附输出；完成并验证的事情直接说明，不含糊其辞。
-6. **不绕过门禁**：不关闭 lint、不删测试、不改 CI 放宽条件来“通过”。
-7. **保护用户数据与秘密**：不把秘密写入日志、提交或外部服务。
-8. **决策留痕**：实现中产生的新决策记入 `docs/decisions.md`（新编号），并在对应 OpenSpec 变更中引用。
-9. **长任务汇报进度**：阶段性完成时简要说明做了什么、下一步是什么。
-
----
-
-## 13. 完成定义（Definition of Done）
-
-一个任务 / 变更只有在以下全部满足时才算完成：
-
-- [ ] tasks.md 中对应项已勾选，验收方式已实际执行并通过
-- [ ] `cargo fmt --all -- --check` 通过
-- [ ] `cargo clippy --workspace --all-targets --all-features -- -D warnings` 通过
-- [ ] `cargo test --workspace --all-features` 通过
-- [ ] 涉及 runtime 可用的 crate：`cargo build -p <crate> --no-default-features --target wasm32-unknown-unknown` 通过
-- [ ] `cargo deny check` 与 `cargo audit` 通过
-- [ ] 新增 / 修改的公开 API 有 rustdoc，相关 README / docs 已更新
-- [ ] 每个相关 spec Scenario 有对应测试
-- [ ] 未违反 §2 红线；有意偏离编码规范之处已注明编号与理由
-- [ ] 已提交并推送到指定分支；CI 全绿
+- **Language policy**:
+  - **Project documents are bilingual, English first**: the English version lives at the canonical path (e.g. `docs/decisions.md`); the Simplified Chinese version is the sibling `*.zh-CN.md` (e.g. `docs/decisions.zh-CN.md`).
+  - The first line of an English page is `> 🌐 **English** | [简体中文](<name>.zh-CN.md)`; of a Chinese page, `> 🌐 [English](<name>.md) | **简体中文**`.
+  - **When editing either language version, update the other in the same commit**; both must agree on decisions, numbers, tables and conclusions. English is authoritative: on divergence, follow English and fix the Chinese.
+  - Create both versions when adding a new document.
+  - **OpenSpec artifacts (`openspec/`) are Simplified Chinese only**; no English version.
+  - Third-party upstream snapshots (`docs/rust-guidelines/src/` and the generated `INDEX.md`, `rules.tsv`) keep the upstream language and are not translated.
+  - **Code identifiers, rustdoc, code comments and commit messages are in English** (for international open-source collaboration); crate `README.md` files are bilingual too (`README.md` + `README.zh-CN.md`).
+- Every public item has rustdoc; `Result`-returning items document `# Errors`, items that can panic document `# Panics` (there should be none in this project), unsafe items document `# Safety` (G.CMT.01, G.CMT.02, G.UNS.SAS.01).
+- Comments explain "why", not "what" (P.CMT.01); use `//` line comments (P.CMT.03); `TODO` / `FIXME` carry a short explanation (P.CMT.05).
+- Every crate has `README.md` (and `README.zh-CN.md`): purpose, feature flags, a minimal example (the examples in the English version run as doctests).
+- When interfaces or behavior change, update the related READMEs and `docs/` in both languages.
 
 ---
 
-## 14. 常用命令
+## 11. Git and commit rules
+
+- Work on the branch the user specified; never push to other branches, never force-push, never rewrite pushed history.
+- **Commit messages**: English, Conventional Commits style: `feat(ac-crypto): ...`, `fix(...)`, `docs: ...`, `chore: ...`, `test: ...`, `ci: ...`; the body explains motivation and impact and cites the OpenSpec change name and task number (e.g. `m0-foundation-pq-crypto 4.2`).
+- Append the attribution lines required by the system prompt; **never** put model identifiers in commits, PRs or code.
+- Commit in small steps: one task (or one tightly related task group) per commit; every commit passes fmt / clippy / test.
+- Run the full checks (§13) before pushing; on network failures retry up to 4 times with 2s, 4s, 8s, 16s backoff.
+- Do not open pull requests unless the user explicitly asks.
+- Never commit: build output (`target/`), OpenSpec intermediates (`openspec/changes/`), secrets, personal local config (see `.gitignore`).
+
+---
+
+## 12. Agent conduct
+
+1. **Read before writing**: read a file and its tests before modifying it; search all call sites before changing an interface.
+2. **Do not widen scope**: do only what the current task requires; record and report other issues you find instead of fixing them on the side.
+3. **Do not guess key facts**: library APIs, versions and protocol details come from actual source / docs / compiler output; verify when unsure.
+4. **Ask when ambiguous**: questions that would change specs, interfaces, acceptance criteria, or contradict decisions must go to the user first; minor details may be assumed and recorded in the artifacts.
+5. **Report honestly**: state test failures, skipped steps and unverified parts with the output; state completed and verified work plainly.
+6. **Never bypass gates**: do not disable lints, delete tests or loosen CI to "pass".
+7. **Protect user data and secrets**: never write secrets to logs, commits or external services.
+8. **Leave a decision trail**: record new decisions made during implementation in `docs/decisions.md` (new number, both languages) and reference them from the OpenSpec change.
+9. **Report progress on long tasks**: at each milestone say briefly what was done and what comes next.
+
+---
+
+## 13. Definition of Done
+
+A task / change is done only when all of the following hold:
+
+- [ ] The item in tasks.md is ticked and its acceptance check was actually run and passed
+- [ ] `cargo fmt --all -- --check` passes
+- [ ] `cargo clippy --workspace --all-targets --all-features -- -D warnings` passes
+- [ ] `cargo test --workspace --all-features` passes
+- [ ] For runtime-usable crates: `cargo build -p <crate> --no-default-features --target wasm32-unknown-unknown` passes
+- [ ] `cargo deny check` and `cargo audit` pass
+- [ ] New / changed public APIs have rustdoc; related READMEs / docs are updated (English and `*.zh-CN.md` in sync)
+- [ ] Every related spec Scenario has a test
+- [ ] No §2 red line is violated; deliberate deviations from the coding guidelines are noted with ID and reason
+- [ ] Committed and pushed to the designated branch; CI is green
+
+---
+
+## 14. Common commands
 
 ```bash
-# 质量检查（与 CI 一致）
+# Quality checks (same as CI)
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
@@ -299,13 +309,13 @@ cargo deny check
 cargo audit
 
 # OpenSpec
-openspec list                 # 进行中的变更
-openspec list --specs         # 已有能力规范
+openspec list                 # in-progress changes
+openspec list --specs         # existing capability specs
 openspec status --change <name>
 openspec validate <name> --strict
 
-# Rust 编码规范
-grep -n '<关键词或编号>' docs/rust-guidelines/rules.tsv
-python3 scripts/gen-rust-guidelines-index.py      # 重建索引
-scripts/update-rust-guidelines.sh [<commit>]      # 更新规范快照
+# Rust coding guidelines
+grep -n '<keyword or ID>' docs/rust-guidelines/rules.tsv
+python3 scripts/gen-rust-guidelines-index.py      # rebuild the index
+scripts/update-rust-guidelines.sh [<commit>]      # update the snapshot
 ```

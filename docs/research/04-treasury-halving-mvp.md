@@ -1,128 +1,130 @@
-# 第四轮：DAO 金库、阶梯减半、MVP 边界
+> 🌐 **English** | [简体中文](04-treasury-halving-mvp.zh-CN.md)
 
-> 状态：讨论稿（Round 4）。日期：2026-09。
+# Round 4: DAO Treasury, Stepwise Halving, the MVP Boundary
 
-## 新增已确认决策
+> Status: discussion draft (Round 4). Date: 2026-09.
 
-| # | 决策 |
+## Newly confirmed decisions
+
+| # | Decision |
 |---|---|
-| D15 | 排放每 4 年**阶梯式减半**（保留“减半事件”叙事） |
-| D16 | DAO 金库占 20%（具体机制见 §1 的分析） |
-| D17 | 项目名 **AgentCoin**，代币符号 **ATC** |
+| D15 | Emission halves **stepwise every 4 years** (keeping the "halving event" narrative) |
+| D16 | The DAO treasury takes 20% (see the analysis in §1 for the mechanism) |
+| D17 | Project name **AgentCoin**, token symbol **ATC** |
 
 ---
 
-## 1. 主流公链的金库和代币分配
+## 1. Treasuries and token allocation on mainstream chains
 
-| 链 | 发行方式 | 协议级金库 | 其他分配 | 经验教训 |
+| Chain | Launch | Protocol-level treasury | Other allocation | Lessons |
 |---|---|---|---|---|
-| Bitcoin | 公平发行，PoW | **无** | 100% 给矿工 | 开发靠捐赠和公司赞助；叙事最纯粹，但长期开发资金不稳定 |
-| Monero | 公平发行，PoW + 尾部排放 | 无（社区众筹 CCS） | 100% 给矿工 | 同样依赖捐赠 |
-| Kaspa | 公平发行，PoW | 无 | 100% 给矿工 | 公平发行叙事很强 |
-| **Zcash** | PoW | **20%**：2020–24 直接拨给开发机构；2024-11 起 **8% 社区赠款（ZCG）+ 12% 持币人控制的锁箱**；2025-11 NU6.1 续期 | 80% 给矿工 | 金库**每 4 年要重新表决一次**，每次都引发激烈争论；最后从“直接给公司”演变为“持币人控制” |
-| **Dash** | PoW + 主节点 | **20%**（2023 年从 10% 翻倍） | 60% 主节点，20% 矿工 | 提案投票被大户和主节点主导；曾出现“剩余预算怎么分”的争议 |
-| **Decred** | PoW + PoS 混合 | **10%** | 1% PoW，89% PoS（DCP-0012） | 金库由持票人按提案审批；曾出现金库支出策略漏洞 |
-| Cardano | PoS，有预挖 | 奖励的 **20%**（τ）流入金库 | 其余给质押者 | 2026 年预算流程：69 个提案申请约 3.3 亿 ADA，治理成本很高 |
-| Polkadot | PoS，有预挖 | 部分增发 + 罚没进入金库 | 质押者 | **2024 年半年花掉约 8700 万美元**，引发“乱花钱”争议 |
-| Bittensor | 公平发行（无预挖） | 无 | 41% 矿工，41% 验证者，18% 子网所有者 | 子网所有者份额实际上起到了“开发者基金”的作用 |
-| Ethereum | 预挖 | 无协议级金库 | — | 靠基金会的预挖份额运作 |
+| Bitcoin | Fair launch, PoW | **None** | 100% to miners | Development relies on donations and corporate sponsorship; the purest narrative, but long-term development funding is unstable |
+| Monero | Fair launch, PoW + tail emission | None (community crowdfunding, CCS) | 100% to miners | Also relies on donations |
+| Kaspa | Fair launch, PoW | None | 100% to miners | Strong fair-launch narrative |
+| **Zcash** | PoW | **20%**: paid directly to development organizations 2020–24; since 2024-11 **8% community grants (ZCG) + 12% holder-controlled lockbox**; renewed by NU6.1 in 2025-11 | 80% to miners | The treasury **has to be re-voted every 4 years**, each time with fierce debate; it evolved from "paid directly to companies" to "holder-controlled" |
+| **Dash** | PoW + masternodes | **20%** (doubled from 10% in 2023) | 60% masternodes, 20% miners | Proposal voting dominated by whales and masternodes; disputes over "how to split leftover budget" |
+| **Decred** | PoW + PoS hybrid | **10%** | 1% PoW, 89% PoS (DCP-0012) | Ticket holders approve proposals; once had a treasury spending-policy bug |
+| Cardano | PoS, premined | **20%** of rewards (τ) flows to the treasury | The rest to stakers | 2026 budget process: 69 proposals requesting ~330M ADA; high governance overhead |
+| Polkadot | PoS, premined | Part of issuance + slashes go to the treasury | Stakers | **Spent about $87M in half a year in 2024**, sparking "reckless spending" criticism |
+| Bittensor | Fair launch (no premine) | None | 41% miners, 41% validators, 18% subnet owners | The subnet-owner share effectively works as a "developer fund" |
+| Ethereum | Premined | No protocol-level treasury | — | Runs on the foundation's premine allocation |
 
-**规律**：
-1. 无预挖又需要长期开发资金的链，最终都走向了“排放抽成”，比例集中在 **10–20%**（Zcash、Dash、Decred）。
-2. 20% 是业内上限，**比例越高，“开发者税”争议越大**。
-3. 所有金库最后都朝“**持币人控制 + 独立赠款委员会**”演化，**直接拨给创始人或公司的模式无一例外会引发争议**。
-4. 金库最大的风险不是钱不够，而是**治理被大户俘获和花钱没有产出**（Polkadot、Dash 的前车之鉴）。
+**Patterns**:
+1. Chains without a premine that need long-term development funding all ended up "taxing emission", concentrated at **10–20%** (Zcash, Dash, Decred).
+2. 20% is the industry ceiling; **the higher the share, the louder the "developer tax" controversy**.
+3. Every treasury eventually evolves towards "**holder control + an independent grants committee**"; **paying founders or companies directly always ends in controversy**.
+4. The biggest treasury risk is not running out of money but **governance captured by whales and spending without results** (the cautionary tales of Polkadot and Dash).
 
-## 2. 我们的特殊问题：无条件金库 = 隐形预挖
+## 2. Our special problem: an unconditional treasury = a hidden premine
 
-在我们的设计里，排放受需求约束，但如果**金库的 20% 无条件排放**，早期需求低时，金库在流通量中的占比会严重超标。以第一个 4 年期为例，每年最大排放 262.5 万 ATC：
+In our design emission is demand-gated, but if **the treasury's 20% is emitted unconditionally**, its share of circulating supply balloons when early demand is low. Taking the first 4-year period, with maximum emission of 2.625M ATC per year:
 
-| 需求利用率 | 金库无条件 20% | 金库 5% 保底 + 15% 按利用率 | **金库全部按利用率** |
+| Demand utilization | Treasury unconditional 20% | Treasury 5% floor + 15% by utilization | **Treasury entirely by utilization** |
 |---|---|---|---|
 | 10% | **54.1%** | 27.7% | 10.5% |
 | 30% | 39.2% | 23.5% | 16.2% |
 | 100% | 20.0% | 20.0% | 20.0% |
 
-**结论**：如果金库无条件拿 20%，在冷启动期它会拿走当年新增流通量的一半以上。又因为金库初期实际由你控制，外界会把它视为**变相预挖**，这会直接冲击“无预挖、公平发行”的定位。
+**Conclusion**: if the treasury takes 20% unconditionally, during cold start it takes more than half of that year's new circulating supply. And since you effectively control the treasury early on, outsiders would see it as **a disguised premine**, directly undermining the "no premine, fair launch" positioning.
 
-**建议：金库 = 实际排放的 20%，随需求增长，另设一个很小的保底（0–5%），由你决定。**
-- 冷启动期的开发资金可以来自：保底部分、股权融资（开发公司，不涉及代币）、社区捐赠。
-- 保底部分建议**线性锁定**（例如 2 年归属期），只能用于审计和冷启动采购。
+**Recommendation: treasury = 20% of actual emission, growing with demand, plus a small floor (0–5%) of your choosing.**
+- Cold-start development funding can come from: the floor, equity financing (a development company, no tokens involved), community donations.
+- The floor should **vest linearly** (e.g. over 2 years) and may only fund audits and cold-start procurement.
 
-## 3. 与此相关的另一个根本问题：无预挖 PoS 的创世冷启动
+## 3. A related fundamental problem: genesis cold start of a PoS chain without a premine
 
-**无预挖意味着创世时没有任何人持有 ATC，也就没有人能质押成为验证者。** 可选方案：
+**No premine means nobody holds ATC at genesis, so nobody can stake to become a validator.** Options:
 
-| 方案 | 描述 | 问题 |
+| Option | Description | Problem |
 |---|---|---|
-| A. 创世 PoA | 创始人和志愿者作为初始验证者，领取安全预算 | 安全预算流向创始人，等于另一种预挖 |
-| **B. PoA 无奖励 + 渐进开放** | 初始 PoA 验证者**不领取**安全预算（安全份额滚存）；GPU 矿工挖到 ATC 后可以质押；当质押量超过阈值（例如流通量的 10%）且验证者超过 N 人时，自动切换到 PoS | 冷启动期的安全性依赖 PoA 的诚实度，但这段时间链上价值也很低 |
-| C. PoW 启动 | 先用 PoW 出块，再切换到 PoS | 与“有用工作”理念冲突，而且浪费算力 |
+| A. Genesis PoA | The founder and volunteers are the initial validators and receive the security budget | The security budget flows to the founder — another form of premine |
+| **B. Unpaid PoA + gradual opening** | Initial PoA validators **do not receive** the security budget (the security share rolls over); GPU miners can stake once they have mined ATC; when stake exceeds a threshold (e.g. 10% of circulating supply) and there are more than N validators, switch to PoS automatically | Cold-start security relies on the honesty of the PoA set, but on-chain value is also low during that time |
+| C. PoW bootstrap | Produce blocks with PoW first, then switch to PoS | Conflicts with the "useful work" philosophy and wastes compute |
 
-**建议方案 B**，并在链上写死切换条件，保证它不可被人为推迟。
+**Recommend option B**, with the switch conditions hard-coded on chain so nobody can delay them.
 
-## 4. 阶梯减半与滚存如何兼容
+## 4. Making stepwise halving compatible with rollover
 
-纯“剩余量 × 50%”的模型下，若第 1 期需求不足，第 2 期的绝对排放额可能反而**不降反升**，与“减半”叙事冲突。
+In a pure "remainder × 50%" model, if period 1 has insufficient demand, period 2's absolute emission may **rise instead of fall**, contradicting the "halving" narrative.
 
-**建议：计划排放 + 滚存储备，双账户**
+**Recommendation: scheduled emission + a rollover reserve (two accounts)**
 
-1. **计划排放**完全复刻 BTC：第 n 期（每期 4 年）的**每 epoch 计划额** = `(10,500,000 / 2^(n−1)) / 每期 epoch 数`。“每 4 年排放速率减半”严格成立，所有计划额相加恰好为 2100 万。
-2. 每个 epoch 实际排放 = `min(计划额 + 储备可动用额, 需求门控上限)`。
-3. **计划额中没排出去的部分进入“滚存储备”**。储备每个 epoch 最多动用计划额的 1 倍（可调），也就是需求旺盛时最多按 2 倍速率排放，用来平滑冲击。
-4. 总量上限 = 计划排放总和 = 2100 万，永不超出。
+1. **Scheduled emission** copies Bitcoin exactly: the **per-epoch scheduled amount** in period n (4 years each) = `(10,500,000 / 2^(n−1)) / epochs per period`. "The emission rate halves every 4 years" holds strictly, and all scheduled amounts sum to exactly 21 million.
+2. Actual emission per epoch = `min(scheduled amount + drawable reserve, demand-gated ceiling)`.
+3. **Scheduled amounts not emitted go into the "rollover reserve"**. At most 1× the scheduled amount (adjustable) can be drawn from the reserve per epoch — i.e. at most 2× the scheduled rate when demand is strong — to smooth shocks.
+4. Cap = sum of scheduled emission = 21 million, never exceeded.
 
-## 5. 调整后的排放分配
+## 5. Revised emission split
 
-| 份额 | 占实际排放 | 门控 |
+| Share | Of actual emission | Gating |
 |---|---|---|
-| 安全预算（验证者） | 10% 的计划额 | 无条件（冷启动 PoA 阶段滚存，见 §3） |
-| 付费市场工作 | 50% | 需求门控 |
-| 公共工作（DAO 任务） | 20% | 需求门控（DAO 任务预算） |
-| DAO 金库 | 20% | **与实际工作排放成比例**（+ 可选保底） |
+| Security budget (validators) | 10% of the scheduled amount | Unconditional (rolls over during the cold-start PoA phase, see §3) |
+| Paid market work | 50% | Demand-gated |
+| Public work (DAO jobs) | 20% | Demand-gated (DAO job budget) |
+| DAO treasury | 20% | **Proportional to actual work emission** (+ optional floor) |
 
-金库治理建议：拆成**两个账户**，参考 Zcash：
-- **社区赠款**：由独立委员会审批，覆盖开发、审计和生态；
-- **持币人金库**：链上投票，覆盖大额支出和冷启动采购。
-- 你作为创始人，可以通过赠款申请获得开发资金，**全部公开透明**。
+Treasury governance: split it into **two accounts**, following Zcash:
+- **Community grants**: approved by an independent committee, covering development, audits and ecosystem;
+- **Holder treasury**: on-chain voting, covering large spending and cold-start procurement.
+- As the founder, you can obtain development funding through grant applications, **fully public and transparent**.
 
 ---
 
-## 6. MVP 边界：匿名凭证放在 α 还是 β
+## 6. The MVP boundary: anonymous vouchers in α or β?
 
-### 放在 α（第一天就匿名）
+### In α (anonymous from day one)
 
-| 优点 | 缺点 |
+| Pros | Cons |
 |---|---|
-| 与“天生隐私”的定位一致，品牌更强 | 技术风险最高：STARK 电路 + PQ 笔记加密，需要一人从零实现 |
-| 核心用户（被排除在外的地区的用户）从第一天起就受保护 | 延迟上线 4–6 个月以上 |
-| **链上透明记录不可撤回**：早期透明交易会永久公开，无法事后补救 | **ZK 电路漏洞 = 增发漏洞**（Zcash 2018 年曾发现可以凭空伪造代币的漏洞），上线真实价值前必须审计，费用高 |
-| 支付数据结构只设计一次 | 客户端生成证明的体验（浏览器、手机上的耗时）与证明大小（50–200KB）需要调优 |
-| | 同时调试经济模型和密码学，定位问题更难 |
-| | 监管关注更早（交易所下架隐私币；欧盟 AMLR 预计从 2027 年起限制 CASP 处理匿名币） |
+| Consistent with the "privacy-native" positioning; stronger brand | Highest technical risk: STARK circuits + PQ note encryption, implemented from scratch by one person |
+| Core users (people in excluded regions) are protected from day one | Launch delayed by 4–6+ months |
+| **Transparent on-chain records cannot be taken back**: early transparent transactions stay public forever | **A ZK circuit bug = an inflation bug** (Zcash found a bug in 2018 that allowed minting coins out of thin air); an audit is mandatory before real value, and it is expensive |
+| Payment data structures designed only once | Client proving experience (time in browsers and phones) and proof size (50–200 KB) need tuning |
+| | Debugging economics and cryptography at the same time makes problems harder to isolate |
+| | Regulatory attention arrives earlier (exchanges delisting privacy coins; the EU AMLR is expected to restrict CASPs from handling anonymous coins from 2027) |
 
-### 放在 β（先用透明预付额度）
+### In β (transparent prepaid credits first)
 
-| 优点 | 缺点 |
+| Pros | Cons |
 |---|---|
-| 最快跑通核心闭环：供需、验证、排放 | 早期用户的使用记录是透明的 |
-| 通过 runtime 升级加入隐私模块，**正好验证“可插拔”能力** | 宣传上“隐私链”名不副实 |
-| 审计费用可以等金库有钱后再支付 | 市场模块可能被“透明付费者”的假设污染，后期改造成本高 |
+| Fastest way to close the core loop: supply and demand, verification, emission | Early users' usage records are transparent |
+| Adding the privacy module via a runtime upgrade **exercises exactly the "pluggable" capability** | "Privacy chain" is not yet true in marketing terms |
+| Audit costs can wait until the treasury has funds | The market module may be tainted by the "transparent payer" assumption, making later retrofitting costly |
 
-### 建议：折中方案——“隐私就绪的 α + 隐私是主网的硬门槛”
+### Recommendation: a compromise — "privacy-ready α + privacy as a hard gate for mainnet"
 
-1. α 版就定义统一的 `Credit` 接口（凭证 ID、nullifier、兑换、结算）。**透明预付额度和匿名凭证是同一接口的两种实现**，市场模块只依赖接口。
-2. α 版从第一天就落实**非 ZK 的隐私措施**：链上永不存 prompt；网关不记录日志；提供者看不到付款人的链上地址（由网关代付并批量结算）。
-3. **测试网**只用透明额度，因为测试网代币没有真实价值，透明也没有损失。
-4. **主网上线条件：匿名凭证（M7）完成并通过外部审计。** 主网不存在“非隐私阶段”，也就不会留下永久公开的早期记录。
+1. α already defines a unified `Credit` interface (voucher ID, nullifier, redemption, settlement). **Transparent prepaid credits and anonymous vouchers are two implementations of the same interface**; the market module depends only on the interface.
+2. α implements **non-ZK privacy measures** from day one: prompts never stored on chain; gateways keep no logs; providers cannot see payers' on-chain addresses (gateways pay on the user's behalf and settle in batches).
+3. The **testnet** uses only transparent credits: testnet tokens have no real value, so transparency costs nothing.
+4. **Mainnet launch condition: anonymous vouchers (M7) complete and externally audited.** Mainnet never has a "non-private phase", so no permanently public early records are left behind.
 
-这样既能快速验证经济模型，又不牺牲主网的隐私承诺。
+This validates the economic model quickly without sacrificing the mainnet privacy promise.
 
-## 来源
+## Sources
 
-- Zcash：https://zips.z.cash/zip-1015 · https://z.cash/upgrade/nu6-1/ · https://zips.z.cash/zip-0271 · https://electriccoin.co/blog/zcash-halvening-nu6-embracing-the-new-dev-fund/
-- Dash：https://docs.dash.org/en/stable/docs/user/masternodes/understanding.html · https://www.gate.com/learn/articles/dash-token-economics-analysis-block-rewards-masternode-yields-dao-governance
-- Decred：https://docs.decred.org/advanced/issuance/ · https://blog.decred.org/2021/06/25/Treasury-Expenditure-Policy-Bug/
-- Cardano：https://www.intersectmbo.org/cardano-budget-submission · https://cardanofoundation.org/blog/voting-decisions-2026-intersect-budget-process
-- Polkadot 金库支出：https://m.theblockbeats.info/en/news/54059
-- Bittensor：https://arxiv.org/pdf/2507.02951
+- Zcash: https://zips.z.cash/zip-1015 · https://z.cash/upgrade/nu6-1/ · https://zips.z.cash/zip-0271 · https://electriccoin.co/blog/zcash-halvening-nu6-embracing-the-new-dev-fund/
+- Dash: https://docs.dash.org/en/stable/docs/user/masternodes/understanding.html · https://www.gate.com/learn/articles/dash-token-economics-analysis-block-rewards-masternode-yields-dao-governance
+- Decred: https://docs.decred.org/advanced/issuance/ · https://blog.decred.org/2021/06/25/Treasury-Expenditure-Policy-Bug/
+- Cardano: https://www.intersectmbo.org/cardano-budget-submission · https://cardanofoundation.org/blog/voting-decisions-2026-intersect-budget-process
+- Polkadot treasury spending: https://m.theblockbeats.info/en/news/54059
+- Bittensor: https://arxiv.org/pdf/2507.02951

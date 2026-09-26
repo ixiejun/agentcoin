@@ -1,38 +1,41 @@
-# AgentCoin 决策记录（D1–D32）
+> 🌐 **English** | [简体中文](decisions.zh-CN.md)
 
-> 本文件是需求讨论的最终结论汇总。讨论过程见 `docs/research/01–07`，技术方案见 `docs/design/`。
+# AgentCoin Decision Log (D1–D33)
 
-| # | 类别 | 决策 | 来源 |
+> This file consolidates the final conclusions of the requirements discussion. The discussion itself is in `docs/research/01–07`; the technical plans are in `docs/design/`.
+
+| # | Area | Decision | Source |
 |---|---|---|---|
-| D1 | 愿景 | 为未来而建：协议从架构上支持从预训练到推理的全链路，并持续演进 | R2 |
-| D2 | 激励 | 奖励只挂在“被网络实际使用、有人付费、并且通过验证”的工作上 | R2 |
-| D3 | 资源 | 无许可接入 + 分层（T0 TEE / T1 数据中心 / T2 消费级 / T3 CPU / T4 存储） | R2 |
-| D4 | 密码学 | 从第一天起抗量子；实现可以不完美，但必须可插拔、可平滑升级 | R2 |
-| D5 | 路线 | 先服务最好的开源权重模型，逐步自研，目标媲美闭源 | R2 |
-| D6 | 中立 | 协议中立；内容策略由各服务提供者自行决定 | R2 |
-| D7 | 架构 | 自建 L1，基于 Polkadot SDK（Substrate）；AI 工作层借鉴 JAM 的 refine/accumulate + ELVES 模式 | R2/R3 |
-| D8 | 场景 | 第一年：钱包匿名调用顶级开源模型 API；给 Agent 提供链上可支付的推理 | R2 |
-| D9 | 代币 | 无预挖；BTC 式固定上限 | R2 |
-| D10 | 团队 | 一人 + AI 开发 | R2 |
-| D11 | 排放 | 硬顶 + 按需排放 + 未排部分滚存 | R3 |
-| D12 | 金库 | DAO 金库资金来自排放 | R3 |
-| D13 | 签名 | 100% 后量子签名，放弃 MetaMask / secp256k1 生态 | R3 |
-| D14 | 代币 | 总量 21,000,000 ATC，18 位小数 | R3 |
-| D15 | 排放 | 每 4 年阶梯式减半（计划排放 + 滚存储备，储备动用上限为计划额的 1 倍） | R4 |
-| D16 | 分配 | 验证者 10%（计划额，无条件）/ 市场工作 50% / 公共工作 20% / 金库 20% | R4 |
-| D17 | 品牌 | 项目 AgentCoin，代币 ATC | R4 |
-| D18 | 金库 | 金库 = max(5% 计划额保底, 与实际工作排放成比例的 20% 份额)（取较大值，不相加）（保底线性锁定 2 年，只能用于审计和冷启动）；社区赠款 + 持币人金库双账户 | R5 |
-| D19 | 创世 | PoA 验证者不领取安全预算（这部分滚存）；质押 ≥ 流通量的 10% 且验证者 ≥ N 时，自动切换到 PoS | R5 |
-| D20 | MVP | 统一 `Credit` 接口；α 版落实非 ZK 隐私措施；测试网只用透明额度；主网必须等匿名凭证通过审计 | R5 |
-| D21 | 交付 | 输出 MVP 版和全量版两套技术方案 | R5 |
-| D22 | 模型 | 社区模型权重完全开源；在本网络推理时抽取约 5% 分给训练贡献者 | R6 |
-| D23 | 计价 | 美元计价、ATC 结算 | R6 |
-| D24 | 宪法 | 总量 2100 万；协议层禁止内容审查和地域封锁；无预挖；PoA → PoS 切换条件 | R6 |
-| D25 | 治理 | 两院制：代币院 + 贡献者院（按工作分计票） | R6 |
-| D26 | 存储 | 专用存储层（权重、检查点、数据集） | R6 |
-| D27 | 隐私 | MVP：L0（私有转账、匿名凭证）；全量：L1（私密投票、密封竞价、私有兑换）；L2 只预留接口；不做 L3 | R7 |
-| D28 | 分润 | 激励代替强制（血统声明 + 路由优先） | R7 |
-| D29 | 汇率 | 过渡期由治理设定参考汇率（有调整幅度上限） | R7 |
-| D30 | 宪法 | 三层防护：节点强制不变式 / 宪法 + 护栏 / 分轨道日常治理 | R8 |
-| D31 | 工程 | 主要开发语言为 **Rust**；Python 仅限推理/训练引擎内部的薄插件（引擎本身为第三方） | R9 |
-| D32 | 工程 | 采用规格驱动开发（SDD），工具为 OpenSpec（`openspec/`）；先写规范、再写代码 | R10 |
+| D1 | Vision | Build for the future: the protocol architecturally supports the full pipeline from pre-training to inference and keeps evolving | R2 |
+| D2 | Incentives | Rewards attach only to work that the network actually used, that someone paid for, and that passed verification | R2 |
+| D3 | Resources | Permissionless onboarding + tiers (T0 TEE / T1 data center / T2 consumer / T3 CPU / T4 storage) | R2 |
+| D4 | Cryptography | Post-quantum from day one; the first implementation may be imperfect but must be pluggable and smoothly upgradable | R2 |
+| D5 | Roadmap | Serve the best open-weight models first, then progressively train our own, aiming to match closed models | R2 |
+| D6 | Neutrality | Protocol neutrality; content policy is decided by each service provider | R2 |
+| D7 | Architecture | Own L1 built on the Polkadot SDK (Substrate); the AI work layer borrows JAM's refine/accumulate + ELVES pattern | R2/R3 |
+| D8 | Use case | Year one: anyone calls top open-source model APIs anonymously from a wallet; on-chain-payable inference for agents | R2 |
+| D9 | Token | No premine; Bitcoin-style fixed cap | R2 |
+| D10 | Team | One person + AI | R2 |
+| D11 | Emission | Hard cap + demand-driven emission + unemitted amounts roll over | R3 |
+| D12 | Treasury | The DAO treasury is funded from emission | R3 |
+| D13 | Signatures | 100% post-quantum signatures; give up the MetaMask / secp256k1 ecosystem | R3 |
+| D14 | Token | Total supply 21,000,000 ATC, 18 decimals | R3 |
+| D15 | Emission | Stepwise halving every 4 years (scheduled emission + rollover reserve; reserve drawdown capped at 1× the scheduled amount) | R4 |
+| D16 | Allocation | Validators 10% (of the scheduled amount, unconditional) / market work 50% / public work 20% / treasury 20% | R4 |
+| D17 | Brand | Project AgentCoin, token ATC | R4 |
+| D18 | Treasury | Treasury = max(5% of scheduled amount as a floor, the 20% share proportional to actual work emission) (take the larger, do not add) (the floor vests linearly over 2 years and may only fund audits and cold start); two accounts: community grants + holder treasury | R5 |
+| D19 | Genesis | PoA validators receive no security budget (it rolls over); switch to PoS automatically once stake ≥ 10% of circulating supply and validators ≥ N | R5 |
+| D20 | MVP | Unified `Credit` interface; α ships non-ZK privacy measures; testnet uses only transparent credits; mainnet waits until anonymous vouchers pass an audit | R5 |
+| D21 | Deliverables | Produce two technical plans: MVP and full version | R5 |
+| D22 | Models | Community-model weights are fully open; about 5% of inference fees on this network go to training contributors | R6 |
+| D23 | Pricing | Priced in USD, settled in ATC | R6 |
+| D24 | Constitution | 21 million cap; no content censorship or geo-blocking at the protocol layer; no premine; PoA → PoS switch conditions | R6 |
+| D25 | Governance | Bicameral: token house + contributor house (votes weighted by work score) | R6 |
+| D26 | Storage | Dedicated storage layer (weights, checkpoints, datasets) | R6 |
+| D27 | Privacy | MVP: L0 (private transfers, anonymous vouchers); full: L1 (private voting, sealed bids, private swaps); L2 interfaces reserved only; no L3 | R7 |
+| D28 | Royalties | Incentives instead of enforcement (lineage declaration + routing priority) | R7 |
+| D29 | Exchange rate | During the transition, governance sets a reference rate (with a cap on each adjustment) | R7 |
+| D30 | Constitution | Three layers of protection: node-enforced invariants / constitution + guardrails / track-based day-to-day governance | R8 |
+| D31 | Engineering | Primary development language is **Rust**; Python only for thin plugins inside inference/training engines (the engines are third-party) | R9 |
+| D32 | Engineering | Spec-driven development (SDD) with OpenSpec (`openspec/`); specs first, then code | R10 |
+| D33 | Documentation | Project docs are bilingual with English first (English at the canonical path, Chinese in `*.zh-CN.md`, linked at the top); OpenSpec artifacts are Chinese only; code comments and commit messages are English | R11 |

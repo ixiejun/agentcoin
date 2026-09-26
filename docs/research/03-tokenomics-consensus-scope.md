@@ -1,157 +1,159 @@
-# 第三轮：代币经济、矿工参与共识、MVP 与全量范围
+> 🌐 **English** | [简体中文](03-tokenomics-consensus-scope.zh-CN.md)
 
-> 状态：讨论稿（Round 3）。日期：2026-09。
+# Round 3: Token Economics, Miners in Consensus, MVP vs. Full Scope
 
-## 新增已确认决策
+> Status: discussion draft (Round 3). Date: 2026-09.
 
-| # | 决策 |
+## Newly confirmed decisions
+
+| # | Decision |
 |---|---|
-| D11 | 硬顶 + 按需排放 + 未排部分滚存 |
-| D12 | DAO 金库资金来自排放中的固定比例（无预挖） |
-| D13 | **100% 后量子签名**，放弃 MetaMask / secp256k1 生态 |
-| D14 | 总量倾向 BTC 的 2100 万 |
+| D11 | Hard cap + demand-driven emission + unemitted amounts roll over |
+| D12 | The DAO treasury is funded by a fixed share of emission (no premine) |
+| D13 | **100% post-quantum signatures**; give up the MetaMask / secp256k1 ecosystem |
+| D14 | Total supply leaning towards Bitcoin's 21 million |
 
 ---
 
-## 1. 代币参数
+## 1. Token parameters
 
-### 1.1 参考：BTC 与 Polkadot（Ref 1710）
+### 1.1 References: Bitcoin and Polkadot (Ref 1710)
 
-| | BTC | Polkadot（Ref 1710，2026-03-14 生效） |
+| | Bitcoin | Polkadot (Ref 1710, effective 2026-03-14) |
 |---|---|---|
-| 上限 | 2100 万 | 21 亿 DOT |
-| 曲线 | 每 21 万块（约 4 年）减半，阶梯式 | **每 2 年，发行“剩余可发行量”的 13.14%**，几何递减、逼近上限 |
-| 首次调整 | — | 年增发从 1.2 亿降到约 5688 万（-53.6%），通胀从 7.5% 降到约 3.3% |
-| 半衰期 | 4 年 | 约 9.8 年 |
-| 与需求挂钩 | 否 | 否 |
+| Cap | 21 million | 2.1 billion DOT |
+| Curve | Halving every 210,000 blocks (~4 years), stepwise | **Every 2 years, issue 13.14% of the "remaining issuable supply"**, geometric decay approaching the cap |
+| First adjustment | — | Annual issuance cut from 120M to ~56.88M (−53.6%); inflation from 7.5% to ~3.3% |
+| Half-life | 4 years | ~9.8 years |
+| Tied to demand | No | No |
 
-### 1.2 关键发现：“按剩余量比例排放”天然实现滚存
+### 1.2 Key finding: "emission proportional to the remainder" gives rollover for free
 
-Polkadot 模型的本质是 `本期最大排放 = r × (上限 − 已铸造)`。**如果某期因为需求不足少排了，剩余量就更大，未来每期可排的额度自动变多。** 不需要单独的“滚存池”，也不需要维护状态，总量永远不会超过上限。这正好是 D11 所需要的。
+The essence of Polkadot's model is `max emission this period = r × (cap − minted)`. **If a period emits less because of low demand, the remainder is larger and every future period's allowance grows automatically.** No separate "rollover pool" and no extra state are needed, and the total can never exceed the cap. This is exactly what D11 needs.
 
-### 1.3 建议参数
+### 1.3 Proposed parameters
 
-| 参数 | 建议值 | 说明 |
+| Parameter | Proposed value | Notes |
 |---|---|---|
-| 总量上限 | **21,000,000** | D14 |
-| 精度 | **18 位小数** | 按 token 计费的推理需要微支付，BTC 的 8 位精度不够；与 EVM 生态一致；`2.1e25` 可以放进 `u128` |
-| 最大排放曲线 | `E_max(epoch) = r × (Cap − Minted)` | Polkadot 式几何递减 |
-| r | **每 4 年 50%**（按日计算 r ≈ 0.000474） | 保留 BTC 的“4 年减半”节奏；在需求充足时，4 年累计 1050 万，8 年 1575 万，16 年约 1969 万 |
-| 平滑还是阶梯 | 默认按日平滑；也可以做成每 4 年阶梯减半，保留“减半事件”的叙事 | **待你决定** |
-| 出块时间 | 目标 **500ms**，MVP 先做 1s | 见 §2 |
-| 最终性 | 目标 ≤1s，MVP ≤3s | |
-| 排放结算周期 | 1 小时（epoch） | 工作验证有延迟，按 epoch 批量结算 |
+| Cap | **21,000,000** | D14 |
+| Precision | **18 decimals** | Per-token inference billing needs micropayments; Bitcoin's 8 decimals are not enough; consistent with the EVM ecosystem; `2.1e25` fits in `u128` |
+| Maximum emission curve | `E_max(epoch) = r × (Cap − Minted)` | Polkadot-style geometric decay |
+| r | **50% per 4 years** (daily r ≈ 0.000474) | Keeps Bitcoin's "halving every 4 years" rhythm; with full demand, 10.5M after 4 years, 15.75M after 8, ~19.69M after 16 |
+| Smooth or stepwise | Smooth daily by default; could instead halve stepwise every 4 years to keep the "halving event" narrative | **Your call** |
+| Block time | Target **500ms**, 1s for the MVP first | See §2 |
+| Finality | Target ≤1s, ≤3s for the MVP | |
+| Emission settlement period | 1 hour (epoch) | Work verification lags, so settle in per-epoch batches |
 
-### 1.4 每期排放如何分配
+### 1.4 How each period's emission is split
 
-`E_max` 分成四份：
+`E_max` is split four ways:
 
-| 份额 | 比例（草案） | 是否受需求约束 | 用途 |
+| Share | Ratio (draft) | Demand-gated? | Purpose |
 |---|---|---|---|
-| 安全预算 | 10% | **否**，每期固定排放 | BFT 验证者；即使没有需求也要维持链的安全 |
-| DAO 金库 | 10% | 否 | 基金会、开发、审计、冷启动采购（D12） |
-| 市场工作 | 最高 60% | **是**：`min(份额, k × 已验证付费)` | 付费推理、训练 |
-| 公共工作 | 最高 20% | 是：只针对 DAO 发布的任务 | 社区模型训练、评测、数据处理 |
+| Security budget | 10% | **No**, fixed each period | BFT validators; the chain must stay secure even without demand |
+| DAO treasury | 10% | No | Foundation, development, audits, cold-start procurement (D12) |
+| Market work | Up to 60% | **Yes**: `min(share, k × verified paid work)` | Paid inference, training |
+| Public work | Up to 20% | Yes: only for DAO-published jobs | Community-model training, evaluation, data processing |
 
-没排出去的份额留在“剩余可发行量”里，自动滚存（§1.2）。
+Unemitted shares stay in the "remaining issuable supply" and roll over automatically (§1.2).
 
-### 1.5 自刷问题的严格分析
+### 1.5 A rigorous look at self-dealing
 
-设自刷者付费 `F`，销毁比例为 `b`，排放倍数为 `k`，完成工作的真实算力成本为 `C`：
+Let the self-dealer pay `F`, the burn ratio be `b`, the emission multiplier `k`, and the real compute cost of doing the work `C`:
 
 ```
-自刷净收益 = (1−b)F [作为提供者收回] + kF [排放] − F [付出] − C [真实算力]
-          = (k − b)F − C
+Net profit of self-dealing = (1−b)F [recovered as the provider] + kF [emission] − F [paid] − C [real compute]
+                           = (k − b)F − C
 ```
 
-- 如果工作**经过验证、真实完成**，自刷者就必须真的消耗算力 `C`。这时“自刷”在本质上等于 **BTC 挖矿：用真实算力换代币**，而且产出是有用的。**这不是攻击，而是我们想要的行为。**
-- 真正的威胁只有两个：
-  1. **伪造工作**（`C ≈ 0`）→ 由验证层负责：随机审计、TOPLOC、罚没。
-  2. **无用工作**（算了，但没人需要结果）→ 用“公共工作队列”兜底：空闲矿工默认去做 DAO 发布的训练和评测任务。**这就是我们的“挖矿”：空闲算力推进社区模型的训练。**
-- 参数约束：`k − b < C/F`（算力成本占价格的比例，通常 0.5–0.8），保证伪造工作即使逃过审计，收益也有限。再叠加付费方集中度衰减和审计罚没的期望损失。
+- If the work is **verified and really done**, the self-dealer must actually spend compute `C`. "Self-dealing" is then essentially **Bitcoin mining: trading real compute for tokens**, except the output is useful. **That is not an attack; it is the behavior we want.**
+- Only two real threats remain:
+  1. **Fabricated work** (`C ≈ 0`) → handled by the verification layer: random audits, TOPLOC, slashing.
+  2. **Useless work** (computed, but nobody needs the result) → the "public job queue" is the backstop: idle miners default to DAO-published training and evaluation jobs. **This is our "mining": idle compute advances training of the community model.**
+- Parameter constraint: `k − b < C/F` (compute cost as a share of price, typically 0.5–0.8), so even fabricated work that escapes audits earns little. Add payer-concentration decay and the expected loss from audit slashing on top.
 
 ---
 
-## 2. 矿工能否参与出块和投票？
+## 2. Can miners take part in block production and voting?
 
-### 2.1 三个层级
+### 2.1 Three levels
 
-| 层级 | 描述 | 参考 |
+| Level | Description | Reference |
 |---|---|---|
-| **L0 分离** | 矿工只做工作、拿排放；出块和投票由质押验证者负责 | Bittensor（矿工不出块）、以太坊 |
-| **L1 工作加权选举** | 每个 epoch 选出 BFT 委员会（约 100–300 席），权重 = `stake^α × workscore^β`；矿工**必须同时质押**才能入选 | 新设计 |
-| **L2 工作即共识权** | 出块资格直接按已验证工作量加权 | Filecoin EC（按存储算力选举，安全阈值约 20% 敌对存储） |
+| **L0 Separated** | Miners only do work and earn emission; staked validators produce blocks and vote | Bittensor (miners do not produce blocks), Ethereum |
+| **L1 Work-weighted election** | Each epoch elects a BFT committee (~100–300 seats) with weight = `stake^α × workscore^β`; miners **must also stake** to be selected | New design |
+| **L2 Work as consensus power** | Block-production eligibility weighted directly by verified work | Filecoin EC (election by storage power; safety threshold ~20% adversarial storage) |
 
-### 2.2 为什么不能只靠“工作量”获得共识权
+### 2.2 Why work alone must not confer consensus power
 
-1. **GPU 是通用硬件，没有“沉没成本安全”**。BTC 的安全来自 ASIC 只能挖 BTC，攻击等于自毁投资。GPU 可以随时从云上租来，也可以随时撤走，攻击后几乎没有损失（类似 NiceHash 租算力攻击）。
-2. **算力做完就没了，无法持续证明**。存储可以持续证明“我还存着”（Filecoin），算力做不到。工作分只能是“过去一段时间的流量”，天然滞后，而且可以集中突击。
-3. **工作分可以部分被收买**（§1.5 自刷）：拿到共识权的成本约等于付费 + 算力成本，而且不像质押那样可以罚没。
-4. **BFT 安全要求可罚没的抵押品**。作恶时必须有东西可以扣，而工作分扣不了钱。
+1. **GPUs are general-purpose hardware without "sunk-cost security"**. Bitcoin's security comes from ASICs that can only mine Bitcoin, so an attack destroys the attacker's own investment. GPUs can be rented from the cloud at any time and withdrawn at any time, so attacks cost almost nothing afterwards (like NiceHash hash-rental attacks).
+2. **Compute is gone once used and cannot be proven continuously**. Storage can keep proving "I still hold it" (Filecoin); compute cannot. A work score can only be "flow over a past window" — inherently lagging, and open to concentrated bursts.
+3. **Work scores can be partly bought** (§1.5 self-dealing): consensus power would cost roughly fees + compute, and unlike stake it cannot be slashed.
+4. **BFT safety needs slashable collateral**. There must be something to take away on misbehavior, and a work score cannot be fined.
 
-**所以：质押是安全底线，工作分是“参与权”的放大器。**
+**Hence: stake is the security floor; work score is an amplifier of participation.**
 
-### 2.3 建议路径
+### 2.3 Recommended path
 
-- **阶段 1（MVP）：L0**。同时让矿工参与**工作验证层的投票**：CPU 节点和 GPU 节点可以担任 ELVES 式审计员，对工作报告投票（有效或无效），审计本身也是一种有用工作并获得奖励。这就是矿工最早能参与的“投票”。
-- **阶段 2：L1**。委员会选举引入 workscore（例如 `α=0.5, β=0.5` 的几何加权），设置最低质押门槛，工作分使用 30 天滑动窗口。接口在阶段 1 就预留好：`ValidatorElection` trait 从一开始就接收 `(stake, workscore)`。
-- **不做 L2**，理由见 §2.2。
+- **Phase 1 (MVP): L0**, while letting miners **vote in the work-verification layer**: CPU and GPU nodes can act as ELVES-style auditors voting valid/invalid on work reports; auditing is itself useful work and is rewarded. This is the earliest "voting" miners can take part in.
+- **Phase 2: L1**. Committee election adds the work score (e.g. geometric weighting with `α=0.5, β=0.5`), a minimum stake threshold, and a 30-day sliding window for work scores. The interface is reserved in phase 1: the `ValidatorElection` trait takes `(stake, workscore)` from the start.
+- **No L2**, for the reasons in §2.2.
 
 ---
 
-## 3. 100% 后量子签名的连锁影响
+## 3. Knock-on effects of 100% post-quantum signatures
 
-| 影响 | 处理 |
+| Effect | Handling |
 |---|---|
-| 以太坊交易格式（RLP + secp256k1）不可用 | 只接受链原生交易；`pallet-revive` 通过 Substrate extrinsic 调用合约 |
-| Hardhat / Foundry 工具链 | 自建 **eth-RPC 适配器**，由它调用本地 PQ 签名器（Foundry 支持外部签名器接口）；部署和调用体验尽量保持一致 |
-| 钱包 | 自研：命令行钱包（MVP）→ 浏览器扩展 → 移动端 |
-| 地址 | 原生 32 字节 AccountId = `H(alg_id ‖ pk)`；EVM 视图下用 20 字节映射。**注意**：20 字节地址在量子碰撞攻击下安全性下降（BHT 算法约 2^53），因此 CREATE2 等依赖地址唯一性的场景应以 32 字节为准；这是以太坊社区也在讨论的问题 |
-| `ecrecover` 预编译 | 保留给应用逻辑（验证旧签名），但**不能用于账户授权** |
-| 新增预编译 | `ml_dsa_verify`、`slh_dsa_verify`、`falcon_verify`（预留），供合约内做 PQ 验签 |
-| 共识签名 | ML-DSA-44（签名 2.4KB）；100 个验证者 × 每块 2 轮投票 × 每秒 2 块，约 1MB/s 的广播流量，可以接受；以后用 STARK 聚合 |
-| 出块者选举 | **不用 VRF**（目前没有标准化的 PQ VRF）；采用按质押加权的确定性轮换（HotStuff / Monad 式） |
-| 链上随机数（审计抽样用） | 哈希承诺-揭示（RANDAO 式）；以后可以加基于哈希链的 VDF（用 STARK 证明，抗量子）；**不用 BLS 门限随机数** |
-| 哈希 | 全部 256 位输出（抵御 Grover）；链上用 BLAKE3 / SHA3，ZK 电路内用 Poseidon2 |
-| 加密 | ML-KEM-768 + X25519 混合（传输层和笔记加密） |
-| ZK | 只用 STARK / FRI 系列，**不用 Groth16 / KZG / BLS** |
+| The Ethereum transaction format (RLP + secp256k1) is unusable | Only chain-native transactions; `pallet-revive` calls contracts via Substrate extrinsics |
+| Hardhat / Foundry tooling | Build an **eth-RPC adapter** that calls a local PQ signer (Foundry supports external signers); keep the deploy/call experience as close as possible |
+| Wallets | Built in-house: CLI wallet (MVP) → browser extension → mobile |
+| Addresses | Native 32-byte AccountId = `H(alg_id ‖ pk)`; a 20-byte mapping in the EVM view. **Note**: 20-byte addresses lose security under quantum collision attacks (BHT algorithm ~2^53), so logic relying on address uniqueness such as CREATE2 should use the 32-byte form; the Ethereum community is discussing the same issue |
+| `ecrecover` precompile | Kept for application logic (verifying legacy signatures) but **never for account authorization** |
+| New precompiles | `ml_dsa_verify`, `slh_dsa_verify`, `falcon_verify` (reserved) for PQ signature checks inside contracts |
+| Consensus signatures | ML-DSA-44 (2.4 KB signatures); 100 validators × 2 votes per block × 2 blocks per second ≈ 1 MB/s of gossip, acceptable; STARK aggregation later |
+| Leader election | **No VRF** (no standardized PQ VRF exists yet); stake-weighted deterministic rotation (HotStuff / Monad style) |
+| On-chain randomness (for audit sampling) | Hash commit–reveal (RANDAO style); later a hash-chain VDF (proven by STARKs, post-quantum); **no BLS threshold randomness** |
+| Hashing | All 256-bit outputs (against Grover); BLAKE3 / SHA3 on chain, Poseidon2 inside ZK circuits |
+| Encryption | ML-KEM-768 + X25519 hybrid (transport and note encryption) |
+| ZK | STARK / FRI family only, **no Groth16 / KZG / BLS** |
 
-**加密敏捷性的设计原则**：每个签名、公钥、密文都带 `alg_id`；验证逻辑放在 runtime（WASM）里，可以通过无分叉升级替换；性能敏感的原语放在节点 host function 里，新增算法时需要节点升级，但**不需要硬分叉链的历史**；账户支持“换钥交易”（旧算法签名授权绑定新算法公钥）。
+**Design principles for crypto agility**: every signature, public key and ciphertext carries an `alg_id`; verification logic lives in the runtime (WASM) and can be replaced with forkless upgrades; performance-sensitive primitives live in node host functions — a new algorithm needs a node upgrade but **no hard fork of chain history**; accounts support a "key-rotation transaction" (the old algorithm's signature authorizes binding a new algorithm's public key).
 
 ---
 
-## 4. MVP 与全量范围
+## 4. MVP and full scope
 
-### 4.1 MVP（测试网 → 主网 Beta，一人 + AI，12–18 个月）
+### 4.1 MVP (testnet → Mainnet Beta, one person + AI, 12–18 months)
 
-**MVP 能实现的完整故事**：
+**The end-to-end story the MVP can deliver**:
 
-> 用户用 PQ 钱包买入代币，存入屏蔽池，铸造匿名推理额度。然后通过兼容 OpenAI 的 API，匿名调用 DeepSeek / Qwen 等顶级开源模型，并获得流式输出。Agent 用同样的额度按次付费。GPU 提供者（数据中心卡和消费级卡）注册、质押、接单，获得费用和排放；随机审计员抽查结果，作弊者被罚没。空闲 GPU 去做 DAO 发布的评测和数据任务。开发者用 Solidity 部署 DApp。
+> A user buys tokens with a PQ wallet, deposits them into the shielded pool and mints anonymous inference credits. Through an OpenAI-compatible API they anonymously call top open models such as DeepSeek / Qwen and receive streamed output. Agents pay per call with the same credits. GPU providers (data-center and consumer cards) register, stake, take jobs, and earn fees and emission; random auditors spot-check results and cheaters are slashed. Idle GPUs run DAO-published evaluation and data jobs. Developers deploy DApps in Solidity.
 
-| 模块 | 内容 | 阶段 |
+| Module | Content | Phase |
 |---|---|---|
-| M1 链核心 | Polkadot SDK 独立链；PQ 账户（ML-DSA，带 alg_id）；出块用 Aura（PQ 签名），最终性先用 PQ 化改造的 GRANDPA 或简化版 HotStuff-2；1s 出块 | α |
-| M2 代币经济 | 2100 万上限、几何排放、四份分配、销毁、按 epoch 结算 | α |
-| M3 EVM | `pallet-revive`（REVM）+ PQ 验签预编译 + eth-RPC 适配器 + 命令行钱包 | α |
-| M4 推理市场 | 提供者注册（层级 T1/T2、模型哈希、价格、质押）、预付额度、结算、罚没 | α |
-| M5 推理网关 | OpenAI 兼容 API、流式输出、按延迟和价格路由、提供者端 vLLM / SGLang 适配 | α |
-| M6 验证层 | 随机审计员抽样 + TOPLOC 证明 + 争议投票 + 罚没 | α |
-| M7 屏蔽池 + 匿名推理凭证 | STARK（Plonky3 / Stwo 类）+ Poseidon2 + ML-KEM 混合；Nullifier 防双花 | **β** |
-| M8 公共工作队列（精简版） | DAO 发布评测和数据处理任务，作为空闲算力的去处 | β |
-| M9 治理（精简版） | 测试网用 sudo → 多签 → 主网前换成代币投票；**主网前必须移除 sudo** | β |
+| M1 Chain core | Polkadot SDK standalone chain; PQ accounts (ML-DSA with alg_id); Aura block production (PQ signed), finality first via PQ-retrofitted GRANDPA or a simplified HotStuff-2; 1s blocks | α |
+| M2 Token economics | 21M cap, geometric emission, four-way split, burning, per-epoch settlement | α |
+| M3 EVM | `pallet-revive` (REVM) + PQ verification precompiles + eth-RPC adapter + CLI wallet | α |
+| M4 Inference market | Provider registration (tier T1/T2, model hash, price, stake), prepaid credits, settlement, slashing | α |
+| M5 Inference gateway | OpenAI-compatible API, streaming, routing by latency and price, provider-side vLLM / SGLang adapters | α |
+| M6 Verification layer | Random auditor sampling + TOPLOC proofs + dispute votes + slashing | α |
+| M7 Shielded pool + anonymous inference vouchers | STARKs (Plonky3 / Stwo style) + Poseidon2 + ML-KEM hybrid; nullifiers against double spends | **β** |
+| M8 Public job queue (lite) | DAO-published evaluation and data-processing jobs as the sink for idle compute | β |
+| M9 Governance (lite) | sudo on testnet → multisig → token voting before mainnet; **sudo must be removed before mainnet** | β |
 
-**MVP 不包含**：TEE 机密层、训练和 RL、存储证明、私有合约、工作加权共识、混合网络、跨链桥、500ms 出块。
+**Not in the MVP**: TEE confidential tier, training and RL, storage proofs, private contracts, work-weighted consensus, mixnet, cross-chain bridges, 500ms blocks.
 
-### 4.2 全量范围（按阶段）
+### 4.2 Full scope (by phase)
 
-| 阶段 | 新增能力 |
+| Phase | New capabilities |
 |---|---|
-| **P2 服务扩展** | T0 TEE 机密推理（GPU CC 远程证明 + 链上吊销列表）；**RL 后训练**（T2 消费级 GPU 做 rollout）；LoRA / SFT 微调任务；T4 存储层（权重、检查点、数据集分发与存储证明）；500ms 出块 + 1s 以内最终性（快速 BFT + STARK 签名聚合）；完整的 OpenGov 式治理；浏览器扩展和移动钱包 |
-| **P3 训练与共识** | 去中心化预训练（DiLoCo / DisTrO 式低通信训练 + Verde 式可复现验证）；社区模型注册与收益分成；**L1 工作加权验证者选举**；混合网络（IP 隐私）；私有合约研究（Noir 或 PVM 私有执行）；PQ 安全的跨链桥 |
-| **P4 前沿化** | 大规模 MoE 去中心化训练；迁移到 JAM 式 refine/accumulate 执行模型，或者成为 JAM 服务；追平闭源模型 |
+| **P2 Service expansion** | T0 TEE confidential inference (GPU CC remote attestation + on-chain revocation list); **RL post-training** (rollouts on T2 consumer GPUs); LoRA / SFT fine-tuning jobs; T4 storage layer (distribution and storage proofs for weights, checkpoints, datasets); 500ms blocks + sub-second finality (fast BFT + STARK signature aggregation); full OpenGov-style governance; browser-extension and mobile wallets |
+| **P3 Training and consensus** | Decentralized pre-training (DiLoCo / DisTrO-style low-communication training + Verde-style reproducible verification); community-model registration and revenue sharing; **L1 work-weighted validator election**; mixnet (IP privacy); private-contract research (Noir or private PVM execution); PQ-safe cross-chain bridges |
+| **P4 Frontier** | Large-scale decentralized MoE training; migrate to a JAM-style refine/accumulate execution model or become a JAM service; catch up with closed models |
 
-## 来源
+## Sources
 
-- Polkadot Ref 1710：https://polkadot.polkassembly.io/referenda/1710 · https://bex.co/blog/2026/03/14/polkadot-pi-day-hard-cap-2-1b-dot-supply-cap-tokenomics-revolution · https://bitcoinethereumnews.com/tech/polkadot-adopts-2-1b-cap-issuance-cuts-begin-mar-2026/ · https://forum.polkadot.network/t/wfc-completing-the-1710-monetary-reform/18448
-- Bittensor 角色：https://docs.learnbittensor.org/learn/anatomy-of-incentive-mechanism · https://arxiv.org/pdf/2507.02951
-- Filecoin EC 安全性：https://arxiv.org/abs/2308.06955 · https://spec.filecoin.io/systems/filecoin_blockchain/storage_power_consensus/
+- Polkadot Ref 1710: https://polkadot.polkassembly.io/referenda/1710 · https://bex.co/blog/2026/03/14/polkadot-pi-day-hard-cap-2-1b-dot-supply-cap-tokenomics-revolution · https://bitcoinethereumnews.com/tech/polkadot-adopts-2-1b-cap-issuance-cuts-begin-mar-2026/ · https://forum.polkadot.network/t/wfc-completing-the-1710-monetary-reform/18448
+- Bittensor roles: https://docs.learnbittensor.org/learn/anatomy-of-incentive-mechanism · https://arxiv.org/pdf/2507.02951
+- Filecoin EC security: https://arxiv.org/abs/2308.06955 · https://spec.filecoin.io/systems/filecoin_blockchain/storage_power_consensus/

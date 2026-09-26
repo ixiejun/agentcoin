@@ -1,5 +1,5 @@
 # CLAUDE.md
 
-本仓库的编码智能体守则见 AGENT.md，必须完整遵循：
+The coding-agent guide for this repository is AGENT.md (Chinese version: AGENT.zh-CN.md). Follow it in full:
 
 @AGENT.md

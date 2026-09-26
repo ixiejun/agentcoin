@@ -1,179 +1,181 @@
-# 第二轮调研：Polkadot/JAM、共识机制、隐私边界、TEE
+> 🌐 **English** | [简体中文](02-polkadot-consensus-privacy-tee.zh-CN.md)
 
-> 状态：讨论稿（Round 2）。日期：2026-09。
+# Research Round 2: Polkadot/JAM, Consensus, the Privacy Boundary, TEEs
 
-## 已确认的决策（来自第一轮讨论）
+> Status: discussion draft (Round 2). Date: 2026-09.
 
-| # | 决策 |
+## Decisions confirmed (from round 1)
+
+| # | Decision |
 |---|---|
-| D1 | 为未来而建：去中心化预训练现在落后约 1000 倍，但协议必须从架构上支持训练，并持续演进 |
-| D2 | 奖励只挂在“被网络实际使用、有人付费、并且通过验证”的工作上，不奖励“在线”或“接入” |
-| D3 | 无许可接入 + 分层：消费级 GPU、TEE GPU、CPU、存储都能“挖矿”，按能力领取不同的任务等级 |
-| D4 | 抗量子从第一天开始，实现可以不完美，但必须能平滑替换 |
-| D5 | 路线：先服务最好的开源权重模型，再逐步自研，目标是媲美闭源 |
-| D6 | 协议中立；内容策略由各服务提供者自己决定 |
-| D7 | 自建 L1，倾向 Substrate（Polkadot SDK）或 JAM |
-| D8 | 第一年场景：任何人用钱包匿名调用顶级开源模型 API；给 Agent 提供链上可支付的推理 |
-| D9 | 无预挖；可能有融资和基金会；BTC 式固定总量上限 |
-| D10 | 一人 + AI 开发，从零自研 |
+| D1 | Build for the future: decentralized pre-training is ~1000× behind today, but the protocol must architecturally support training and keep evolving |
+| D2 | Reward only work that the network actually used, that someone paid for, and that passed verification — never "being online" or "being connected" |
+| D3 | Permissionless onboarding + tiers: consumer GPUs, TEE GPUs, CPUs and storage can all "mine", taking task tiers that match their capabilities |
+| D4 | Post-quantum from day one; the implementation may be imperfect but must be smoothly replaceable |
+| D5 | Roadmap: serve the best open-weight models first, then progressively train our own, aiming to match closed models |
+| D6 | Protocol neutrality; content policy is decided by each service provider |
+| D7 | Own L1, leaning towards Substrate (Polkadot SDK) or JAM |
+| D8 | Year-one use case: anyone calls top open-model APIs anonymously from a wallet; on-chain-payable inference for agents |
+| D9 | No premine; possibly fundraising and a foundation; Bitcoin-style fixed supply cap |
+| D10 | One person + AI, built from scratch |
 
 ---
 
-## 1. Polkadot / JAM / Polkadot Cloud 调研
+## 1. Polkadot / JAM / Polkadot Cloud
 
-### 1.1 JAM（Join-Accumulate Machine）
+### 1.1 JAM (Join-Accumulate Machine)
 
-- **定位**：把 Polkadot 从“中继链 + 平行链”泛化为“去中心化计算机”。平行链只是其中一种服务（CoreChains），另外还有 CoreVM（通用 VM）、CorePlay（actor 模型）。
-- **计算模型**：
-  - **Refine**（链下、在“核”上并行、重计算、无状态）→ 产出 work report
-  - **Accumulate**（链上、轻量、有状态）→ 把结果并入全局状态
-  - 执行环境是 **PVM**（基于 RISC-V），确定性、可计量 gas
-- **安全模型 ELVES**：一小组验证者（backing group）先执行并担保；随后全网验证者**随机、隐蔽**地抽查（auditing）；有人报告不一致时升级为全员复核，作恶方被罚没。数据可用性靠纠删码分片（DA 层）。
-- **出块**：SAFROLE（由 SASSAFRAS 简化而来），基于 Ring-VRF 和 zkSNARK 的匿名出块者抽签，几乎无分叉，**时隙 6 秒**。最终性由 GRANDPA 提供，约 3 个块，也就是 18 秒左右。
-- **规模**：设计上限 1023 个验证者、341 个核；实测 1023 节点网络，PolkaJAM 压测用满 64 个核；Gray Paper 估算约 1500 亿 gas/s。
-- **进度**：Gray Paper v0.8（2025 年底），2026 年初出预审计终稿；43 个实现团队、15 份提交；2026 年 7 月上了公开测试网；**平行链迁移到 JAM 的目标是 2027 年量产**，并且需要 OpenGov 公投通过。
+- **Positioning**: generalizes Polkadot from "relay chain + parachains" into a "decentralized computer". Parachains become just one service (CoreChains), alongside CoreVM (a general VM) and CorePlay (an actor model).
+- **Computation model**:
+  - **Refine** (off-chain, parallel on "cores", heavy compute, stateless) → produces a work report
+  - **Accumulate** (on-chain, lightweight, stateful) → folds results into global state
+  - The execution environment is **PVM** (RISC-V based): deterministic and gas-metered
+- **Security model ELVES**: a small group of validators (the backing group) executes first and vouches; then validators across the network audit **randomly and covertly**; any reported discrepancy escalates to a full re-check and the misbehaving party is slashed. Data availability comes from erasure-coded shards (the DA layer).
+- **Block production**: SAFROLE (simplified from SASSAFRAS), anonymous leader selection based on Ring-VRF and zkSNARKs, nearly fork-free, **6-second slots**. Finality comes from GRANDPA in about 3 blocks, i.e. ~18 seconds.
+- **Scale**: designed for up to 1023 validators and 341 cores; a 1023-node network has been run, and PolkaJAM was stress-tested using 64 cores; the Gray Paper estimates ~150 billion gas/s.
+- **Progress**: Gray Paper v0.8 (end of 2025), final pre-audit draft in early 2026; 43 implementation teams, 15 submissions; public testnet in July 2026; **migrating parachains to JAM targets production in 2027** and requires passing an OpenGov referendum.
 
 ### 1.2 Polkadot Hub / Polkadot Cloud
 
-- **Polkadot Hub**：系统平行链，支持双 VM，即 **REVM**（Rust 实现的 EVM，Solidity 工具链原样可用）和 **PVM**（RISC-V，面向计算密集型合约），模块名是 `pallet-revive`。
-- **出块时间**：2026-01 Hub 从 6 秒降到 2 秒；通过 elastic scaling（一条平行链同时占用多个核）目标 500ms（需要约 12 个核）。Yapchain 已经端到端演示过 500ms 出块。
-- **Polkadot Cloud**：官方把 Polkadot 整体（coretime、Hub、JAM 服务）重新包装成“去中心化云”的品牌叙事，本质是出售 **coretime（核时间）**。需要注意，它卖的是**确定性 CPU 计算和数据可用性**，**不是 GPU 算力**。
-- **2026 年 3 月**：DOT 首次“减半”，年增发削减约 54%，并设定 21 亿枚硬顶。这与你的 BTC 式硬顶思路一致。
+- **Polkadot Hub**: a system parachain with dual VMs — **REVM** (an EVM in Rust; Solidity tooling works unchanged) and **PVM** (RISC-V, for compute-heavy contracts) — in the `pallet-revive` module.
+- **Block time**: in 2026-01 the Hub went from 6 to 2 seconds; elastic scaling (one parachain using several cores at once) targets 500ms (needing about 12 cores). Yapchain has demonstrated 500ms blocks end to end.
+- **Polkadot Cloud**: the official rebranding of Polkadot as a whole (coretime, Hub, JAM services) as a "decentralized cloud"; in essence it sells **coretime**. Note that it sells **deterministic CPU compute and data availability**, **not GPU compute**.
+- **March 2026**: DOT's first "halving" cut annual issuance by about 54% and set a hard cap of 2.1 billion — consistent with your Bitcoin-style hard-cap idea.
 
-### 1.3 需要澄清的认知：速度
+### 1.3 A misconception to clear up: speed
 
-| 指标 | Polkadot Hub | JAM | Monad | Solana Alpenglow |
+| Metric | Polkadot Hub | JAM | Monad | Solana Alpenglow |
 |---|---|---|---|---|
-| 出块 / 软确认 | 2s，目标 500ms | 6s 时隙 | 400ms | 约 400ms 时隙 |
-| **最终性** | 取决于中继链 GRANDPA，**十几秒** | 约 18s | 约 800ms | **100–150ms**（测试网） |
-| 优势 | 吞吐（多核并行） | 吞吐（341 核） | 低延迟 + EVM | 最低最终性延迟 |
+| Block / soft confirmation | 2s, 500ms target | 6s slots | 400ms | ~400ms slots |
+| **Finality** | Depends on the relay chain's GRANDPA: **over ten seconds** | ~18s | ~800ms | **100–150ms** (testnet) |
+| Strength | Throughput (multi-core parallelism) | Throughput (341 cores) | Low latency + EVM | Lowest finality latency |
 
-**结论**：Polkadot 和 JAM 的强项是**吞吐量和并行**，不是**最终性延迟**。500ms / 600ms 指的是平行链的出块间隔，不是最终确认。JAM 的时隙是 6 秒，并不比现在的 Polkadot 更短。如果追求亚秒最终性，应参考 Monad（MonadBFT）和 Alpenglow（Votor），并用 HotStuff-2 / Jolteon 系列 BFT 替换 GRANDPA。
+**Conclusion**: Polkadot's and JAM's strength is **throughput and parallelism**, not **finality latency**. The 500ms / 600ms figures are parachain block intervals, not final confirmation. JAM's slot is 6 seconds, no shorter than today's Polkadot. For sub-second finality, look to Monad (MonadBFT) and Alpenglow (Votor), and replace GRANDPA with a HotStuff-2 / Jolteon-family BFT.
 
-**对我们的意义**：推理体验并不依赖链的最终性。推理走链下的预付额度或支付通道，链只做结算。链的延迟主要影响 DeFi 和 Agent 之间的原子结算，目标定在“500ms 出块、≤1s 最终性”已经足够领先。
+**What it means for us**: inference experience does not depend on chain finality. Inference runs on off-chain prepaid credits or payment channels, and the chain only settles. Chain latency mainly affects atomic settlement in DeFi and between agents; a target of "500ms blocks, ≤1s finality" is already well ahead.
 
-### 1.4 Substrate、JAM 还是 Polkadot 平行链？
+### 1.4 Substrate, JAM, or a Polkadot parachain?
 
-| 选项 | 优点 | 缺点 | 结论 |
+| Option | Pros | Cons | Verdict |
 |---|---|---|---|
-| **A. Polkadot SDK 独立链（solochain）** | 成熟的生产级框架；**无分叉 runtime 升级**（WASM runtime 链上替换，天然支持“可插拔、无痛升级”）；共识可插拔；有 `pallet-revive`（EVM）；密码学抽象（`MultiSignature` / `sp_application_crypto`）可以扩展新算法 | GRANDPA/BABE 的最终性偏慢，需要自己替换成快速 BFT；代码量大 | **推荐作为起点** |
-| B. 做 Polkadot 平行链 | 共享安全、可用 elastic scaling | 依赖 DOT 和 coretime；加密原语受中继链约束，**抗量子进度由 Polkadot 决定**；与“自建 L1、主权”相悖 | 不推荐 |
-| C. 分叉 JAM | 架构最先进，refine/accumulate 与 AI 工作高度契合 | 2027 年才量产；规范仍在收敛；实现复杂，一人团队无法维护一个 JAM 节点；SAFROLE 依赖 Bandersnatch Ring-VRF（椭圆曲线，**不抗量子**） | **现在不做**，但**借鉴其设计模式** |
+| **A. Polkadot SDK standalone chain (solochain)** | Mature production framework; **forkless runtime upgrades** (the WASM runtime is replaced on chain — natural support for "pluggable, painless upgrades"); pluggable consensus; `pallet-revive` (EVM); crypto abstractions (`MultiSignature` / `sp_application_crypto`) extensible with new algorithms | GRANDPA/BABE finality is slow and must be replaced with a fast BFT ourselves; large codebase | **Recommended starting point** |
+| B. Polkadot parachain | Shared security, elastic scaling | Depends on DOT and coretime; crypto primitives constrained by the relay chain, so **the PQ timeline is decided by Polkadot**; contradicts "own L1, sovereignty" | Not recommended |
+| C. Fork JAM | Most advanced architecture; refine/accumulate fits AI work very well | Production only in 2027; the spec is still converging; complex — a one-person team cannot maintain a JAM node; SAFROLE depends on Bandersnatch Ring-VRF (elliptic curves, **not post-quantum**) | **Not now**, but **borrow its design patterns** |
 
-**建议**：用 Polkadot SDK 构建独立 L1，把 AI 工作层按 JAM 的 **refine（链下重计算）/ accumulate（链上结算）+ ELVES（随机审计 + 升级复核 + 罚没）** 模式来设计。等 JAM 成熟后，可以评估迁移，或者成为 JAM 的一个服务。
+**Recommendation**: build a standalone L1 on the Polkadot SDK and design the AI work layer on JAM's **refine (off-chain heavy compute) / accumulate (on-chain settlement) + ELVES (random audits + escalated re-checks + slashing)** pattern. Once JAM matures, evaluate migrating or becoming a JAM service.
 
-另外，**Quantus Network**（基于 Substrate 的抗量子链，使用 Dilithium / ML-DSA 签名和 STARK 类证明）可以作为“在 Substrate 上做 PQ 签名”的参考实现，细节待进一步核实。
+Also, **Quantus Network** (a post-quantum chain based on Substrate, using Dilithium / ML-DSA signatures and STARK-style proofs) can serve as a reference for "PQ signatures on Substrate"; details to be verified.
 
 ---
 
-## 2. 共识机制深度分析
+## 2. Consensus in depth
 
-### 2.1 核心约束
+### 2.1 Core constraints
 
-1. AI 工作**不能**作为出块证明：验证成本高、浮点结果不确定、异构硬件结果不一致、存在延迟。
-2. D2 要求奖励只给“付费 + 验证”的工作，这就带来**自刷（self-dealing）问题**：矿工自己付钱给自己，套取排放。Filecoin 的 Fil+ “验证交易 10 倍算力加成”就被假客户大规模套利过。
-3. D9 要求 BTC 式固定上限，但 BTC 是**无论需求如何都按时间表排放**，这和 D2 冲突，需要调和。
+1. AI work **cannot** serve as proof for block production: verification is expensive, floating-point results are non-deterministic, heterogeneous hardware disagrees, and there is latency.
+2. D2 pays only for "paid + verified" work, which creates a **self-dealing problem**: miners pay themselves to farm emission. Filecoin's Fil+ "10× power boost for verified deals" was gamed at scale by fake clients.
+3. D9 requires a Bitcoin-style fixed cap, but Bitcoin **emits on schedule regardless of demand**, which conflicts with D2 and must be reconciled.
 
-### 2.2 候选方案
+### 2.2 Candidate designs
 
-| 方案 | 描述 | 优点 | 缺点 |
+| Option | Description | Pros | Cons |
 |---|---|---|---|
-| **A. 纯 PoS + 快速 BFT** | 质押者出块和投票；AI 工作只影响排放 | 最终性快，最成熟 | “矿工”与“出块者”分离，不符合 BTC 情怀；资本决定安全 |
-| **B. 资源加权共识（Filecoin EC 式）** | 出块资格按“已验证的有用工作量”加权 | 贡献资源即参与共识 | 算力是“流量”而不是“存量”（存储可以持续证明，算力做完就没了），难以持续证明；自刷可以直接买到共识权 |
-| **C. 混合：PoS-BFT 保证安全 + 有用工作决定排放** | BFT 验证者需要质押；排放大部分给 AI 工作者，小部分给验证者 | 安全和激励解耦，各自可以独立优化和升级 | 需要两套经济模型 |
-| **C+. 混合 + 工作加权验证者选择** | 验证者权重 = f(质押, 近期已验证工作分) | 让“矿工”也能进入共识层 | 复杂度高，二期再做 |
-| D. 纯 PoW（Quantus 式） | 哈希谜题 | 最接近 BTC | 浪费算力，违背“有用工作”初衷 |
+| **A. Pure PoS + fast BFT** | Stakers produce blocks and vote; AI work only affects emission | Fast finality, most mature | "Miners" are separate from block producers, unlike Bitcoin's ethos; capital decides security |
+| **B. Resource-weighted consensus (Filecoin EC style)** | Block-production eligibility weighted by verified useful work | Contributing resources = participating in consensus | Compute is a "flow" not a "stock" (storage can be proven continuously; compute vanishes once done), hard to prove continuously; self-dealing can buy consensus power directly |
+| **C. Hybrid: PoS-BFT for security + useful work drives emission** | BFT validators must stake; most emission goes to AI workers, a small part to validators | Security and incentives decoupled, each can be optimized and upgraded independently | Two economic models to maintain |
+| **C+. Hybrid + work-weighted validator selection** | Validator weight = f(stake, recent verified work score) | Lets "miners" into the consensus layer too | Complex; phase two |
+| D. Pure PoW (Quantus style) | Hash puzzles | Closest to Bitcoin | Wastes compute, contradicts "useful work" |
 
-**建议：方案 C 起步，预留 C+。** 共识层用 HotStuff-2 / Jolteon 类 BFT（参考 MonadBFT 和 Alpenglow），约 100 个验证者，目标 500ms 出块、1s 以内最终性。签名用 ML-DSA，由于 PQ 签名无法 BLS 聚合，先接受 O(n) 的签名开销，后续用 STARK 聚合（参考以太坊 leanSig / leanMultisig）。
+**Recommendation: start with C and reserve C+.** The consensus layer uses a HotStuff-2 / Jolteon-class BFT (in the spirit of MonadBFT and Alpenglow), ~100 validators, targeting 500ms blocks and sub-second finality. Signatures are ML-DSA; since PQ signatures cannot be BLS-aggregated, accept O(n) signature overhead at first and later aggregate with STARKs (following Ethereum's leanSig / leanMultisig).
 
-### 2.3 用“有用工作”调和 BTC 式上限：一个草案
+### 2.3 Reconciling a Bitcoin-style cap with "useful work": a draft
 
-- **总量 21 亿枚**（数字待定），有**最大排放曲线** `E_max(t)`，按 BTC 式减半。
-- 每个 epoch 实际排放 `E(t) = min(E_max(t), k × 已验证付费工作的费用)`。
-- **没排出去的部分不销毁、也不给基金会，而是滚入“未来排放池”**，推迟释放。这样总量上限不变，排放严格跟随真实需求。
-- **防自刷**：
-  - 用户付费的一部分**销毁**（类似 EIP-1559），使“自己付钱给自己”永远亏损，要求 `k × fee < fee`，或者设计成对自刷者期望收益为负。
-  - 工作奖励按 `min(贡献份额, 付费方多样性系数)` 计算，同一付费方集中度越高，奖励递减。
-  - 用随机审计 + 质押罚没（ELVES 式）惩罚伪造工作。
-- **验证者（安全预算）**：从排放中划出固定比例（例如 10–20%）给 BFT 验证者，外加交易费。
-- **冷启动问题**：前期需求少，排放就少，矿工动力不足。可选缓解手段有两个：一是由基金会或 DAO 采购推理服务（真实需求），二是“开放模型训练任务”，由 DAO 作为付费方，用排放池出资训练社区模型。后者本身就是“为未来而建”的训练。
+- **Total supply 2.1 billion** (number to be decided), with a **maximum emission curve** `E_max(t)` that halves Bitcoin-style.
+- Actual emission per epoch `E(t) = min(E_max(t), k × fees of verified paid work)`.
+- **Unemitted amounts are neither burned nor given to a foundation; they roll into a "future emission pool"** and are released later. The cap stays unchanged and emission strictly follows real demand.
+- **Anti-self-dealing**:
+  - **Burn** part of user payments (like EIP-1559) so that "paying yourself" always loses money: require `k × fee < fee`, or design it so the self-dealer's expected return is negative.
+  - Work rewards are computed as `min(contribution share, payer-diversity factor)`: the more concentrated the payers, the smaller the reward.
+  - Random audits + stake slashing (ELVES style) punish fabricated work.
+- **Validators (security budget)**: a fixed share of emission (e.g. 10–20%) to BFT validators, plus transaction fees.
+- **Cold start**: little demand early means little emission and weak miner motivation. Two possible mitigations: the foundation or DAO buys inference (real demand), or "open model-training jobs" where the DAO is the payer and the emission pool funds training a community model. The latter is itself "building for the future".
 
-### 2.4 分层资源与任务矩阵
+### 2.4 Resource tiers and task matrix
 
-| 层级 | 硬件 | 可承担任务 | 验证方式 |
+| Tier | Hardware | Tasks | Verification |
 |---|---|---|---|
-| T0 机密层 | H100 / H200 / B200 + CPU TEE | 隐私推理、闭源权重托管推理 | TEE 远程证明 + TOPLOC 抽查 |
-| T1 数据中心层 | A100 / H100（不开 CC） | 大模型交互推理、训练节点 | TOPLOC + 冗余抽查 + 质押 |
-| T2 消费级层 | RTX 3090 / 4090 / 5090、Mac | 小模型推理、**RL rollout**、嵌入、数据清洗、评测、去中心化训练的数据并行节点 | 冗余执行 + 抽样 + RepOps 式确定性 |
-| T3 CPU 层 | 服务器和个人电脑 | 验证审计、ZK 证明生成、数据预处理、RPC | 确定性重执行 |
-| T4 存储层 | 硬盘 | 模型权重、检查点、数据集分发 | 存储证明（PoRep / PoSt 类） |
+| T0 confidential | H100 / H200 / B200 + CPU TEE | Private inference, hosted inference of closed weights | TEE remote attestation + TOPLOC spot checks |
+| T1 data center | A100 / H100 (CC off) | Interactive large-model inference, training nodes | TOPLOC + redundant spot checks + stake |
+| T2 consumer | RTX 3090 / 4090 / 5090, Mac | Small-model inference, **RL rollouts**, embeddings, data cleaning, evaluation, data-parallel nodes in decentralized training | Redundant execution + sampling + RepOps-style determinism |
+| T3 CPU | Servers and PCs | Verification audits, ZK proof generation, data preprocessing, RPC | Deterministic re-execution |
+| T4 storage | Disks | Distribution of model weights, checkpoints, datasets | Storage proofs (PoRep / PoSt style) |
 
 ---
 
-## 3. 隐私边界：逐项分析
+## 3. The privacy boundary, item by item
 
-| 对象 | 默认隐私的好处 | 代价 / 风险 | 建议 |
+| Object | Benefit of default privacy | Cost / risk | Recommendation |
 |---|---|---|---|
-| **支付关系**（谁为哪次推理付费） | 这是“匿名调用 API”的核心，无法把身份和 prompt 关联起来 | 需要屏蔽池 + ZK；客户端要生成证明 | **默认隐私**（第一年必做） |
-| **转账金额与双方** | 与 Zcash 同级的金融隐私 | EVM 合约无法直接读取私有余额；交易所上币和合规压力；PQ 屏蔽池的证明更大（STARK 约 50–200KB） | **双状态**：公开账户（EVM）+ 原生屏蔽池，用户自选；支持查看密钥做选择性披露 |
-| **合约状态** | 私有 DeFi、私有 Agent 策略 | 完全私有的 EVM 只能靠 TEE（Oasis 方案）或 FHE（慢几个数量级）；Aztec 需要新语言 Noir，而且 2026 年 Alpha 仍有严重漏洞 | **第一年公开**；私有合约作为二期研究（Noir 或 PVM 私有执行） |
-| **Prompt / 输出** | 用户最关心的隐私 | 纯密码学方案不可用；靠 TEE 有信任假设；非 TEE 节点必然能看到明文 | **按层选择**：T0 机密（TEE）或标准（节点可见明文，但与身份无法关联）；链上**永远不存** prompt |
-| **模型权重** | 允许闭源或商业权重上架，扩大供给 | 只能靠 TEE；而且权重一旦泄露不可撤回 | 开源权重公开；私有权重只能上 T0 |
-| **网络元数据**（IP、时序） | 防流量关联去匿名化 | 混合网络（mixnet）会增加延迟 | 客户端可选 Nym 或 Tor 式中继；推理网关支持经由中继访问 |
+| **Payment relationship** (who paid for which inference) | The core of "anonymous API calls": identity cannot be linked to prompts | Requires a shielded pool + ZK; clients must generate proofs | **Private by default** (must ship in year one) |
+| **Transfer amounts and parties** | Zcash-level financial privacy | EVM contracts cannot read private balances directly; exchange-listing and compliance pressure; PQ shielded-pool proofs are larger (STARKs ~50–200 KB) | **Dual state**: public accounts (EVM) + native shielded pool, user's choice; view keys for selective disclosure |
+| **Contract state** | Private DeFi, private agent strategies | A fully private EVM needs TEEs (the Oasis approach) or FHE (orders of magnitude slower); Aztec needs a new language (Noir) and its 2026 Alpha still has serious vulnerabilities | **Public in year one**; private contracts as phase-two research (Noir or private PVM execution) |
+| **Prompts / outputs** | The privacy users care about most | Pure-crypto approaches are unusable; TEEs carry trust assumptions; non-TEE nodes necessarily see plaintext | **Per tier**: T0 confidential (TEE) or standard (node sees plaintext but cannot link it to an identity); prompts **never stored on chain** |
+| **Model weights** | Lets closed or commercial weights onto the network, expanding supply | TEE only; a leaked weight cannot be recalled | Open weights public; private weights only on T0 |
+| **Network metadata** (IP, timing) | Prevents de-anonymization by traffic correlation | Mixnets add latency | Optional Nym or Tor-style relays on the client; gateways reachable via relays |
 
-**关键设计：匿名推理凭证（Anonymous Inference Credits）**
+**Key design: Anonymous Inference Credits**
 
-1. 用户从公开账户或屏蔽池存入代币，铸造一批**不可链接的推理额度**（基于 ZK 和 nullifier，类似 Privacy Pass / 盲签令牌）。
-2. 调用推理时附上一次性凭证，提供者无法把它关联到存款人。
-3. 提供者批量兑换凭证，在链上结算，nullifier 防止双花。
-4. Agent 场景：Agent 持有凭证钱包，按次付费，不必每次都上链。
+1. The user deposits tokens from a public account or the shielded pool and mints a batch of **unlinkable inference credits** (ZK + nullifiers, akin to Privacy Pass / blind-signature tokens).
+2. Each inference call carries a one-time voucher that the provider cannot link to the depositor.
+3. Providers redeem vouchers in batches and settle on chain; nullifiers prevent double spends.
+4. Agents: an agent holds a voucher wallet and pays per call without going on chain each time.
 
-这一套直接服务 D8（第一年场景）。所有原语都可以用哈希（Poseidon2）+ STARK 实现，**天然抗量子**，笔记加密用 ML-KEM + X25519 混合。
-
----
-
-## 4. TEE：优点与缺点
-
-### 优点
-1. **性能几乎无损**：H100 CC 开销 2–5%，Blackwell 调优后 1–3%，远程证明一次性约 1–3 秒。
-2. **现有推理栈可以直接用**：vLLM / SGLang 放进机密 VM 即可运行，工程量最小。
-3. **一石二鸟**：远程证明能证明“跑的是哪个模型、哪份代码”，同时兼顾**隐私和可验证性**。
-4. **能保护模型权重**，让闭源或商业模型也能上网络，扩大前沿供给。
-5. 已有先例：Phala 在 OpenRouter 上提供 GPU TEE 推理，Meta、微软、谷歌都在建设机密推理管线。
-
-### 缺点
-1. **信任根是厂商**：NVIDIA、Intel、AMD 掌握证明密钥和吊销权，而它们都是受美国出口管制的公司。**这正是你反对的中心化权力**：厂商可以吊销某地区设备的证明，而且 H100 / B200 本身就受出口管制，**T0 层在地理上天然集中**。
-2. **威胁模型错位（最关键的一点）**：TEE 设计防的是“云上的其他租户和被攻破的系统软件”，**防不住有物理访问权的机器所有者**。在无许可网络里，**节点运营者恰恰就是有物理访问权的潜在攻击者**。
-   - WireTap / Battering RAM（2025）：成本 50–1000 美元的 DDR4 内存总线插入器可以攻破 SGX。
-   - **TEE.fail（2025-10）**：在 DDR5 上攻破 Intel TDX 和 AMD SEV-SNP，**提取证明密钥后可以伪造 TEE 报价，进而骗过 NVIDIA GPU 机密计算**，让攻击者在完全不受保护的环境里冒充 TEE。
-   - DDRop（2026-09）：又一个攻破 TDX 和 SEV-SNP 的攻击。
-   - 根源：服务器级 TEE 为了性能，采用确定性 AES-XTS 加密，并去掉了完整性和重放保护。
-3. 侧信道和固件漏洞会持续出现，每次都需要吊销和补丁。
-4. 消费级 GPU 不支持，T0 层只能是高端数据中心卡。
-
-### 结论
-TEE 在我们的网络里只能定位为 **“提高攻击成本的一层”，而不是“隐私保证”**。缓解手段（纵深防御）：
-- T0 节点需要**高额质押**，攻破行为可证明时罚没（例如同一证明密钥在多处出现）；
-- 维护证明密钥和固件版本的**链上吊销列表**，由 DAO 快速响应；
-- T0 节点可以选择公开数据中心的运营信息（信誉层，非强制）；
-- 用户端**把身份隐私和内容隐私分开**：即使 prompt 泄露，也无法关联到钱包或身份（依靠匿名凭证和中继）；
-- 长期追踪 GPU 端完整性保护、开源 TEE（Keystone、OpenTitan 系）和 FHE 加速进展，作为可插拔的隐私后端。
+This directly serves D8 (the year-one use case). Every primitive can be built from hashes (Poseidon2) + STARKs, **post-quantum by construction**, with note encryption using ML-KEM + X25519 hybrid.
 
 ---
 
-## 5. 一人 + AI 的第一年 MVP（草案）
+## 4. TEEs: pros and cons
 
-1. **链**：Polkadot SDK 独立链；先用 Aura + GRANDPA 跑通，再替换为快速 BFT；账户签名从一开始就支持 `ML-DSA` + `Ed25519` 混合（带算法 ID）；接入 `pallet-revive` 提供 EVM。
-2. **原生屏蔽池 + 匿名推理凭证**：STARK 证明 + Poseidon2 + ML-KEM 混合加密。
-3. **推理市场 pallet**：提供者注册（层级、模型、价格、质押）→ 凭证兑换结算 → 随机审计（TOPLOC）→ 罚没。
-4. **推理网关**：兼容 OpenAI API，支持流式输出，按延迟和价格路由，客户端 SDK 自动管理凭证。
-5. **排放 pallet**：硬顶 + 按需排放 + 销毁 + 集中度衰减。
+### Pros
+1. **Nearly no performance loss**: 2–5% overhead for H100 CC, 1–3% on tuned Blackwell; remote attestation is a one-off ~1–3 seconds.
+2. **Existing inference stacks work as is**: vLLM / SGLang run inside a confidential VM with minimal engineering.
+3. **Two birds with one stone**: remote attestation proves "which model and which code is running", giving **privacy and verifiability** together.
+4. **Protects model weights**, allowing closed or commercial models onto the network and expanding frontier supply.
+5. Precedent: Phala offers GPU TEE inference on OpenRouter; Meta, Microsoft and Google are all building confidential inference pipelines.
 
-## 来源
+### Cons
+1. **The root of trust is the vendor**: NVIDIA, Intel and AMD hold the attestation keys and the power to revoke, and all are subject to US export controls. **This is exactly the centralized power you oppose**: vendors can revoke attestation for devices in a region, and H100 / B200 are themselves export-controlled, so **the T0 tier is inherently geographically concentrated**.
+2. **Mismatched threat model (the most important point)**: TEEs are designed against "other cloud tenants and compromised system software"; they **do not defend against a machine owner with physical access**. In a permissionless network, **the node operator is precisely the potential attacker with physical access**.
+   - WireTap / Battering RAM (2025): DDR4 memory-bus interposers costing $50–1,000 break SGX.
+   - **TEE.fail (2025-10)**: breaks Intel TDX and AMD SEV-SNP on DDR5; **extracted attestation keys can forge TEE quotes and thereby fool NVIDIA GPU confidential computing**, letting attackers impersonate a TEE in a completely unprotected environment.
+   - DDRop (2026-09): yet another attack breaking TDX and SEV-SNP.
+   - Root cause: for performance, server-grade TEEs use deterministic AES-XTS encryption and dropped integrity and replay protection.
+3. Side channels and firmware bugs will keep appearing, each requiring revocations and patches.
+4. Consumer GPUs are not supported; T0 can only be high-end data-center cards.
 
-- JAM：https://wiki.polkadot.com/learn/learn-jam-chain/ · https://blockeden.xyz/blog/2026/01/16/polkadot-jam-architecture-blockchain-virtual-machine-paradigm-shift/ · https://blockeden.xyz/blog/2025/10/28/jam-chain-polkadot-s-paradigm-shift-toward-the-decentralized-global-computer/ · https://www.hokanews.com/2026/09/polkadot-prepares-major-jam-transition.html · https://coinbureau.com/review/polkadot-dot · https://github.com/openguild-labs/learn-jam
-- Polkadot Hub：https://docs.polkadot.com/reference/polkadot-hub/smart-contracts/ · https://openguild.wtf/blog/polkadot/polkadot-introducing-about-dual-vm-architecture-polkadot-hub · https://blockchain.news/flashnews/polkadot-hub-to-add-evm-pvm-smart-contracts-and-2-second-blocks-on-jan-20-2026
-- Elastic scaling / 500ms：https://forum.polkadot.network/t/elastic-scaling-wen-500ms-blocks/11971 · https://wiki.polkadot.com/learn/learn-elastic-scaling/ · https://medium.com/polkadot-network/polkadot-roundup-2025-3c3c71c7e9c4
-- 共识：https://wiki.polkadot.com/learn/learn-consensus/ · https://spec.filecoin.io/algorithms/expected_consensus/ · https://www.helius.dev/blog/alpenglow · https://solana.com/alpenglow
-- Polkadot PQ 路线：https://medium.com/@gwrx2005/post-quantum-roadmaps-for-blockchain-ecosystems-af9e77a6fe8b
-- TEE 攻击：https://www.bleepingcomputer.com/news/security/teefail-attack-breaks-confidential-computing-on-intel-amd-nvidia-cpus/ · https://thehackernews.com/2026/09/new-ddrop-attack-breaks-intel-tdx-and.html · https://hacken.io/insights/wiretap-and-battering-ram-risks/ · https://arxiv.org/pdf/2507.02770
+### Conclusion
+In our network a TEE can only be **"a layer that raises the cost of attack", not "a privacy guarantee"**. Mitigations (defense in depth):
+- T0 nodes post **high stakes**, slashed on provable compromise (e.g. the same attestation key appearing in several places);
+- An **on-chain revocation list** of attestation keys and firmware versions, with a fast DAO response;
+- T0 nodes may publish data-center operator details (a reputation layer, not mandatory);
+- On the user side, **separate identity privacy from content privacy**: even if a prompt leaks, it cannot be linked to a wallet or identity (thanks to anonymous vouchers and relays);
+- Track GPU-side integrity protection, open-source TEEs (Keystone, the OpenTitan family) and FHE acceleration over the long run as pluggable privacy backends.
+
+---
+
+## 5. Year-one MVP for one person + AI (draft)
+
+1. **Chain**: Polkadot SDK standalone chain; get it running with Aura + GRANDPA first, then replace with a fast BFT; account signatures support `ML-DSA` + `Ed25519` hybrid from the start (with algorithm IDs); integrate `pallet-revive` for EVM.
+2. **Native shielded pool + anonymous inference vouchers**: STARK proofs + Poseidon2 + ML-KEM hybrid encryption.
+3. **Inference market pallet**: provider registration (tier, models, prices, stake) → voucher redemption and settlement → random audits (TOPLOC) → slashing.
+4. **Inference gateway**: OpenAI-compatible API, streaming output, routing by latency and price; the client SDK manages vouchers automatically.
+5. **Emission pallet**: hard cap + demand-driven emission + burning + concentration decay.
+
+## Sources
+
+- JAM: https://wiki.polkadot.com/learn/learn-jam-chain/ · https://blockeden.xyz/blog/2026/01/16/polkadot-jam-architecture-blockchain-virtual-machine-paradigm-shift/ · https://blockeden.xyz/blog/2025/10/28/jam-chain-polkadot-s-paradigm-shift-toward-the-decentralized-global-computer/ · https://www.hokanews.com/2026/09/polkadot-prepares-major-jam-transition.html · https://coinbureau.com/review/polkadot-dot · https://github.com/openguild-labs/learn-jam
+- Polkadot Hub: https://docs.polkadot.com/reference/polkadot-hub/smart-contracts/ · https://openguild.wtf/blog/polkadot/polkadot-introducing-about-dual-vm-architecture-polkadot-hub · https://blockchain.news/flashnews/polkadot-hub-to-add-evm-pvm-smart-contracts-and-2-second-blocks-on-jan-20-2026
+- Elastic scaling / 500ms: https://forum.polkadot.network/t/elastic-scaling-wen-500ms-blocks/11971 · https://wiki.polkadot.com/learn/learn-elastic-scaling/ · https://medium.com/polkadot-network/polkadot-roundup-2025-3c3c71c7e9c4
+- Consensus: https://wiki.polkadot.com/learn/learn-consensus/ · https://spec.filecoin.io/algorithms/expected_consensus/ · https://www.helius.dev/blog/alpenglow · https://solana.com/alpenglow
+- Polkadot PQ roadmap: https://medium.com/@gwrx2005/post-quantum-roadmaps-for-blockchain-ecosystems-af9e77a6fe8b
+- TEE attacks: https://www.bleepingcomputer.com/news/security/teefail-attack-breaks-confidential-computing-on-intel-amd-nvidia-cpus/ · https://thehackernews.com/2026/09/new-ddrop-attack-breaks-intel-tdx-and.html · https://hacken.io/insights/wiretap-and-battering-ram-risks/ · https://arxiv.org/pdf/2507.02770

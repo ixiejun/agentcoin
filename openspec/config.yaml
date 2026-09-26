@@ -7,10 +7,12 @@ context: |
 
   ## 项目
   AgentCoin（代币 ATC）：抗量子、天生隐私、无许可的 L1，面向大模型训练 / 后训练 / 推理的去中心化算力网络，兼容 EVM。
-  - 决策记录（权威来源）：docs/decisions.md（D1–D31）
+  - 决策记录（权威来源）：docs/decisions.md（D1–D33；中文版 docs/decisions.zh-CN.md）
   - MVP 技术方案：docs/design/mvp-technical-plan.md
   - 全量技术方案：docs/design/full-technical-plan.md
   - 调研过程：docs/research/
+  - 编码智能体守则：AGENT.md（中文版 AGENT.zh-CN.md）
+  - 文档语言（D33）：项目文档中英双语、英文为主（*.zh-CN.md 为中文）；OpenSpec 产物只用简体中文；代码注释与提交信息用英文。
 
   ## 技术栈
   - 主要语言 Rust（D31）；链基于 Polkadot SDK（Substrate）solochain；EVM 使用 pallet-revive。
@@ -35,6 +37,7 @@ rules:
   tasks:
     - 每个任务不超过约半天工作量
     - 每个任务必须带可自动化的验收方式（单元测试 / 集成测试 / 测试向量）
+    - 涉及项目文档的任务必须同时交付英文版与 *.zh-CN.md 中文版
 
 operations:
   apply:
@@ -43,4 +46,4 @@ operations:
       - 默认 #![forbid(unsafe_code)]，例外需注释说明
   archive:
     guidance:
-      - 归档前确认 specs 已同步，并在 docs/decisions.md 中补记新产生的决策
+      - 归档前确认 specs 已同步，并在 docs/decisions.md 与 docs/decisions.zh-CN.md 中补记新产生的决策
