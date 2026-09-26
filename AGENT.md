@@ -22,7 +22,7 @@ AgentCoin (token **ATC**) is a **post-quantum, privacy-native, permissionless** 
 - Chain framework: standalone Polkadot SDK (Substrate) chain; EVM via `pallet-revive`
 - Primary language: **Rust** (D31); Python only for thin plugins inside inference/training engines
 - Development method: **spec-driven development (SDD) + OpenSpec** (D32)
-- Current stage: MVP, milestone M0 (engineering foundation + PQ crypto library)
+- Current stage: MVP; M0 (engineering foundation + PQ crypto library) complete, next M1 (PQ chain)
 
 ### 1.1 Authoritative document map
 

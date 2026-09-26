@@ -1,0 +1,52 @@
+# engineering/ci-quality-gates Specification
+
+## Purpose
+规定 AgentCoin Rust 工作区在每次提交和拉取请求时必须通过的自动化质量门禁，保证一人 + AI 的开发方式下，代码格式、静态检查、测试、依赖许可证与安全公告始终受控。
+
+## Requirements
+
+### Requirement: 固定的工具链
+工作区 SHALL 在仓库中固定 Rust 工具链版本及所需组件（rustfmt、clippy）和目标（`wasm32-unknown-unknown`）；本地与 CI MUST 使用同一版本。
+
+#### Scenario: 工具链一致
+- **WHEN** 在全新环境中进入仓库并执行任意 cargo 命令
+- **THEN** 使用的是仓库固定的工具链版本
+
+### Requirement: 每次推送与拉取请求都运行门禁
+CI SHALL 在每次推送和每个拉取请求时运行以下检查，任一失败 MUST 使整个 CI 失败：
+1. 格式检查（不允许未格式化的代码）；
+2. 对全部目标和功能的 lint 检查，任何警告都视为错误；
+3. 全部单元测试与测试向量测试；
+4. 依赖策略检查：许可证白名单、禁止未知来源、安全公告；
+5. 安全公告审计；
+6. 密码学库以 no_std 方式为 `wasm32-unknown-unknown` 构建。
+
+#### Scenario: 格式错误导致失败
+- **WHEN** 提交一段未经格式化的 Rust 代码
+- **THEN** CI 的格式检查步骤失败
+
+#### Scenario: lint 警告导致失败
+- **WHEN** 提交一段会触发 lint 警告的代码
+- **THEN** CI 失败
+
+#### Scenario: 不允许的许可证导致失败
+- **WHEN** 引入一个许可证不在白名单中的依赖
+- **THEN** 依赖策略检查失败
+
+#### Scenario: 全部通过
+- **WHEN** 在本变更完成后的主干上运行 CI
+- **THEN** 所有检查步骤都通过
+
+### Requirement: 默认禁止不安全代码
+工作区中的 crate SHALL 默认禁止 `unsafe` 代码；任何例外 MUST 在代码中逐处注释说明理由。
+
+#### Scenario: 引入 unsafe
+- **WHEN** 在未声明例外的 crate 中加入 `unsafe` 代码块
+- **THEN** 编译或 lint 失败
+
+### Requirement: 测试向量可追溯
+仓库中提交的每个外部测试向量文件 SHALL 记录上游来源 URL、上游文件的 SHA-256 以及筛选规则，并提供可复现筛选过程的脚本；重新运行脚本 MUST 得到逐字节相同的子集。
+
+#### Scenario: 复现向量子集
+- **WHEN** 运行向量获取脚本重新下载并筛选
+- **THEN** 生成的文件与仓库中提交的文件逐字节相同，且上游校验和匹配

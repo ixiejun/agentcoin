@@ -22,7 +22,7 @@ AgentCoin（代币 **ATC**）是一个**抗量子、天生隐私、无许可**�
 - 链框架：Polkadot SDK（Substrate）独立链；EVM 用 `pallet-revive`
 - 主要语言：**Rust**（D31）；Python 仅限推理/训练引擎内部的薄插件
 - 开发方式：**规格驱动开发（SDD）+ OpenSpec**（D32）
-- 当前阶段：MVP，里程碑 M0（工程底座 + PQ 密码库）
+- 当前阶段：MVP；M0（工程底座 + PQ 密码库）已完成，下一步 M1（PQ 链）
 
 ### 1.1 权威文档地图
 

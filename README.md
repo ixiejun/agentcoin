@@ -15,7 +15,7 @@ Primary language: Rust. Development method: spec-driven development (SDD) with [
 
 Documentation language policy: every project document has an English version (primary, at the canonical path) and a Simplified Chinese version (`*.zh-CN.md`), each linking to the other at the top.
 
-Status: M0 in progress — workspace, CI and the `ac-crypto` post-quantum library ([crates/ac-crypto](crates/ac-crypto/README.md)).
+Status: M0 complete — workspace, CI and the `ac-crypto` post-quantum library ([crates/ac-crypto](crates/ac-crypto/README.md)); specs in `openspec/specs/`. Next: M1 (PQ chain).
 
 ## Local development
 

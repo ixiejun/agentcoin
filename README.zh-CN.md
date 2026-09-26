@@ -15,7 +15,7 @@
 
 文档语言约定：每份项目文档都有英文版（主版本，位于规范路径）和简体中文版（`*.zh-CN.md`），两者在页首互相链接。
 
-状态：M0 进行中——工作区、CI 与抗量子密码库 `ac-crypto`（[crates/ac-crypto](crates/ac-crypto/README.zh-CN.md)）。
+状态：M0 已完成——工作区、CI 与抗量子密码库 `ac-crypto`（[crates/ac-crypto](crates/ac-crypto/README.zh-CN.md)），规范见 `openspec/specs/`。下一步：M1（PQ 链）。
 
 ## 本地开发
 
