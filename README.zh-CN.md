@@ -22,12 +22,24 @@
 工具链版本固定在 `rust-toolchain.toml`（`rustup` 会自动安装）。运行与 CI 相同的检查：
 
 ```bash
+# 节点构建前置条件：protoc（例如 `apt-get install protobuf-compiler`）和 clang。
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
-cargo build -p ac-crypto --no-default-features --target wasm32-unknown-unknown
+for c in ac-crypto ac-primitives pallet-pq-accounts pallet-aura-pq; do
+  cargo build -p $c --no-default-features --target wasm32-unknown-unknown
+done
 cargo install --locked cargo-deny cargo-audit   # 仅需一次
 cargo deny check
 cargo audit
+scripts/check-license-boundary.sh
+scripts/sync-audit-exceptions.py
 scripts/fetch-test-vectors.sh && git diff --exit-code -- crates/ac-crypto/tests/vectors
+
+# 节点、本地测试网与端到端测试
+cargo build -p ac-node -p ac-wallet
+target/debug/ac-node --dev --tmp
+scripts/run-local-testnet.sh --check
+AC_E2E=1 cargo test -p ac-e2e
+scripts/wallet-smoke.sh
 ```

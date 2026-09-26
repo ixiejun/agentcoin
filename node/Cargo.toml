@@ -15,9 +15,15 @@ name = "ac-node"
 path = "src/main.rs"
 
 [dependencies]
+ac-consensus-aura-pq = { workspace = true }
+ac-crypto = { workspace = true, features = ["std", "keystore", "getrandom"] }
 ac-primitives = { workspace = true, features = ["std"] }
 ac-runtime = { workspace = true, features = ["std"] }
 clap = { workspace = true }
+frame-benchmarking = { workspace = true, features = ["std"], optional = true }
+frame-system = { workspace = true, features = ["std"] }
+pallet-balances = { workspace = true, features = ["std"] }
+parity-scale-codec = { workspace = true, features = ["std"] }
 futures = { workspace = true, features = ["std", "thread-pool"] }
 jsonrpsee = { workspace = true, features = ["server"] }
 sc-basic-authorship = { workspace = true }
@@ -25,7 +31,7 @@ sc-chain-spec = { workspace = true }
 sc-cli = { workspace = true }
 sc-client-api = { workspace = true }
 sc-consensus = { workspace = true }
-sc-consensus-manual-seal = { workspace = true }
+sc-consensus-slots = { workspace = true }
 sc-executor = { workspace = true, features = ["std"] }
 sc-network = { workspace = true }
 sc-service = { workspace = true }
@@ -35,18 +41,22 @@ sc-transaction-pool-api = { workspace = true }
 sp-api = { workspace = true, features = ["std"] }
 sp-block-builder = { workspace = true, features = ["std"] }
 sp-blockchain = { workspace = true }
+sp-consensus-slots = { workspace = true, features = ["std"] }
 sp-core = { workspace = true, features = ["std"] }
 sp-genesis-builder = { workspace = true, features = ["std"] }
 sp-io = { workspace = true, features = ["std"] }
 sp-runtime = { workspace = true, features = ["std"] }
 sp-timestamp = { workspace = true, features = ["std"] }
 substrate-frame-rpc-system = { workspace = true }
-tokio = { workspace = true, features = ["time"] }
 
 [build-dependencies]
 substrate-build-script-utils = { workspace = true }
 
 [dev-dependencies]
+ac-wallet = { workspace = true }
+pallet-pq-accounts = { workspace = true, features = ["std"] }
+frame-support = { workspace = true, features = ["std"] }
+ac-crypto = { workspace = true, features = ["std", "keystore"] }
 # Independent reference implementation for the hash recomputation tests.
 blake3 = { workspace = true, features = ["std"] }
 hash-db = { workspace = true, features = ["std"] }
@@ -57,6 +67,11 @@ parity-scale-codec = { workspace = true, features = ["std"] }
 serde_json = { workspace = true, features = ["std"] }
 sp-trie = { workspace = true, features = ["std"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+[features]
+default = []
+# Runtimes built with benchmarks import the benchmarking host functions; provide them.
+runtime-benchmarks = ["dep:frame-benchmarking", "ac-runtime/runtime-benchmarks"]
 
 [lints]
 workspace = true

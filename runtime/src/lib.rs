@@ -23,6 +23,10 @@ extern crate alloc;
 #[doc = include_str!("../README.md")]
 pub struct ReadmeDoctests;
 
+// `define_benchmarks!` produces macros used textually by `apis`, so this module comes first.
+#[cfg(feature = "runtime-benchmarks")]
+#[macro_use]
+mod benchmarks;
 mod apis;
 mod configs;
 pub mod genesis_config_presets;

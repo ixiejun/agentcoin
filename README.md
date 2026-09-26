@@ -22,12 +22,24 @@ Status: M0 complete — workspace, CI and the `ac-crypto` post-quantum library (
 The toolchain is pinned in `rust-toolchain.toml` (installed automatically by `rustup`). Run the same checks as CI:
 
 ```bash
+# Prerequisites for the node: protoc (e.g. `apt-get install protobuf-compiler`) and clang.
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
-cargo build -p ac-crypto --no-default-features --target wasm32-unknown-unknown
+for c in ac-crypto ac-primitives pallet-pq-accounts pallet-aura-pq; do
+  cargo build -p $c --no-default-features --target wasm32-unknown-unknown
+done
 cargo install --locked cargo-deny cargo-audit   # once
 cargo deny check
 cargo audit
+scripts/check-license-boundary.sh
+scripts/sync-audit-exceptions.py
 scripts/fetch-test-vectors.sh && git diff --exit-code -- crates/ac-crypto/tests/vectors
+
+# Node, local testnet and end-to-end tests
+cargo build -p ac-node -p ac-wallet
+target/debug/ac-node --dev --tmp
+scripts/run-local-testnet.sh --check
+AC_E2E=1 cargo test -p ac-e2e
+scripts/wallet-smoke.sh
 ```

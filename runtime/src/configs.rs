@@ -99,5 +99,5 @@ impl pallet_transaction_payment::Config for Runtime {
 
 impl pallet_pq_accounts::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = ();
+    type WeightInfo = pallet_pq_accounts::weights::SubstrateWeight<Runtime>;
 }

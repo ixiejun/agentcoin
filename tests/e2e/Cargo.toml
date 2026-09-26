@@ -1,0 +1,25 @@
+[package]
+name = "ac-e2e"
+description = "AgentCoin end-to-end tests: multi-node networks driven through RPC and the wallet library"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+ac-crypto = { workspace = true, features = ["std", "getrandom"] }
+ac-primitives = { workspace = true, features = ["std"] }
+ac-runtime = { workspace = true, features = ["std"] }
+ac-wallet = { workspace = true }
+jsonrpsee = { workspace = true, features = ["http-client"] }
+pallet-balances = { workspace = true, features = ["std"] }
+pallet-pq-accounts = { workspace = true, features = ["std"] }
+serde_json = { workspace = true, features = ["std"] }
+sp-runtime = { workspace = true, features = ["std"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+[lints]
+workspace = true

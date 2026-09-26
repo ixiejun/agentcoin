@@ -38,7 +38,17 @@ fn development_accounts_are_endowed() {
         for name in DEV_ACCOUNTS {
             assert_eq!(common::free(&dev_account(name).unwrap()), DEV_ENDOWMENT);
         }
-        assert_eq!(issuance(), DEV_ENDOWMENT * 4);
+        let wallet = ac_runtime::genesis_config_presets::dev_wallet_account().unwrap();
+        assert_eq!(common::free(&wallet), DEV_ENDOWMENT);
+        // The development wallet is the account of the repository's fixed test mnemonic.
+        let expected =
+            hex::decode("5c1a1a670210dad33c958655ff5297016b8092e726b55a884bce4acffad3cdf5")
+                .unwrap();
+        assert_eq!(
+            <sp_runtime::AccountId32 as AsRef<[u8]>>::as_ref(&wallet),
+            &expected[..]
+        );
+        assert_eq!(issuance(), DEV_ENDOWMENT * 5);
     });
 }
 

@@ -1,0 +1,38 @@
+[package]
+name = "ac-wallet"
+description = "AgentCoin command-line wallet: ML-DSA keys from a mnemonic, encrypted wallet file, transfers and key rotation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "ac-wallet"
+path = "src/main.rs"
+
+[dependencies]
+ac-crypto = { workspace = true, features = ["std", "keystore", "mnemonic", "getrandom"] }
+ac-primitives = { workspace = true, features = ["std"] }
+ac-runtime = { workspace = true, features = ["std"] }
+anyhow = { workspace = true }
+clap = { workspace = true }
+frame-system = { workspace = true, features = ["std"] }
+hex = { workspace = true, features = ["std"] }
+jsonrpsee = { workspace = true, features = ["http-client"] }
+pallet-balances = { workspace = true, features = ["std"] }
+pallet-pq-accounts = { workspace = true, features = ["std"] }
+parity-scale-codec = { workspace = true, features = ["std"] }
+rpassword = { workspace = true }
+serde = { workspace = true, features = ["std", "derive"] }
+serde_json = { workspace = true, features = ["std"] }
+sp-core = { workspace = true, features = ["std"] }
+sp-io = { workspace = true, features = ["std"] }
+sp-runtime = { workspace = true, features = ["std"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+zeroize = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true

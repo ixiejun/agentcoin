@@ -1,17 +1,30 @@
-//! Node service: client, networking, RPC and block production.
+//! Node service: client, networking, RPC and Aura-PQ block production.
 //!
-//! Block production is temporarily driven by manual sealing on a 1 s timer; Aura-PQ replaces it
-//! in m1-pq-chain task 7.1.
+//! There is no finality gadget in M1 (GRANDPA's signatures are hard-wired to Ed25519); fork
+//! choice is the longest chain and AC-BFT finality arrives in M2.
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
+use ac_consensus_aura_pq::{SlotProvider, StartAuraPqParams};
+use ac_crypto::sig::SigningKey;
+use ac_primitives::aura_pq::AuraPqApi;
 use ac_runtime::{RuntimeApi, opaque::Block};
+use sc_consensus_slots::SlotProportion;
 use sc_executor::WasmExecutor;
 use sc_service::{Configuration, TaskManager, error::Error as ServiceError};
 use sc_telemetry::{Telemetry, TelemetryWorker};
+use sp_api::ProvideRuntimeApi;
+use sp_blockchain::HeaderBackend;
+use sp_consensus_slots::SlotDuration;
 use sp_runtime::traits::Block as BlockT;
 
+#[cfg(not(feature = "runtime-benchmarks"))]
 type HostFunctions = sp_io::SubstrateHostFunctions;
+#[cfg(feature = "runtime-benchmarks")]
+type HostFunctions = (
+    sp_io::SubstrateHostFunctions,
+    frame_benchmarking::benchmarking::HostFunctions,
+);
 
 /// Full client type.
 pub type FullClient = sc_service::TFullClient<Block, RuntimeApi, WasmExecutor<HostFunctions>>;
@@ -28,8 +41,36 @@ pub type Service = sc_service::PartialComponents<
     Option<Telemetry>,
 >;
 
-/// Block time of the temporary manual-seal driver.
-const BLOCK_TIME: Duration = Duration::from_millis(ac_runtime::MILLISECS_PER_BLOCK);
+/// Reads the slot duration from the runtime at the best block.
+fn slot_duration(client: &FullClient) -> Result<SlotDuration, ServiceError> {
+    let best = client.info().best_hash;
+    let millis = client
+        .runtime_api()
+        .slot_duration(best)
+        .map_err(|e| ServiceError::Other(format!("cannot read the slot duration: {e}")))?;
+    Ok(SlotDuration::from_millis(millis))
+}
+
+/// Inherent data providers used by Aura-PQ: the slot first (required by the slot machinery),
+/// then the timestamp.
+type AuraPqInherentProviders = (SlotProvider, sp_timestamp::InherentDataProvider);
+type InherentProvidersResult =
+    Result<AuraPqInherentProviders, Box<dyn std::error::Error + Send + Sync>>;
+
+/// Creates the inherent data providers for authoring and import.
+fn inherent_providers(
+    slot_duration: SlotDuration,
+) -> impl Fn(<Block as BlockT>::Hash, ()) -> futures::future::Ready<InherentProvidersResult>
++ Clone
++ Send
++ Sync
++ 'static {
+    move |_, ()| {
+        let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+        let slot = SlotProvider::from_timestamp(*timestamp, slot_duration);
+        futures::future::ready(Ok((slot, timestamp)))
+    }
+}
 
 /// Builds the client, backend, import queue and transaction pool.
 ///
@@ -78,8 +119,10 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
         .build(),
     );
 
-    let import_queue = sc_consensus_manual_seal::import_queue(
+    let import_queue = ac_consensus_aura_pq::import_queue(
+        client.clone(),
         Box::new(client.clone()),
+        inherent_providers(slot_duration(&client)?),
         &task_manager.spawn_essential_handle(),
         config.prometheus_registry(),
     );
@@ -96,13 +139,15 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
     })
 }
 
-/// Builds and starts a full node.
+/// Builds and starts a full node; `authority_key` is the local Aura-PQ key of an authority.
 ///
 /// # Errors
 ///
-/// Fails if any service component cannot be started.
+/// Fails if any service component cannot be started, if the chain has no Aura-PQ authorities,
+/// or if the node runs as an authority without a key.
 pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Hash>>(
     config: Configuration,
+    authority_key: Option<SigningKey>,
 ) -> Result<TaskManager, ServiceError> {
     let sc_service::PartialComponents {
         client,
@@ -114,6 +159,19 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
         transaction_pool,
         other: mut telemetry,
     } = new_partial(&config)?;
+
+    // An empty authority set means no block can ever be authored (pallet-aura-pq accepts it only
+    // as the SDK's default genesis); refuse to run such a chain (design D6).
+    let best = client.info().best_hash;
+    let authorities = client
+        .runtime_api()
+        .authorities(best)
+        .map_err(|e| ServiceError::Other(format!("cannot read Aura-PQ authorities: {e}")))?;
+    if authorities.is_empty() {
+        return Err(ServiceError::Other(
+            "the chain has no Aura-PQ authorities; refusing to start".into(),
+        ));
+    }
 
     let net_config = sc_network::config::FullNetworkConfiguration::<
         Block,
@@ -159,6 +217,7 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
 
     let prometheus_registry = config.prometheus_registry().cloned();
     let is_authority = config.role.is_authority();
+    let force_authoring = config.force_authoring;
 
     sc_service::spawn_tasks(sc_service::SpawnTasksParams {
         network,
@@ -170,13 +229,18 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
         backend,
         system_rpc_tx,
         tx_handler_controller,
-        sync_service,
+        sync_service: sync_service.clone(),
         config,
         telemetry: telemetry.as_mut(),
         tracing_execute_block: None,
     })?;
 
     if is_authority {
+        let key = authority_key.ok_or_else(|| {
+            ServiceError::Other(
+                "running as an authority requires --pq-key-file or --dev-key".into(),
+            )
+        })?;
         let proposer = sc_basic_authorship::ProposerFactory::new(
             task_manager.spawn_handle(),
             client.clone(),
@@ -184,48 +248,28 @@ pub fn new_full<Network: sc_network::NetworkBackend<Block, <Block as BlockT>::Ha
             prometheus_registry.as_ref(),
             telemetry.as_ref().map(|x| x.handle()),
         );
-
-        let (mut sink, commands_stream) = futures::channel::mpsc::channel(1024);
-        task_manager
-            .spawn_handle()
-            .spawn("block-timer", None, async move {
-                loop {
-                    futures_timer_delay(BLOCK_TIME).await;
-                    let command = sc_consensus_manual_seal::EngineCommand::SealNewBlock {
-                        create_empty: true,
-                        finalize: false,
-                        parent_hash: None,
-                        sender: None,
-                    };
-                    // The receiver only disappears when the node shuts down.
-                    if sink.try_send(command).is_err() {
-                        break;
-                    }
-                }
-            });
-
-        let params = sc_consensus_manual_seal::ManualSealParams {
-            block_import: client.clone(),
-            env: proposer,
-            client,
-            pool: transaction_pool,
+        let slot_duration = slot_duration(&client)?;
+        let aura = ac_consensus_aura_pq::start_aura_pq(StartAuraPqParams {
+            slot_duration,
+            client: client.clone(),
             select_chain,
-            commands_stream: Box::pin(commands_stream),
-            consensus_data_provider: None,
-            create_inherent_data_providers: move |_, ()| async move {
-                Ok(sp_timestamp::InherentDataProvider::from_system_time())
-            },
-        };
+            block_import: client.clone(),
+            proposer_factory: proposer,
+            sync_oracle: sync_service.clone(),
+            justification_sync_link: sync_service.clone(),
+            create_inherent_data_providers: inherent_providers(slot_duration),
+            force_authoring,
+            key,
+            block_proposal_slot_portion: SlotProportion::new(2f32 / 3f32),
+            telemetry: telemetry.as_ref().map(|x| x.handle()),
+        })
+        .map_err(|e| ServiceError::Other(format!("cannot start Aura-PQ: {e}")))?;
         task_manager.spawn_essential_handle().spawn_blocking(
-            "manual-seal",
-            None,
-            sc_consensus_manual_seal::run_manual_seal(params),
+            "aura-pq",
+            Some("block-authoring"),
+            aura,
         );
     }
 
     Ok(task_manager)
-}
-
-async fn futures_timer_delay(duration: Duration) {
-    tokio::time::sleep(duration).await;
 }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/ac-crypto", "crates/ac-primitives", "node", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/pq-accounts", "runtime"]
+members = ["clients/wallet-cli", "tests/e2e", "crates/ac-crypto", "crates/ac-primitives", "node", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/pq-accounts", "runtime"]
 
 [workspace.package]
 version = "0.1.0"
@@ -74,10 +74,11 @@ sp-version = { version = "46.0", default-features = false }
 substrate-build-script-utils = { version = "11.0", default-features = false }
 substrate-frame-rpc-system = { version = "54.0", default-features = false }
 substrate-wasm-builder = { version = "34.0", default-features = false }
-sc-consensus-manual-seal = { version = "0.60", default-features = false }
 sc-rpc = { version = "55.0", default-features = false }
 # Off-chain async / CLI stack (node, wallet)
 clap = { version = "4.5", features = ["derive"] }
+anyhow = { version = "1.0", default-features = false, features = ["std"] }
+rpassword = { version = "7.3", default-features = false }
 async-trait = { version = "0.1", default-features = false }
 substrate-prometheus-endpoint = { version = "0.17", default-features = false }
 futures = { version = "0.3", default-features = false }
@@ -90,6 +91,7 @@ bech32 = { version = "0.12", default-features = false, features = ["alloc"] }
 # Workspace crates
 ac-crypto = { path = "crates/ac-crypto", version = "0.1", default-features = false }
 ac-primitives = { path = "crates/ac-primitives", version = "0.1", default-features = false }
+ac-wallet = { path = "clients/wallet-cli", version = "0.1", default-features = false }
 ac-runtime = { path = "runtime", version = "0.1", default-features = false }
 ac-consensus-aura-pq = { path = "node/consensus/aura-pq", version = "0.1", default-features = false }
 pallet-aura-pq = { path = "pallets/aura-pq", version = "0.1", default-features = false }
@@ -118,11 +120,31 @@ wildcard_imports = "deny"
 # keeping `target/` within CI and container disk budgets.
 [profile.dev]
 debug = "line-tables-only"
+# Incremental artifacts of a Substrate node take several GB and quickly exhaust CI runners and
+# cloud containers; full rebuilds of changed crates are fast enough.
+incremental = false
 
 # Argon2id with production parameters (64 MiB) is too slow unoptimized for tests.
 [profile.dev.package.argon2]
 opt-level = 3
 [profile.dev.package.blake2]
+opt-level = 3
+# Unoptimized Cranelift makes a debug node spend ~30 s compiling the WASM runtime at start-up.
+[profile.dev.package.cranelift-codegen]
+opt-level = 3
+[profile.dev.package.regalloc2]
+opt-level = 3
+[profile.dev.package.wasmtime-internal-cranelift]
+opt-level = 3
+[profile.dev.package.cranelift-assembler-x64]
+opt-level = 3
+[profile.dev.package.cranelift-frontend]
+opt-level = 3
+[profile.dev.package.cranelift-entity]
+opt-level = 3
+[profile.dev.package.wasmtime-environ]
+opt-level = 3
+[profile.dev.package.wasmparser]
 opt-level = 3
 
 [profile.release]

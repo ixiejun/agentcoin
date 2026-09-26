@@ -302,11 +302,22 @@ A task / change is done only when all of the following hold:
 ```bash
 # Quality checks (same as CI)
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo build -p ac-crypto --no-default-features --target wasm32-unknown-unknown
 cargo deny check
 cargo audit
+
+# Supply chain, licences and advisories
+scripts/check-license-boundary.sh                 # GPL only under node/ (D37)
+scripts/sync-audit-exceptions.py [--write]        # advisory exceptions (edit audit-exceptions.toml)
+scripts/benchmark-pallet.sh <pallet> <weights.rs> # regenerate benchmarked weights
+
+# Node and end-to-end
+cargo build -p ac-node -p ac-wallet
+scripts/run-local-testnet.sh [--check]            # three-node local testnet
+AC_E2E=1 cargo test -p ac-e2e                      # multi-node acceptance tests
+scripts/wallet-smoke.sh                           # wallet CLI against a dev node
 
 # OpenSpec
 openspec list                 # in-progress changes

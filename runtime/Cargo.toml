@@ -41,6 +41,7 @@ sp-version = { workspace = true, features = ["serde"] }
 [dev-dependencies]
 ac-crypto = { workspace = true, features = ["scale", "serde", "std", "deterministic"] }
 proptest = { workspace = true, features = ["std"] }
+hex = { workspace = true, features = ["std"] }
 serde_json = { workspace = true, features = ["std"] }
 pallet-timestamp = { workspace = true, features = ["std"] }
 pallet-balances = { workspace = true, features = ["std"] }

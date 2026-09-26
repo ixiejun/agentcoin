@@ -3,11 +3,72 @@
 use sc_cli::SubstrateCli;
 use sc_service::PartialComponents;
 
+use ac_crypto::keystore::{EncryptedSecret, SecretKind};
+use ac_crypto::sig::{SecretSeed, SigningKey};
+use ac_primitives::aura_pq::AUTHORITY_ALG;
+use sc_chain_spec::ChainType;
+
 use crate::{
     chain_spec,
-    cli::{Cli, Subcommand},
-    service,
+    cli::{Cli, PqKeyCmd, Subcommand},
+    genesis_guard, keys, service,
 };
+
+/// Runs `pq-key` subcommands.
+fn pq_key(cmd: &PqKeyCmd) -> Result<(), String> {
+    match cmd {
+        PqKeyCmd::Generate {
+            output,
+            password_file,
+        } => {
+            if output.exists() {
+                return Err(format!(
+                    "{} already exists; refusing to overwrite",
+                    output.display()
+                ));
+            }
+            let password = keys::read_password(password_file)?;
+            let mut rng = ac_crypto::OsRng::new().map_err(|e| e.to_string())?;
+            let seed = SecretSeed::generate(&mut rng);
+            let public = SigningKey::from_seed(AUTHORITY_ALG, &seed)
+                .and_then(|k| k.public_key())
+                .map_err(|e| e.to_string())?;
+            let file = EncryptedSecret::encrypt(
+                seed.expose(),
+                SecretKind::SigningSeed,
+                Some(&public),
+                &password,
+                &mut rng,
+            )
+            .map_err(|e| e.to_string())?;
+            std::fs::write(output, file.to_json())
+                .map_err(|e| format!("cannot write {}: {e}", output.display()))?;
+            println!("0x{}", hex_encode(&public.to_canonical()));
+            Ok(())
+        }
+        PqKeyCmd::Inspect { file } => {
+            let json = std::fs::read_to_string(file)
+                .map_err(|e| format!("cannot read {}: {e}", file.display()))?;
+            let parsed = EncryptedSecret::from_json(&json).map_err(|e| e.to_string())?;
+            let public = parsed.public_key().ok_or("not a signing key file")?;
+            println!("0x{}", hex_encode(&public.to_canonical()));
+            Ok(())
+        }
+    }
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Constitution layer 1 at start-up: a live chain's genesis must have zero issuance.
+fn check_genesis(spec: &dyn sc_service::ChainSpec) -> Result<(), String> {
+    if spec.chain_type() != ChainType::Live {
+        return Ok(());
+    }
+    let storage = spec.as_storage_builder().build_storage()?;
+    genesis_guard::check_zero_issuance(&storage).map_err(|e| e.to_string())
+}
 
 impl SubstrateCli for Cli {
     fn impl_name() -> String {
@@ -54,6 +115,7 @@ pub fn run() -> sc_cli::Result<()> {
     let cli = Cli::from_args();
 
     match &cli.subcommand {
+        Some(Subcommand::PqKey(cmd)) => pq_key(cmd).map_err(sc_cli::Error::Input),
         Some(Subcommand::ExportChainSpec(cmd)) => {
             let chain_spec = cli.load_spec(&cmd.chain)?;
             cmd.run(chain_spec)
@@ -122,14 +184,19 @@ pub fn run() -> sc_cli::Result<()> {
         }
         None => {
             let runner = cli.create_runner(&cli.run)?;
+            let dev_flag = cli.run.shared_params.is_dev();
+            let key_args = cli.pq.clone();
             runner.run_node_until_exit(|config| async move {
+                check_genesis(config.chain_spec.as_ref()).map_err(sc_cli::Error::Input)?;
+                let key = keys::resolve(&key_args, &config.chain_spec.chain_type(), dev_flag)
+                    .map_err(sc_cli::Error::Input)?;
                 match config.network.network_backend {
                     sc_network::config::NetworkBackendType::Libp2p => {
-                        service::new_full::<sc_network::NetworkWorker<_, _>>(config)
+                        service::new_full::<sc_network::NetworkWorker<_, _>>(config, key)
                             .map_err(sc_cli::Error::Service)
                     }
                     sc_network::config::NetworkBackendType::Litep2p => {
-                        service::new_full::<sc_network::Litep2pNetworkBackend>(config)
+                        service::new_full::<sc_network::Litep2pNetworkBackend>(config, key)
                             .map_err(sc_cli::Error::Service)
                     }
                 }

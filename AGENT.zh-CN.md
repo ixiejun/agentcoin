@@ -302,11 +302,22 @@ scripts/     工具脚本
 ```bash
 # 质量检查（与 CI 一致）
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo build -p ac-crypto --no-default-features --target wasm32-unknown-unknown
 cargo deny check
 cargo audit
+
+# 供应链、许可证与安全公告
+scripts/check-license-boundary.sh                 # 只有 node/ 可以依赖 GPL（D37）
+scripts/sync-audit-exceptions.py [--write]        # 安全公告例外（编辑 audit-exceptions.toml）
+scripts/benchmark-pallet.sh <pallet> <weights.rs> # 重新生成基准权重
+
+# 节点与端到端
+cargo build -p ac-node -p ac-wallet
+scripts/run-local-testnet.sh [--check]            # 三节点本地测试网
+AC_E2E=1 cargo test -p ac-e2e                      # 多节点验收测试
+scripts/wallet-smoke.sh                           # 针对开发节点运行钱包命令行
 
 # OpenSpec
 openspec list                 # 进行中的变更

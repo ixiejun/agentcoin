@@ -179,6 +179,36 @@ impl_runtime_apis! {
         }
     }
 
+    #[cfg(feature = "runtime-benchmarks")]
+    impl frame_benchmarking::Benchmark<Block> for Runtime {
+        fn benchmark_metadata(extra: bool) -> (
+            Vec<frame_benchmarking::BenchmarkList>,
+            Vec<frame_support::traits::StorageInfo>,
+        ) {
+            use frame_benchmarking::BenchmarkList;
+            use frame_support::traits::StorageInfoTrait;
+            use crate::{AllPalletsWithSystem, PqAccounts};
+
+            let mut list = Vec::<BenchmarkList>::new();
+            list_benchmarks!(list, extra);
+            (list, AllPalletsWithSystem::storage_info())
+        }
+
+        fn dispatch_benchmark(
+            config: frame_benchmarking::BenchmarkConfig,
+        ) -> Result<Vec<frame_benchmarking::BenchmarkBatch>, alloc::string::String> {
+            use frame_benchmarking::BenchmarkBatch;
+            use frame_support::traits::WhitelistedStorageKeys;
+            use crate::{AllPalletsWithSystem, PqAccounts};
+
+            let whitelist = AllPalletsWithSystem::whitelisted_storage_keys();
+            let mut batches = Vec::<BenchmarkBatch>::new();
+            let params = (&config, &whitelist);
+            add_benchmarks!(params, batches);
+            Ok(batches)
+        }
+    }
+
     impl ac_primitives::profile::ChainProfileApi<Block> for Runtime {
         fn profile() -> ac_primitives::ChainProfile {
             ac_primitives::ChainProfile::AGENTCOIN
