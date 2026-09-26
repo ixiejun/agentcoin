@@ -198,4 +198,7 @@ mod runtime {
 
     #[runtime::pallet_index(7)]
     pub type Offences = pallet_ac_offences;
+
+    #[runtime::pallet_index(8)]
+    pub type RandomnessCr = pallet_randomness_cr;
 }

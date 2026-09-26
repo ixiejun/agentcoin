@@ -56,6 +56,8 @@ pub trait ValidatorSetInterface {
     fn disable(key: &PqPublicKey) -> bool;
     /// Index of the current epoch.
     fn current_epoch() -> EpochIndex;
+    /// Epoch length in blocks.
+    fn epoch_length() -> u64;
 }
 
 sp_api::decl_runtime_apis! {

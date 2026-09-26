@@ -365,5 +365,9 @@ pub mod pallet {
         fn current_epoch() -> EpochIndex {
             Self::current_epoch()
         }
+
+        fn epoch_length() -> u64 {
+            EpochLength::<T>::get()
+        }
     }
 }

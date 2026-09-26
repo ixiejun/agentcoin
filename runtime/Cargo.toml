@@ -17,6 +17,7 @@ pallet-balances = { workspace = true }
 pallet-pq-accounts = { workspace = true }
 pallet-ac-offences = { workspace = true }
 pallet-validator-set = { workspace = true }
+pallet-randomness-cr = { workspace = true }
 pallet-transaction-payment = { workspace = true }
 pallet-transaction-payment-rpc-runtime-api = { workspace = true }
 parity-scale-codec = { workspace = true, features = ["derive"] }
@@ -62,6 +63,7 @@ std = [
     "pallet-pq-accounts/std",
     "pallet-ac-offences/std",
     "pallet-validator-set/std",
+    "pallet-randomness-cr/std",
     "pallet-transaction-payment-rpc-runtime-api/std",
     "pallet-transaction-payment/std",
     "frame-benchmarking?/std",
@@ -96,6 +98,7 @@ runtime-benchmarks = [
     "pallet-pq-accounts/runtime-benchmarks",
     "pallet-ac-offences/runtime-benchmarks",
     "pallet-validator-set/runtime-benchmarks",
+    "pallet-randomness-cr/runtime-benchmarks",
     "pallet-timestamp/runtime-benchmarks",
     "pallet-transaction-payment/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",

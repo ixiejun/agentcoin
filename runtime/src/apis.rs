@@ -13,7 +13,8 @@ use sp_version::RuntimeVersion;
 
 use super::{
     AccountId, AuraPq, Balance, Block, Executive, InherentDataExt, Nonce, Offences, PqAccounts,
-    Runtime, RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION, ValidatorSet,
+    RandomnessCr, Runtime, RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION,
+    ValidatorSet,
 };
 
 impl_runtime_apis! {
@@ -157,6 +158,24 @@ impl_runtime_apis! {
             set_id: ac_primitives::ac_bft::SetId,
         ) -> Vec<(ac_crypto::PqPublicKey, ac_primitives::offences::OffenceKey)> {
             Offences::offences(set_id)
+        }
+    }
+
+    impl ac_primitives::randomness::RandomnessApi<Block> for Runtime {
+        fn latest() -> Option<(u64, sp_core::H256)> {
+            RandomnessCr::latest()
+        }
+
+        fn random(subject: Vec<u8>) -> Option<(u64, sp_core::H256)> {
+            RandomnessCr::random(&subject)
+        }
+
+        fn epoch_randomness(epoch: u64) -> Option<sp_core::H256> {
+            RandomnessCr::epoch_randomness(epoch)
+        }
+
+        fn reveals(epoch: u64) -> Vec<([u8; 32], [u8; 32])> {
+            RandomnessCr::reveals(epoch)
         }
     }
 

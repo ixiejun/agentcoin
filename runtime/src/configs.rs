@@ -122,3 +122,13 @@ impl pallet_ac_offences::Config for Runtime {
     type MaxEvidenceAge = ConstU64<4_800>;
     type WeightInfo = pallet_ac_offences::weights::SubstrateWeight<Runtime>;
 }
+
+impl pallet_randomness_cr::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Author = AuraPq;
+    type Epochs = ValidatorSet;
+    type MaxAuthorities = ConstU32<{ ac_primitives::aura_pq::MAX_AUTHORITIES }>;
+    /// Randomness of the last sixteen epochs stays queryable.
+    type KeepEpochs = ConstU32<16>;
+    type WeightInfo = pallet_randomness_cr::weights::SubstrateWeight<Runtime>;
+}

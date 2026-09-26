@@ -159,6 +159,7 @@ dependencies = [
  "sp-api",
  "sp-consensus-slots",
  "sp-core",
+ "sp-inherents",
  "sp-runtime",
  "sp-trie",
 ]
@@ -180,6 +181,7 @@ dependencies = [
  "pallet-aura-pq",
  "pallet-balances",
  "pallet-pq-accounts",
+ "pallet-randomness-cr",
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
@@ -6054,6 +6056,26 @@ dependencies = [
  "scale-info",
  "sp-api",
  "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
+name = "pallet-randomness-cr"
+version = "0.1.0"
+dependencies = [
+ "ac-crypto",
+ "ac-primitives",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-aura-pq",
+ "pallet-validator-set",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-inherents",
  "sp-io",
  "sp-runtime",
 ]

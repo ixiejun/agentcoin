@@ -11,6 +11,7 @@ pub mod epoch;
 mod hashing;
 pub mod offences;
 pub mod profile;
+pub mod randomness;
 mod signature;
 pub mod validator_set;
 
