@@ -21,10 +21,26 @@ pub trait BlockAuthorities {
     fn set_authorities(authorities: Vec<PqPublicKey>) -> Result<(), AuthorityError>;
 }
 
-/// The author of the block being executed.
+/// The author and slot of the block being executed.
 pub trait CurrentAuthor {
     /// Key of the authority whose slot this block is in; `None` without a slot digest.
     fn current_author() -> Option<PqPublicKey>;
+    /// Slot of the block being executed (0 without a slot digest).
+    fn current_slot() -> u64;
+}
+
+/// Slashing of offenders. M2 validators hold no stake (decisions D9, D19), so the M2
+/// implementation `()` slashes nothing; M3 connects stake and burns 100%.
+pub trait SlashHandler {
+    /// Slashes `offender` for an offence of `kind` and returns the amount slashed (smallest ATC
+    /// unit).
+    fn on_offence(offender: &PqPublicKey, kind: crate::offences::OffenceKind) -> u128;
+}
+
+impl SlashHandler for () {
+    fn on_offence(_offender: &PqPublicKey, _kind: crate::offences::OffenceKind) -> u128 {
+        0
+    }
 }
 
 /// The validator set as seen by the offences pallet.

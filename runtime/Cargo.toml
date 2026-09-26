@@ -15,6 +15,8 @@ ac-primitives = { workspace = true }
 pallet-aura-pq = { workspace = true }
 pallet-balances = { workspace = true }
 pallet-pq-accounts = { workspace = true }
+pallet-ac-offences = { workspace = true }
+pallet-validator-set = { workspace = true }
 pallet-transaction-payment = { workspace = true }
 pallet-transaction-payment-rpc-runtime-api = { workspace = true }
 parity-scale-codec = { workspace = true, features = ["derive"] }
@@ -58,6 +60,8 @@ std = [
     "pallet-aura-pq/std",
     "pallet-balances/std",
     "pallet-pq-accounts/std",
+    "pallet-ac-offences/std",
+    "pallet-validator-set/std",
     "pallet-transaction-payment-rpc-runtime-api/std",
     "pallet-transaction-payment/std",
     "frame-benchmarking?/std",
@@ -90,6 +94,8 @@ runtime-benchmarks = [
     "frame-system/runtime-benchmarks",
     "pallet-balances/runtime-benchmarks",
     "pallet-pq-accounts/runtime-benchmarks",
+    "pallet-ac-offences/runtime-benchmarks",
+    "pallet-validator-set/runtime-benchmarks",
     "pallet-timestamp/runtime-benchmarks",
     "pallet-transaction-payment/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",

@@ -84,6 +84,50 @@ pub enum OffenceKey {
     },
 }
 
+/// Kind of offence, as passed to slashing. Wire format: explicit discriminants.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    TypeInfo,
+    MaxEncodedLen,
+)]
+pub enum OffenceKind {
+    /// Two blocks sealed in one slot.
+    #[codec(index = 0)]
+    AuraEquivocation,
+    /// Two conflicting AC-BFT messages in one round.
+    #[codec(index = 1)]
+    BftEquivocation,
+}
+
+impl OffenceKey {
+    /// The kind of offence this key identifies.
+    #[must_use]
+    pub fn kind(&self) -> OffenceKind {
+        match self {
+            Self::Aura { .. } => OffenceKind::AuraEquivocation,
+            Self::Bft { .. } => OffenceKind::BftEquivocation,
+        }
+    }
+}
+
+sp_api::decl_runtime_apis! {
+    /// Double-signing evidence handling for the node.
+    pub trait OffencesApi {
+        /// A ready-to-submit, unsigned report of `evidence`, or `None` if the evidence is
+        /// invalid or already recorded.
+        fn report_extrinsic(evidence: Evidence) -> Option<sp_runtime::OpaqueExtrinsic>;
+        /// Offences recorded in authority set `set_id`.
+        fn offences(set_id: SetId) -> alloc::vec::Vec<(PqPublicKey, OffenceKey)>;
+    }
+}
+
 /// A verified offence.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Offence {

@@ -18,7 +18,6 @@ use common::{
     Signer, apply, build, context, dev_ext, fees_paid, free, immortal, issuance, next_block,
     signed, transfer,
 };
-use pallet_pq_accounts::{PqAuth, PqAuthorize};
 use parity_scale_codec::{Decode, Encode};
 use sp_core::H256;
 use sp_runtime::DispatchError;
@@ -127,12 +126,8 @@ fn legacy_signed_extrinsics_do_not_decode() {
 fn unauthorized_transfer_is_rejected() {
     dev_ext().execute_with(|| {
         let bob = Signer::dev("bob");
-        let (a, b, c, d, e, f, g, h, i) =
-            ac_runtime::transaction::authorized_extensions(&immortal(0));
-        let xt = UncheckedExtrinsic::new_transaction(
-            transfer(&bob.account, ATC),
-            (PqAuthorize::new(PqAuth::None), a, b, c, d, e, f, g, h, i),
-        );
+        // No account signature: `transfer` does not authorize itself, so it is rejected.
+        let xt = ac_runtime::transaction::assemble_unsigned(transfer(&bob.account, ATC));
         assert_eq!(apply(xt), invalid(InvalidTransaction::UnknownOrigin));
     });
 }

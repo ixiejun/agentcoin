@@ -12,8 +12,8 @@ use sp_runtime::{
 use sp_version::RuntimeVersion;
 
 use super::{
-    AccountId, AuraPq, Balance, Block, Executive, InherentDataExt, Nonce, PqAccounts, Runtime,
-    RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION,
+    AccountId, AuraPq, Balance, Block, Executive, InherentDataExt, Nonce, Offences, PqAccounts,
+    Runtime, RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION, ValidatorSet,
 };
 
 impl_runtime_apis! {
@@ -126,6 +126,37 @@ impl_runtime_apis! {
 
         fn authorities() -> Vec<ac_crypto::PqPublicKey> {
             AuraPq::authorities()
+        }
+    }
+
+    impl ac_primitives::validator_set::ValidatorSetApi<Block> for Runtime {
+        fn authority_set() -> (ac_primitives::ac_bft::SetId, Vec<ac_primitives::ac_bft::Authority>) {
+            ValidatorSet::authority_set()
+        }
+
+        fn epoch_length() -> u64 {
+            ValidatorSet::epoch_length()
+        }
+
+        fn historical_set(
+            set_id: ac_primitives::ac_bft::SetId,
+        ) -> Option<Vec<ac_primitives::ac_bft::Authority>> {
+            ValidatorSet::historical_set(set_id)
+        }
+    }
+
+    impl ac_primitives::offences::OffencesApi<Block> for Runtime {
+        fn report_extrinsic(
+            evidence: ac_primitives::offences::Evidence,
+        ) -> Option<sp_runtime::OpaqueExtrinsic> {
+            let xt = crate::transaction::report_extrinsic(evidence)?;
+            sp_runtime::OpaqueExtrinsic::try_from_encoded_extrinsic(&parity_scale_codec::Encode::encode(&xt)).ok()
+        }
+
+        fn offences(
+            set_id: ac_primitives::ac_bft::SetId,
+        ) -> Vec<(ac_crypto::PqPublicKey, ac_primitives::offences::OffenceKey)> {
+            Offences::offences(set_id)
         }
     }
 

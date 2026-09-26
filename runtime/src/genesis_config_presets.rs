@@ -58,7 +58,7 @@ pub fn dev_account(name: &str) -> Result<AccountId, ac_crypto::Error> {
     )?))
 }
 
-fn testnet_genesis(authorities: &[&str]) -> Result<Value, ac_crypto::Error> {
+fn testnet_genesis(authorities: &[&str], epoch_length: u64) -> Result<Value, ac_crypto::Error> {
     let authorities = authorities
         .iter()
         .map(|name| dev_public_key(name, SigAlg::MlDsa65))
@@ -71,15 +71,17 @@ fn testnet_genesis(authorities: &[&str]) -> Result<Value, ac_crypto::Error> {
     Ok(build_struct_json_patch!(RuntimeGenesisConfig {
         balances: BalancesConfig { balances },
         aura_pq: pallet_aura_pq::GenesisConfig { authorities },
+        validator_set: pallet_validator_set::GenesisConfig { epoch_length },
     }))
 }
 
 /// Returns the JSON patch for a named preset, or `None` for unknown names.
 pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
     let patch = match id.as_ref() {
-        sp_genesis_builder::DEV_RUNTIME_PRESET => testnet_genesis(&["alice"]),
+        // Short epochs so tests see authority-set changes and randomness quickly.
+        sp_genesis_builder::DEV_RUNTIME_PRESET => testnet_genesis(&["alice"], 10),
         sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET => {
-            testnet_genesis(&["alice", "bob", "charlie"])
+            testnet_genesis(&["alice", "bob", "charlie"], 20)
         }
         _ => return None,
     };

@@ -16,7 +16,7 @@ use sp_runtime::{Perbill, traits::IdentityLookup, traits::One};
 use super::{
     AccountId, AuraPq, Balance, Balances, Block, BlockNumber, EXISTENTIAL_DEPOSIT, Hash,
     MILLISECS_PER_BLOCK, Nonce, PalletInfo, Runtime, RuntimeCall, RuntimeEvent,
-    RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, VERSION,
+    RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, VERSION, ValidatorSet,
 };
 use ac_primitives::Blake3Hasher;
 
@@ -100,4 +100,25 @@ impl pallet_transaction_payment::Config for Runtime {
 impl pallet_pq_accounts::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_pq_accounts::weights::SubstrateWeight<Runtime>;
+}
+
+impl pallet_validator_set::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type BlockAuthorities = AuraPq;
+    type MaxAuthorities = ConstU32<{ ac_primitives::aura_pq::MAX_AUTHORITIES }>;
+    /// Sets of the last eight epochs stay available for double-signing evidence.
+    type HistoryEpochs = ConstU32<8>;
+    type WeightInfo = pallet_validator_set::weights::SubstrateWeight<Runtime>;
+}
+
+impl pallet_ac_offences::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type ValidatorSet = ValidatorSet;
+    type Slots = AuraPq;
+    /// PoA validators hold no stake (decisions D9, D19): nothing to slash until M3.
+    type SlashHandler = ();
+    type MaxAuthorities = ConstU32<{ ac_primitives::aura_pq::MAX_AUTHORITIES }>;
+    /// Seal evidence older than eight 600-slot epochs is rejected (matches `HistoryEpochs`).
+    type MaxEvidenceAge = ConstU64<4_800>;
+    type WeightInfo = pallet_ac_offences::weights::SubstrateWeight<Runtime>;
 }

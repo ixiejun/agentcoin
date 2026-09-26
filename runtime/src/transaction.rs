@@ -49,6 +49,7 @@ pub struct TxParams {
 #[must_use]
 pub fn authorized_extensions(params: &TxParams) -> AuthorizedExtensions {
     (
+        frame_system::AuthorizeCall::new(),
         frame_system::CheckNonZeroSender::new(),
         frame_system::CheckSpecVersion::new(),
         frame_system::CheckTxVersion::new(),
@@ -65,6 +66,7 @@ pub fn authorized_extensions(params: &TxParams) -> AuthorizedExtensions {
 #[must_use]
 pub fn implicit_from(context: &ChainContext, params: &TxParams) -> AuthorizedImplicit {
     (
+        (),
         (),
         context.spec_version,
         context.transaction_version,
@@ -122,8 +124,37 @@ pub fn assemble(
         signature,
         public_key,
     });
-    let (a, b, c, d, e, f, g, h, i) = extensions;
-    UncheckedExtrinsic::new_transaction(call, (auth, a, b, c, d, e, f, g, h, i))
+    let (a, b, c, d, e, f, g, h, i, j) = extensions;
+    UncheckedExtrinsic::new_transaction(call, (auth, a, b, c, d, e, f, g, h, i, j))
+}
+
+/// Assembles a v5 general transaction without an account signature, for calls that authorize
+/// themselves (double-signing reports): immortal, nonce 0, no tip.
+#[must_use]
+pub fn assemble_unsigned(call: RuntimeCall) -> UncheckedExtrinsic {
+    let params = TxParams {
+        nonce: 0,
+        tip: 0,
+        era: Era::Immortal,
+        era_birth_hash: Hash::zero(),
+    };
+    let (a, b, c, d, e, f, g, h, i, j) = authorized_extensions(&params);
+    let auth = PqAuthorize::<Runtime>::new(PqAuth::None);
+    UncheckedExtrinsic::new_transaction(call, (auth, a, b, c, d, e, f, g, h, i, j))
+}
+
+/// A ready-to-submit double-signing report, or `None` if the evidence is invalid or already
+/// recorded (the same checks the transaction pool applies).
+#[must_use]
+pub fn report_extrinsic(evidence: ac_primitives::offences::Evidence) -> Option<UncheckedExtrinsic> {
+    crate::Offences::authorize_report(
+        sp_runtime::transaction_validity::TransactionSource::Local,
+        &evidence,
+    )
+    .ok()?;
+    Some(assemble_unsigned(RuntimeCall::Offences(
+        pallet_ac_offences::Call::report_equivocation { evidence },
+    )))
 }
 
 /// Implicit data read from the current chain state (tests and in-runtime tooling).

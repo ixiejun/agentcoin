@@ -97,7 +97,12 @@ pub const EXISTENTIAL_DEPOSIT: Balance = ATC / 1_000;
 
 /// Transaction extensions after [`pallet_pq_accounts::PqAuthorize`], in pipeline order. The
 /// signature covers the call and the explicit and implicit data of all of them.
+///
+/// `AuthorizeCall` lets a transaction without an account signature invoke calls that authorize
+/// themselves (double-signing reports); it has no explicit or implicit data, so it changes
+/// neither the encoding nor the signed payload of account transactions.
 pub type AuthorizedExtensions = (
+    frame_system::AuthorizeCall<Runtime>,
     frame_system::CheckNonZeroSender<Runtime>,
     frame_system::CheckSpecVersion<Runtime>,
     frame_system::CheckTxVersion<Runtime>,
@@ -113,6 +118,7 @@ pub type AuthorizedExtensions = (
 /// signature covers everything after it (decision D36).
 pub type TxExtension = (
     pallet_pq_accounts::PqAuthorize<Runtime>,
+    frame_system::AuthorizeCall<Runtime>,
     frame_system::CheckNonZeroSender<Runtime>,
     frame_system::CheckSpecVersion<Runtime>,
     frame_system::CheckTxVersion<Runtime>,
@@ -186,4 +192,10 @@ mod runtime {
 
     #[runtime::pallet_index(5)]
     pub type PqAccounts = pallet_pq_accounts;
+
+    #[runtime::pallet_index(6)]
+    pub type ValidatorSet = pallet_validator_set;
+
+    #[runtime::pallet_index(7)]
+    pub type Offences = pallet_ac_offences;
 }

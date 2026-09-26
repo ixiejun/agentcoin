@@ -174,6 +174,10 @@ pub mod pallet {
         fn current_author() -> Option<PqPublicKey> {
             CurrentAuthor::<T>::get()
         }
+
+        fn current_slot() -> u64 {
+            CurrentSlot::<T>::get().into()
+        }
     }
 
     impl<T: Config> frame_support::traits::OnTimestampSet<u64> for Pallet<T> {
