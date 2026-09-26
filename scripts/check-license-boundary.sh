@@ -5,6 +5,10 @@
 # `crates/`, `pallets/`, `runtime/`, `clients/` — must have a GPL-free normal + build closure.
 # A licence expression with a non-GPL alternative (e.g. "Apache-2.0 OR GPL-3.0") is accepted.
 #
+# It also checks that the AC-BFT protocol core (node/consensus/ac-bft/src/protocol*) uses no
+# node-client (`sc-*`) crate, so it stays a pure state machine that light clients and formal
+# tools can reuse (design D1 of m2-finality).
+#
 # Usage: scripts/check-license-boundary.sh [--manifest-path <Cargo.toml>] [--self-test]
 # Requirements: bash, cargo, python3.
 set -euo pipefail
@@ -89,9 +93,21 @@ TOML
   echo "licence boundary self-test passed"
 }
 
+# The AC-BFT protocol core must not reference any `sc_*` crate.
+check_pure_protocol() {
+  local core="$repo_root/node/consensus/ac-bft/src"
+  local hits
+  hits="$(grep -rnE '\bsc_[a-z_]+(::|\b)' "$core/protocol.rs" "$core/protocol" || true)"
+  if [ -n "$hits" ]; then
+    echo "the AC-BFT protocol core must not use node-client (sc-*) crates:" >&2
+    echo "$hits" >&2
+    return 1
+  fi
+}
+
 case "${1:-}" in
   --self-test) self_test ;;
   --manifest-path) check "$2" && echo "licence boundary ok" ;;
-  "") check "$manifest" && echo "licence boundary ok" ;;
+  "") check "$manifest" && check_pure_protocol && echo "licence boundary ok" ;;
   *) echo "usage: $0 [--manifest-path <Cargo.toml>] [--self-test]" >&2; exit 2 ;;
 esac

@@ -40,6 +40,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ac-consensus-bft"
+version = "0.1.0"
+dependencies = [
+ "ac-crypto",
+ "ac-primitives",
+ "parity-scale-codec",
+ "proptest",
+ "sp-core",
+ "sp-runtime",
+]
+
+[[package]]
 name = "ac-crypto"
 version = "0.1.0"
 dependencies = [

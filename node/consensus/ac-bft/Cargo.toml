@@ -1,0 +1,28 @@
+[package]
+name = "ac-consensus-bft"
+description = "AgentCoin AC-BFT finality gadget: a pure two-phase BFT state machine and its node integration"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[features]
+# Exposes the deterministic network simulator and the in-memory block tree to other crates'
+# tests (and to this crate's README example).
+test-utils = []
+
+[dependencies]
+ac-crypto = { workspace = true, features = ["std", "scale"] }
+ac-primitives = { workspace = true, features = ["std"] }
+parity-scale-codec = { workspace = true, features = ["std"] }
+sp-core = { workspace = true, features = ["std"] }
+sp-runtime = { workspace = true, features = ["std"] }
+
+[dev-dependencies]
+proptest = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true

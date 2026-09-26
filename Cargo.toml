@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["clients/wallet-cli", "tests/e2e", "crates/ac-crypto", "crates/ac-primitives", "node", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/pq-accounts", "runtime"]
+members = ["clients/wallet-cli", "tests/e2e", "crates/ac-crypto", "crates/ac-primitives", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/pq-accounts", "runtime"]
 
 [workspace.package]
 version = "0.1.0"
@@ -94,6 +94,7 @@ ac-primitives = { path = "crates/ac-primitives", version = "0.1", default-featur
 ac-wallet = { path = "clients/wallet-cli", version = "0.1", default-features = false }
 ac-runtime = { path = "runtime", version = "0.1", default-features = false }
 ac-consensus-aura-pq = { path = "node/consensus/aura-pq", version = "0.1", default-features = false }
+ac-consensus-bft = { path = "node/consensus/ac-bft", version = "0.1", default-features = false }
 pallet-aura-pq = { path = "pallets/aura-pq", version = "0.1", default-features = false }
 pallet-pq-accounts = { path = "pallets/pq-accounts", version = "0.1", default-features = false }
 # Test-only
@@ -146,6 +147,10 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.wasmparser]
 opt-level = 3
+
+# The AC-BFT simulator runs 1000 randomized networks in CI; unoptimized it takes minutes.
+[profile.dev.package.ac-consensus-bft]
+opt-level = 2
 
 [profile.release]
 # The runtime and node rely on unwinding to turn host-side panics into errors.
