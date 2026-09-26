@@ -80,10 +80,17 @@ impl PoolReporter {
             Evidence::BftEquivocation { .. } => "AC-BFT vote",
         };
         let best = self.client.info().best_hash;
+        let offender = self.offender(best, &evidence);
         let xt = match self.client.runtime_api().report_extrinsic(best, evidence) {
             Ok(Some(xt)) => xt,
             Ok(None) => {
-                log::debug!(target: "ac-offences", "{kind} double signing already recorded or not reportable");
+                // One offence per offender and set: a later one is refused, as the outcome is
+                // already decided.
+                if offender.is_some_and(|o| self.recorded_in_current_set(best, &o)) {
+                    log::debug!(target: "ac-offences", "{kind} double signing not reported: the offender is already recorded in this set");
+                } else {
+                    log::debug!(target: "ac-offences", "{kind} double-signing evidence not reportable (stale or invalid)");
+                }
                 return;
             }
             Err(e) => {
@@ -102,6 +109,37 @@ impl PoolReporter {
                 }
             }
         });
+    }
+}
+
+impl PoolReporter {
+    /// The key that signed both items of `evidence`, if its set is still known.
+    fn offender(
+        &self,
+        at: <Block as BlockT>::Hash,
+        evidence: &Evidence,
+    ) -> Option<ac_crypto::PqPublicKey> {
+        match evidence {
+            Evidence::AuraEquivocation { offender, .. } => Some(offender.clone()),
+            Evidence::BftEquivocation { first, .. } => self
+                .client
+                .runtime_api()
+                .historical_set(at, first.set_id)
+                .ok()??
+                .get(usize::from(first.signer))
+                .map(|a| a.key.clone()),
+        }
+    }
+
+    fn recorded_in_current_set(
+        &self,
+        at: <Block as BlockT>::Hash,
+        offender: &ac_crypto::PqPublicKey,
+    ) -> bool {
+        let api = self.client.runtime_api();
+        api.authority_set(at)
+            .and_then(|(set_id, _)| api.offences(at, set_id))
+            .is_ok_and(|recorded| recorded.iter().any(|(who, _)| who == offender))
     }
 }
 

@@ -20,8 +20,8 @@ use ac_primitives::ac_bft::{
 };
 use ac_primitives::offences::OffenceKey;
 use common::{
-    NodeOpts, block_hash, free_port, heights, start_node_with, state_call, temp_dir, unhex,
-    wait_for_finalized, wait_for_height, wait_for_log,
+    NodeOpts, block_hash, export_spec, free_port, heights, start_node_with, state_call, temp_dir,
+    unhex, wait_for_finalized, wait_for_height, wait_for_log, write_spec,
 };
 use jsonrpsee::{core::client::ClientT, rpc_params};
 use parity_scale_codec::{Decode, Encode};
@@ -60,7 +60,7 @@ async fn stored_proof(node: &common::Node, hash: &str) -> Option<Vec<u8>> {
 }
 
 /// Offences recorded in every set up to the current one.
-async fn all_offences(node: &common::Node) -> Vec<OffenceKey> {
+async fn all_offences(node: &common::Node) -> Vec<(ac_crypto::PqPublicKey, OffenceKey)> {
     let (current, _) = <(SetId, Vec<Authority>)>::decode(
         &mut &state_call(node, "ValidatorSetApi_authority_set", &[], None).await[..],
     )
@@ -70,7 +70,7 @@ async fn all_offences(node: &common::Node) -> Vec<OffenceKey> {
         let bytes = state_call(node, "OffencesApi_offences", &set_id.encode(), None).await;
         let offences =
             Vec::<(ac_crypto::PqPublicKey, OffenceKey)>::decode(&mut &bytes[..]).unwrap();
-        all.extend(offences.into_iter().map(|(_, key)| key));
+        all.extend(offences);
     }
     all
 }
@@ -249,72 +249,114 @@ async fn randomness_reveal_survives_restart() {
     }
 }
 
-// Scenario "双签被记录": two nodes seal different blocks with the same development key in the
-// same slots; a third node receives both headers, logs the double signing and reports it, and
-// the offence is recorded on chain.
+// Scenario "双签被记录": two nodes seal blocks with alice's key in the same slots of a chain
+// whose authorities are alice and bob; bob's node imports both headers, logs the double
+// signing and reports it, and an offence of alice is recorded on chain. (With alice as the
+// only authority each copy would finalize its own fork alone and the network would split.)
 #[tokio::test(flavor = "multi_thread")]
 async fn double_signing_is_recorded() {
     let dir = temp_dir("double-signing");
-    let observer_log = dir.join("observer.log");
-    let ports = [free_port(), free_port()];
-    let alice = |port| {
-        start_node_with(
-            &["--dev"],
-            &NodeOpts {
-                p2p_port: Some(port),
-                ..NodeOpts::default()
-            },
+    let bob_log = dir.join("bob.log");
+    let mut spec = export_spec("dev");
+    let key = |name| {
+        serde_json::to_value(
+            ac_runtime::genesis_config_presets::dev_public_key(name, ac_crypto::SigAlg::MlDsa65)
+                .unwrap(),
         )
+        .unwrap()
     };
-    let first = alice(ports[0]);
-    let second = alice(ports[1]);
-    let mut bootnodes = Vec::new();
-    for (node, port) in [(&first, ports[0]), (&second, ports[1])] {
-        wait_for_height(node, 1, START).await;
-        let peer: String = node
-            .rpc
-            .request("system_localPeerId", rpc_params![])
-            .await
-            .unwrap();
-        bootnodes.push(format!("/ip4/127.0.0.1/tcp/{port}/p2p/{peer}"));
-    }
-    // A full node of the same chain without a key.
-    let mut args = vec!["--chain", "dev", "-laura-pq=debug,ac-offences=debug"];
-    for b in &bootnodes {
-        args.extend(["--bootnodes", b.as_str()]);
-    }
-    let observer = start_node_with(
-        &args,
+    let patch = &mut spec["genesis"]["runtimeGenesis"]["patch"];
+    patch["auraPq"]["authorities"] = serde_json::json!([key("alice"), key("bob")]);
+    patch["validatorSet"]["epochLength"] = 10.into();
+    let spec = write_spec(&spec, "double-signing");
+    let spec = spec.to_str().unwrap();
+
+    let port = free_port();
+    let bob = start_node_with(
+        &[
+            "--chain",
+            spec,
+            "--validator",
+            "--dev-key",
+            "bob",
+            "--unsafe-force-node-key-generation",
+            "-laura-pq=debug,ac-offences=debug",
+        ],
         &NodeOpts {
-            log: Some(&observer_log),
+            log: Some(&bob_log),
+            p2p_port: Some(port),
             ..NodeOpts::default()
         },
     );
+    let started = std::time::Instant::now();
+    let peer = loop {
+        assert!(started.elapsed() < START, "bob did not start");
+        if let Ok(peer) = bob
+            .rpc
+            .request::<String, _>("system_localPeerId", rpc_params![])
+            .await
+        {
+            break peer;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    };
+    let bootnode = format!("/ip4/127.0.0.1/tcp/{port}/p2p/{peer}");
+    let alice_args = [
+        "--chain",
+        spec,
+        "--validator",
+        "--dev-key",
+        "alice",
+        "--unsafe-force-node-key-generation",
+        "--bootnodes",
+        &bootnode,
+    ];
+    let first = start_node_with(&alice_args, &NodeOpts::default());
+    let second = start_node_with(&alice_args, &NodeOpts::default());
     assert!(
-        wait_for_log(
-            &observer_log,
-            "equivocation: authority",
-            Duration::from_secs(90)
-        )
-        .await,
-        "the observer saw no double signing"
+        wait_for_log(&bob_log, "equivocation: authority", Duration::from_secs(90)).await,
+        "bob saw no double signing"
     );
-    let deadline = std::time::Instant::now() + Duration::from_secs(90);
+    // The seal evidence goes through the reporter and the runtime's check. One offence is
+    // recorded per offender and set, and the two copies also double-vote in AC-BFT, so either
+    // report may win; the other is then refused as already decided — by the runtime when the
+    // offence is on chain, or by the pool (same `provides` tag) when its report is pending, in
+    // which case the runtime has already accepted the seal evidence while building the report.
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
     loop {
-        let offences = all_offences(&observer).await;
-        if offences
-            .iter()
-            .any(|o| matches!(o, OffenceKey::Aura { .. }))
+        let log = std::fs::read_to_string(&bob_log).unwrap_or_default();
+        if log.contains("reported block seal double signing")
+            || log.contains(
+                "block seal double signing not reported: the offender is already recorded",
+            )
+            || log.contains(
+                "block seal double-signing report rejected: Transaction pool error: Too low priority",
+            )
         {
             break;
         }
         assert!(
             std::time::Instant::now() < deadline,
-            "no block-seal offence recorded; offences: {offences:?}"
+            "the seal double signing was neither reported nor found already decided"
         );
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
-    drop((first, second, observer));
+    let alice =
+        ac_runtime::genesis_config_presets::dev_public_key("alice", ac_crypto::SigAlg::MlDsa65)
+            .unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(90);
+    loop {
+        let offences = all_offences(&bob).await;
+        if offences.iter().any(|(who, _)| *who == alice) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no offence of alice recorded; offences: {offences:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    drop((first, second, bob));
 }
 
 // Scenario "重启后不双签": a validator killed with SIGKILL right after voting and restarted on

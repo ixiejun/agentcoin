@@ -15,7 +15,7 @@
 
 文档语言约定：每份项目文档都有英文版（主版本，位于规范路径）和简体中文版（`*.zh-CN.md`），两者在页首互相链接。
 
-状态：M0 已完成——工作区、CI 与抗量子密码库 `ac-crypto`（[crates/ac-crypto](crates/ac-crypto/README.zh-CN.md)），规范见 `openspec/specs/`。下一步：M1（PQ 链）。
+状态：M0（工作区、CI 与抗量子密码库 `ac-crypto`，[crates/ac-crypto](crates/ac-crypto/README.zh-CN.md)）和 M1（抗量子链，[node](node/README.zh-CN.md)）已完成；M2（AC-BFT 终局性、双签证据、commit–reveal 随机数）已实现，待归档。规范见 `openspec/specs/`。
 
 ## 本地开发
 
@@ -26,7 +26,8 @@
 cargo fmt --all -- --check
 SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
-for c in ac-crypto ac-primitives pallet-pq-accounts pallet-aura-pq; do
+for c in ac-crypto ac-primitives pallet-pq-accounts pallet-aura-pq \
+  pallet-validator-set pallet-ac-offences pallet-randomness-cr; do
   cargo build -p $c --no-default-features --target wasm32-unknown-unknown
 done
 cargo install --locked cargo-deny cargo-audit   # 仅需一次
@@ -36,10 +37,12 @@ scripts/check-license-boundary.sh
 scripts/sync-audit-exceptions.py
 scripts/fetch-test-vectors.sh && git diff --exit-code -- crates/ac-crypto/tests/vectors
 
-# 节点、本地测试网与端到端测试
+# 节点、四节点本地测试网（alice、bob、charlie、dave）与端到端测试
 cargo build -p ac-node -p ac-wallet
 target/debug/ac-node --dev --tmp
 scripts/run-local-testnet.sh --check
-AC_E2E=1 cargo test -p ac-e2e
+AC_E2E=1 cargo test -p ac-e2e -- --test-threads 1
 scripts/wallet-smoke.sh
+# 4、7、10 个本地验证人的终局性延迟（release 构建，至少 4 核）
+scripts/measure-finality.sh
 ```

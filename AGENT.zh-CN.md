@@ -22,7 +22,7 @@ AgentCoin（代币 **ATC**）是一个**抗量子、天生隐私、无许可**�
 - 链框架：Polkadot SDK（Substrate）独立链；EVM 用 `pallet-revive`
 - 主要语言：**Rust**（D31）；Python 仅限推理/训练引擎内部的薄插件
 - 开发方式：**规格驱动开发（SDD）+ OpenSpec**（D32）
-- 当前阶段：MVP；M0（工程底座 + PQ 密码库）已完成，下一步 M1（PQ 链）
+- 当前阶段：MVP；M0（工程底座 + PQ 密码库）和 M1（PQ 链）已完成；M2（AC-BFT 终局性）已实现，待归档
 
 ### 1.1 权威文档地图
 
@@ -316,8 +316,9 @@ scripts/benchmark-pallet.sh <pallet> <weights.rs> # 重新生成基准权重
 
 # 节点与端到端
 cargo build -p ac-node -p ac-wallet
-scripts/run-local-testnet.sh [--check]            # 三节点本地测试网
-AC_E2E=1 cargo test -p ac-e2e                      # 多节点验收测试
+scripts/run-local-testnet.sh [--check]            # 四节点本地测试网（检查最佳与已最终确定高度）
+AC_E2E=1 cargo test -p ac-e2e -- --test-threads 1  # 多节点验收测试
+scripts/measure-finality.sh [seconds]             # 终局性延迟，4/7/10 节点（release）
 scripts/wallet-smoke.sh                           # 针对开发节点运行钱包命令行
 
 # OpenSpec

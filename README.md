@@ -15,7 +15,7 @@ Primary language: Rust. Development method: spec-driven development (SDD) with [
 
 Documentation language policy: every project document has an English version (primary, at the canonical path) and a Simplified Chinese version (`*.zh-CN.md`), each linking to the other at the top.
 
-Status: M0 complete — workspace, CI and the `ac-crypto` post-quantum library ([crates/ac-crypto](crates/ac-crypto/README.md)); specs in `openspec/specs/`. Next: M1 (PQ chain).
+Status: M0 (workspace, CI and the `ac-crypto` post-quantum library, [crates/ac-crypto](crates/ac-crypto/README.md)) and M1 (post-quantum chain, [node](node/README.md)) complete; M2 (AC-BFT finality, double-signing evidence, commit–reveal randomness) implemented and awaiting archive. Specs in `openspec/specs/`.
 
 ## Local development
 
@@ -26,7 +26,8 @@ The toolchain is pinned in `rust-toolchain.toml` (installed automatically by `ru
 cargo fmt --all -- --check
 SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
-for c in ac-crypto ac-primitives pallet-pq-accounts pallet-aura-pq; do
+for c in ac-crypto ac-primitives pallet-pq-accounts pallet-aura-pq \
+  pallet-validator-set pallet-ac-offences pallet-randomness-cr; do
   cargo build -p $c --no-default-features --target wasm32-unknown-unknown
 done
 cargo install --locked cargo-deny cargo-audit   # once
@@ -36,10 +37,12 @@ scripts/check-license-boundary.sh
 scripts/sync-audit-exceptions.py
 scripts/fetch-test-vectors.sh && git diff --exit-code -- crates/ac-crypto/tests/vectors
 
-# Node, local testnet and end-to-end tests
+# Node, four-node local testnet (alice, bob, charlie, dave) and end-to-end tests
 cargo build -p ac-node -p ac-wallet
 target/debug/ac-node --dev --tmp
 scripts/run-local-testnet.sh --check
-AC_E2E=1 cargo test -p ac-e2e
+AC_E2E=1 cargo test -p ac-e2e -- --test-threads 1
 scripts/wallet-smoke.sh
+# Finality latency on 4, 7 and 10 local authorities (release build, >= 4 cores)
+scripts/measure-finality.sh
 ```

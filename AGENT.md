@@ -22,7 +22,7 @@ AgentCoin (token **ATC**) is a **post-quantum, privacy-native, permissionless** 
 - Chain framework: standalone Polkadot SDK (Substrate) chain; EVM via `pallet-revive`
 - Primary language: **Rust** (D31); Python only for thin plugins inside inference/training engines
 - Development method: **spec-driven development (SDD) + OpenSpec** (D32)
-- Current stage: MVP; M0 (engineering foundation + PQ crypto library) complete, next M1 (PQ chain)
+- Current stage: MVP; M0 (engineering foundation + PQ crypto library) and M1 (PQ chain) complete; M2 (AC-BFT finality) implemented, pending archive
 
 ### 1.1 Authoritative document map
 
@@ -316,8 +316,9 @@ scripts/benchmark-pallet.sh <pallet> <weights.rs> # regenerate benchmarked weigh
 
 # Node and end-to-end
 cargo build -p ac-node -p ac-wallet
-scripts/run-local-testnet.sh [--check]            # three-node local testnet
-AC_E2E=1 cargo test -p ac-e2e                      # multi-node acceptance tests
+scripts/run-local-testnet.sh [--check]            # four-node local testnet (best + finalized)
+AC_E2E=1 cargo test -p ac-e2e -- --test-threads 1  # multi-node acceptance tests
+scripts/measure-finality.sh [seconds]             # finality latency, 4/7/10 nodes (release)
 scripts/wallet-smoke.sh                           # wallet CLI against a dev node
 
 # OpenSpec

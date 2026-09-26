@@ -213,6 +213,9 @@ where
         while self.imported_at.len() > MAX_TRACKED_IMPORTS {
             self.imported_at.pop_first();
         }
+        // The block import may have applied a finality proof that changed the set; during
+        // initial sync the client does not always emit a finality notification for it.
+        self.follow_set_changes();
         let Some(t) = self.tracker_snapshot() else {
             return;
         };
@@ -237,6 +240,7 @@ where
     }
 
     fn on_tick(&mut self) {
+        self.follow_set_changes();
         let Some(t) = self.tracker_snapshot() else {
             return;
         };

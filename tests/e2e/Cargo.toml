@@ -9,6 +9,10 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
+[[bin]]
+name = "measure-finality"
+path = "src/bin/measure_finality.rs"
+
 [dependencies]
 ac-crypto = { workspace = true, features = ["std", "getrandom"] }
 ac-primitives = { workspace = true, features = ["std"] }

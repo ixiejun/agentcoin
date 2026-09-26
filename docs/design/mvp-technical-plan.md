@@ -194,11 +194,18 @@ pub struct AccountId([u8; 32]);
   - **Why not GRANDPA**: GRANDPA's signature type is hard-wired to Ed25519 in `sp-consensus-grandpa`, so retrofitting it is close to a rewrite, and its finality latency is on the high side.
 - **Scale**: ≤100 validators in the MVP.
 - **Slashing evidence**: double-signing at one height and double-voting in one round can both be submitted as on-chain evidence and slash 100% of stake.
+- **As implemented in M2** (protocol form D38, offence handling D39):
+  - Rounds, not heights: the leader of round `r` (member `r mod n`) proposes its best block; members prepare-vote under a locking rule, commit-vote on a prepare certificate (`q = ⌊2W/3⌋ + 1`) and enter the next round at once; a commit certificate finalizes the target and its ancestors. Timeouts start at two slots and back off ×1.5 up to 30 s; nodes that fall behind catch up from the rounds that members worth more than `W − q` have reached.
+  - Messages are versioned and signed with ML-DSA-65 under `agentcoin/bft-vote/v1`, bound to the genesis hash and set id, and flooded over `/<genesis>/acbft/1`. Votes are persisted before they are sent.
+  - Authority sets change only at epoch boundaries (`ScheduledChange` digest, engine `acbf`); the change block is finalized by the old set. A finality proof (versioned set of commit votes) is stored for every change block and at least every 64 blocks, and verified on import and sync.
+  - Offences: seal double signing (two headers in one slot) and vote double signing (two messages of one kind in one round and set) are reported automatically through an unsigned, authorized extrinsic. M2 records the offence and removes the offender from the next epoch's set (never emptying it); no stake is slashed yet — slashing plugs into a reserved `SlashHandler` with PoS.
+  - Measured on one 4-core machine (release build, localhost): see the `m2-finality` design, "测量结果"; P95 finality latency is well under 3 s for 4, 7 and 10 validators.
 
 ### 4.2 On-chain randomness (for audit sampling)
 
 - `pallet-randomness-cr`: each epoch validators commit `H(secret)` and reveal `secret` in the next epoch. Randomness = `BLAKE3(all revealed values)`. Validators that do not reveal lose emission.
 - Known weakness: the last revealer can withhold and thereby bias the result by 1 bit. Acceptable for audit sampling. The full version adds a hash-based VDF.
+- **As implemented in M2**: block authors put `note_randomness` (commit of epoch `e`, reveal of epoch `e − 1`) into their blocks as a mandatory inherent; secrets are derived from the validator seed, genesis and epoch, so they survive restarts. `R(e) = derive_key("agentcoin 2026-09 randomness v1", u64_le(e) ‖ reveals sorted by account ID)` is published at the first block of epoch `e + 2` and is recomputable from the published reveals. Missed reveals are counted per validator (the emission penalty comes with `pallet-emission`). The runtime exposes `RandomnessApi` and FRAME's `Randomness`.
 
 ### 4.3 Automatic PoA → PoS switch (D19)
 
