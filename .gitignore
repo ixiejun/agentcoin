@@ -1,0 +1,38 @@
+# ---------- OpenSpec 中间产物 ----------
+# 进行中的变更提案与已归档变更只保留在本地；
+# 仓库只提交最终规范（openspec/specs/）和项目配置（openspec/config.yaml）
+openspec/changes/
+openspec/explorations/
+# OpenSpec 本地状态、锁文件与个人工作视图
+.openspec/
+.openspec-store/
+.openspec_root.*
+.openspec-*.lock
+.openspec-archive.lock
+
+# ---------- Rust ----------
+target/
+**/*.rs.bk
+*.pdb
+
+# ---------- Node（工具链） ----------
+node_modules/
+
+# ---------- Python（推理引擎插件） ----------
+__pycache__/
+*.py[cod]
+.venv/
+
+# ---------- 本地配置与密钥 ----------
+.env
+.env.*
+*.key
+*.pem
+keystore/
+.claude/settings.local.json
+
+# ---------- 编辑器 / 系统 ----------
+.idea/
+.vscode/
+*.swp
+.DS_Store
