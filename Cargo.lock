@@ -45,10 +45,23 @@ version = "0.1.0"
 dependencies = [
  "ac-crypto",
  "ac-primitives",
+ "async-trait",
+ "futures",
+ "hex",
+ "log",
  "parity-scale-codec",
  "proptest",
+ "sc-client-api",
+ "sc-consensus",
+ "sc-network",
+ "sc-transaction-pool-api",
+ "sp-api",
+ "sp-blockchain",
+ "sp-consensus",
  "sp-core",
  "sp-runtime",
+ "substrate-prometheus-endpoint",
+ "tokio",
 ]
 
 [[package]]
@@ -96,10 +109,12 @@ name = "ac-node"
 version = "0.1.0"
 dependencies = [
  "ac-consensus-aura-pq",
+ "ac-consensus-bft",
  "ac-crypto",
  "ac-primitives",
  "ac-runtime",
  "ac-wallet",
+ "async-trait",
  "blake3",
  "clap",
  "frame-benchmarking",
@@ -110,6 +125,7 @@ dependencies = [
  "hash256-std-hasher",
  "hex",
  "jsonrpsee",
+ "log",
  "pallet-balances",
  "pallet-pq-accounts",
  "parity-scale-codec",
@@ -132,6 +148,7 @@ dependencies = [
  "sp-consensus-slots",
  "sp-core",
  "sp-genesis-builder",
+ "sp-inherents",
  "sp-io",
  "sp-runtime",
  "sp-timestamp",

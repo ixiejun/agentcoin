@@ -41,6 +41,11 @@ checks safety and liveness over 1,000 random networks with delays, losses, reord
 |---|---|
 | `protocol` | The pure state machine `Voter`: events in, actions (`Persist`, `Broadcast`, `Finalize`, `Report`, `Relay`) out. Uses no node-client (`sc-*`) crate — checked by `scripts/check-license-boundary.sh` — so it can be reused by light clients and formal tools. |
 | `sim` | Deterministic network simulator and in-memory block tree (tests and the `test-utils` feature only). |
+| `network` | `MessageFilter`: validation, de-duplication, round window and next-set buffering of messages on the notification protocol `/<genesis hash hex>/acbft/1`. |
+| `tracker` | `TrackerState`: authority-set changes pending on every fork and the set that must finalize a block; persisted in auxiliary storage. |
+| `import` | `AcBftBlockImport`: verifies finality proofs arriving with blocks or on their own, finalizes and stores valid ones, and requests proofs for set-change blocks. |
+| `chain` | The client's block tree as the `Chain` seen by the state machine. |
+| `gadget` | The node task: drives `Voter` with block imports, finality, the network and a timer; persists before signing; exports the `acbft_*` metrics. |
 
 ## Features
 

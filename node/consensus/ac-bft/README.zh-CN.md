@@ -23,6 +23,11 @@ AC-BFT：AgentCoin 的抗量子终局性工具（方案 §4.1）。验证人对 
 |---|---|
 | `protocol` | 纯状态机 `Voter`：输入事件，输出动作（`Persist`、`Broadcast`、`Finalize`、`Report`、`Relay`）。不依赖任何节点客户端（`sc-*`）crate，由 `scripts/check-license-boundary.sh` 检查，因此可以供轻客户端和形式化工具复用。 |
 | `sim` | 确定性网络模拟器和内存中的区块树（仅用于测试和 `test-utils` feature）。 |
+| `network` | `MessageFilter`：通知协议 `/<创世哈希十六进制>/acbft/1` 上消息的验证、去重、轮次窗口和下一集合消息缓冲。 |
+| `tracker` | `TrackerState`：各分叉上待生效的授权集合变更，以及应当最终确定某区块的集合；持久化在辅助存储中。 |
+| `import` | `AcBftBlockImport`：校验随区块或单独到达的终局性证明，有效则最终确定并保存；为集合变更区块请求证明。 |
+| `chain` | 把客户端的区块树作为状态机看到的 `Chain`。 |
+| `gadget` | 节点任务：用区块导入、终局性、网络和计时器驱动 `Voter`；先持久化再签名；导出 `acbft_*` 监控指标。 |
 
 ## Feature
 
