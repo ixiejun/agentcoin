@@ -7,4 +7,4 @@
 - 全量技术方案：[docs/design/full-technical-plan.md](docs/design/full-technical-plan.md)
 - 调研与讨论过程：[docs/research/](docs/research/)
 
-主要开发语言：Rust。状态：设计阶段，尚无代码。
+主要开发语言：Rust。开发方式：规格驱动（SDD），使用 [OpenSpec](https://github.com/Fission-AI/OpenSpec)，规范位于 `openspec/`（`/opsx:propose` → `/opsx:apply` → `/opsx:archive`）。状态：设计阶段，尚无代码。

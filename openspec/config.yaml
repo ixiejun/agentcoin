@@ -1,0 +1,46 @@
+schema: spec-driven
+
+context: |
+  Language: zh-CN
+  All artifacts must be written in zh-CN.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+
+  ## 项目
+  AgentCoin（代币 ATC）：抗量子、天生隐私、无许可的 L1，面向大模型训练 / 后训练 / 推理的去中心化算力网络，兼容 EVM。
+  - 决策记录（权威来源）：docs/decisions.md（D1–D31）
+  - MVP 技术方案：docs/design/mvp-technical-plan.md
+  - 全量技术方案：docs/design/full-technical-plan.md
+  - 调研过程：docs/research/
+
+  ## 技术栈
+  - 主要语言 Rust（D31）；链基于 Polkadot SDK（Substrate）solochain；EVM 使用 pallet-revive。
+  - Python 仅限推理引擎内部提取 TOPLOC 激活值的薄插件。
+
+  ## 不可违反的约束
+  - 100% 后量子：签名 ML-DSA（预留 SLH-DSA / FN-DSA / XMSS），加密 ML-KEM-768 + X25519 混合；
+    所有签名 / 公钥 / 密文都带 AlgId；禁止 secp256k1 / Ed25519 用于账户授权；ZK 仅用 STARK/FRI，禁止 Groth16 / KZG / BN254 / BLS。
+  - 哈希输出一律 256 位（BLAKE3 / SHA3-256 / Poseidon2）。
+  - 宪法第 1 层（总量 21,000,000 ATC、排放上限 / 无预挖、PoA→PoS 切换）由节点客户端强制检查，不得只写在 runtime。
+  - 金库排放 = max(5% 计划额保底, 20/70 × 实际工作排放)（D18 澄清：取较大值，不相加）。
+  - prompt / 推理输出永不上链；协议层不得加入内容审查或地域封锁。
+  - 链不在推理数据路径上：链下 refine → 工作报告 → 链上 accumulate。
+
+rules:
+  proposal:
+    - 必须引用相关决策编号（Dxx）和技术方案章节
+    - 必须包含“非目标（Non-goals）”一节
+    - 涉及密码学或共识的变更必须说明对抗量子性和宪法第 1 层的影响
+  design:
+    - 必须说明 [预留] 接口与全量版的衔接（见 full-technical-plan.md §11）
+  tasks:
+    - 每个任务不超过约半天工作量
+    - 每个任务必须带可自动化的验收方式（单元测试 / 集成测试 / 测试向量）
+
+operations:
+  apply:
+    guidance:
+      - 每个任务完成后运行 cargo fmt、cargo clippy -D warnings 与相关测试
+      - 默认 #![forbid(unsafe_code)]，例外需注释说明
+  archive:
+    guidance:
+      - 归档前确认 specs 已同步，并在 docs/decisions.md 中补记新产生的决策
