@@ -66,7 +66,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AC_E2E: "1"
-      AC_E2E_LOGS: ${{ runner.temp }}/e2e-logs
+      AC_E2E_LOGS: ${{ github.workspace }}/target/e2e-logs
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-substrate
@@ -82,7 +82,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: e2e-node-logs
-          path: ${{ runner.temp }}/e2e-logs
+          path: target/e2e-logs
           if-no-files-found: ignore
 
   license-boundary:
