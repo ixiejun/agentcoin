@@ -5,14 +5,20 @@
 Runtime side of Aura-PQ, AgentCoin's post-quantum block authoring (plan §3.5, §4.1).
 
 - **Authority set**: ML-DSA-65 public keys in slot-assignment order; slot `s` belongs to authority
-  `s mod N`. In M1 the set comes from genesis (PoA). Genesis rejects duplicates, non-ML-DSA-65
+  `s mod N`. The set comes from genesis (PoA) and changes only at epoch boundaries, when the
+  validator set (`pallet-validator-set`) removes validators recorded for double signing; the new
+  list applies from the block after the boundary. Genesis rejects duplicates, non-ML-DSA-65
   keys and sets larger than `MaxAuthorities`; an empty default genesis installs nothing and the
   node refuses to run such a chain.
 - **Slot tracking**: `on_initialize` records the slot announced in the block's Aura-PQ pre-runtime
   digest. Block validity (slot order, author, seal) is enforced by the node's import verifier; the
   runtime never panics during block execution and only logs inconsistencies.
-- **`AuthoritySetWriter`**: the entry point reserved for M3's validator-set state machine
-  (PoA → PoS).
+- **Current author**: `on_initialize` also records the block's author (`CurrentAuthor`) under the
+  list in force when the block started, for pallets that act on the author's behalf
+  (commit–reveal randomness).
+- **Interfaces**: implements `ac_primitives::validator_set::{BlockAuthorities, CurrentAuthor}`
+  for the runtime to wire into other pallets; `AuthoritySetWriter` remains the entry point
+  reserved for M3's PoA → PoS state machine.
 - The `AuraPqApi` runtime API, digest helpers and the seal context `agentcoin/aura-seal/v1` live
   in `ac_primitives::aura_pq`, shared with the node.
 

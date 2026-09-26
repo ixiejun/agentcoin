@@ -5,8 +5,11 @@
 //! upstream Aura; the runtime only records the slot and never panics during block execution
 //! (AGENT.md §8). Inconsistencies seen here are logged.
 //!
-//! In M1 the authority set comes from genesis (PoA). [`AuthoritySetWriter`] is the reserved
-//! entry point for M3's validator-set state machine (PoA → PoS).
+//! The authority set comes from genesis (PoA) and changes only at epoch boundaries, through
+//! the validator-set pallet ([`ac_primitives::validator_set::BlockAuthorities`]; the M1
+//! [`AuthoritySetWriter`] remains as an alias for M3's PoA → PoS state machine). The author of
+//! each block is recorded in [`CurrentAuthor`] for pallets that act on the author's behalf
+//! (commit–reveal randomness).
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -49,7 +52,9 @@ pub trait AuthoritySetWriter {
 #[frame_support::pallet]
 pub mod pallet {
     use super::{AuthorityError, AuthoritySetWriter, LOG_TARGET, PqPublicKey, Slot, Vec};
-    use ac_primitives::aura_pq::{find_slot, validate_authorities};
+    use ac_primitives::aura_pq::{find_slot, slot_author, validate_authorities};
+    use ac_primitives::validator_set::{BlockAuthorities, CurrentAuthor as CurrentAuthorTrait};
+    use frame_support::pallet_prelude::OptionQuery;
     use frame_support::pallet_prelude::{
         BoundedVec, BuildGenesisConfig, Get, Hooks, StorageValue, ValueQuery, Weight,
     };
@@ -76,6 +81,11 @@ pub mod pallet {
     /// Slot of the current block.
     #[pallet::storage]
     pub type CurrentSlot<T: Config> = StorageValue<_, Slot, ValueQuery>;
+
+    /// Author of the current block: the authority of its slot under the list in force when the
+    /// block started (before any change made while executing it).
+    #[pallet::storage]
+    pub type CurrentAuthor<T: Config> = StorageValue<_, PqPublicKey, OptionQuery>;
 
     #[pallet::genesis_config]
     #[derive(frame_support::DefaultNoBound)]
@@ -108,13 +118,20 @@ pub mod pallet {
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
             let Ok(slot) = find_slot(&frame_system::Pallet::<T>::digest()) else {
-                return T::DbWeight::get().reads(1);
+                CurrentAuthor::<T>::kill();
+                return T::DbWeight::get().reads_writes(1, 1);
             };
             if slot <= CurrentSlot::<T>::get() {
                 log::error!(target: LOG_TARGET, "slot {slot:?} does not increase; the import verifier should have rejected this block");
             }
             CurrentSlot::<T>::put(slot);
-            T::DbWeight::get().reads_writes(2, 1)
+            // This pallet initializes before the validator set, so an authority change enacted
+            // in this block does not affect who authored it.
+            match slot_author(slot, &Authorities::<T>::get()) {
+                Some(author) => CurrentAuthor::<T>::put(author.clone()),
+                None => CurrentAuthor::<T>::kill(),
+            }
+            T::DbWeight::get().reads_writes(3, 2)
         }
     }
 
@@ -140,6 +157,22 @@ pub mod pallet {
     impl<T: Config> AuthoritySetWriter for Pallet<T> {
         fn write_authorities(authorities: Vec<PqPublicKey>) -> Result<(), AuthorityError> {
             Self::install(authorities)
+        }
+    }
+
+    impl<T: Config> BlockAuthorities for Pallet<T> {
+        fn authorities() -> Vec<PqPublicKey> {
+            Authorities::<T>::get().into_inner()
+        }
+
+        fn set_authorities(authorities: Vec<PqPublicKey>) -> Result<(), AuthorityError> {
+            Self::install(authorities)
+        }
+    }
+
+    impl<T: Config> CurrentAuthorTrait for Pallet<T> {
+        fn current_author() -> Option<PqPublicKey> {
+            CurrentAuthor::<T>::get()
         }
     }
 

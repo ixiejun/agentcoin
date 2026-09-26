@@ -6086,6 +6086,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-validator-set"
+version = "0.1.0"
+dependencies = [
+ "ac-crypto",
+ "ac-primitives",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-aura-pq",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "parity-db"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
