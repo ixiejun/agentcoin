@@ -164,6 +164,16 @@ async fn live_chain_with_key_file_produces_blocks_without_leaking_the_seed() {
         Some(&log),
     );
     wait_for_height(&node, 2, START).await;
+    // The RPC can report the block before the import is logged: wait for the log line before
+    // stopping the node, so the log checks below see a complete log.
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !std::fs::read_to_string(&log)
+        .unwrap_or_default()
+        .contains("Imported #2")
+        && Instant::now() < deadline
+    {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
     drop(node);
 
     let json = std::fs::read_to_string(&key).unwrap();
