@@ -134,13 +134,13 @@ fn algorithm_mismatch() {
 fn reserved_algorithm() {
     assert_eq!(
         SigningKey::from_seed(SigAlg::SlhDsaSha2_128s, &SecretSeed::new([0; 32])).unwrap_err(),
-        Error::NotImplemented(0x0201)
+        Error::NotImplemented(0x10)
     );
-    let mut enc = 0x0201u16.to_le_bytes().to_vec();
+    let mut enc = vec![0x10u8];
     enc.extend([0u8; 32]);
     assert_eq!(
         PqPublicKey::from_canonical(&enc),
-        Err(Error::NotImplemented(0x0201))
+        Err(Error::NotImplemented(0x10))
     );
 }
 

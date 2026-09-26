@@ -3,7 +3,7 @@
 # AgentCoin Full Technical Plan v0.1
 
 > Status: first draft, under review. Date: 2026-09.
-> Basis: `docs/decisions.md` (D1–D33). This document describes the target architecture after the MVP (P2–P4) and **which interfaces reserved in the MVP it depends on**.
+> Basis: `docs/decisions.md` (D1–D34). This document describes the target architecture after the MVP (P2–P4) and **which interfaces reserved in the MVP it depends on**.
 > MVP details are in `mvp-technical-plan.md` and are not repeated here.
 
 ---

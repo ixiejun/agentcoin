@@ -1,6 +1,6 @@
 > 🌐 **English** | [简体中文](decisions.zh-CN.md)
 
-# AgentCoin Decision Log (D1–D33)
+# AgentCoin Decision Log (D1–D34)
 
 > This file consolidates the final conclusions of the requirements discussion. The discussion itself is in `docs/research/01–07`; the technical plans are in `docs/design/`.
 
@@ -39,3 +39,4 @@
 | D31 | Engineering | Primary development language is **Rust**; Python only for thin plugins inside inference/training engines (the engines are third-party) | R9 |
 | D32 | Engineering | Spec-driven development (SDD) with OpenSpec (`openspec/`); specs first, then code | R10 |
 | D33 | Documentation | Project docs are bilingual with English first (English at the canonical path, Chinese in `*.zh-CN.md`, linked at the top); OpenSpec artifacts are Chinese only; code comments and commit messages are English | R11 |
+| D34 | Cryptography | AlgId is 1 byte per category and is also the SCALE enum index of the tagged types, so canonical encoding = on-chain SCALE encoding = what TypeInfo describes (one byte form, one numbering); `0x00` never allocated, `0xFF` reserved as extension marker | M0 apply |

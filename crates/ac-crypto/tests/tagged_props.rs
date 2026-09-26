@@ -28,7 +28,8 @@ proptest! {
     fn public_key_round_trip((alg, raw) in sig_alg().prop_flat_map(|a| (Just(a), bytes(a.public_key_len().unwrap())))) {
         let pk = PqPublicKey::new(alg, &raw).unwrap();
         let enc = pk.to_canonical();
-        assert_eq!(&enc[..2], &alg.id().to_le_bytes());
+        assert_eq!(enc[0], alg.id());
+        assert_eq!(enc.len(), 1 + alg.public_key_len().unwrap());
         assert_eq!(PqPublicKey::from_canonical(&enc).unwrap(), pk);
     }
 
@@ -50,7 +51,7 @@ proptest! {
     fn wrong_lengths_never_decode(alg in sig_alg(), delta in 1usize..64, grow in any::<bool>()) {
         let expected = alg.signature_len().unwrap();
         let len = if grow { expected + delta } else { expected - delta };
-        let mut enc = alg.id().to_le_bytes().to_vec();
+        let mut enc = vec![alg.id()];
         enc.extend(std::iter::repeat_n(0u8, len));
         assert!(PqSignature::from_canonical(&enc).is_err());
     }

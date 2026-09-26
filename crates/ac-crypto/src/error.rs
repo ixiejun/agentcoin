@@ -9,9 +9,9 @@ use core::fmt;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     /// The algorithm identifier is not in the published AlgId table.
-    UnknownAlgorithm(u16),
+    UnknownAlgorithm(u8),
     /// The algorithm identifier is reserved but not implemented yet.
-    NotImplemented(u16),
+    NotImplemented(u8),
     /// A byte string has the wrong length for its algorithm.
     InvalidLength {
         /// Length required by the algorithm.
@@ -37,9 +37,9 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UnknownAlgorithm(id) => write!(f, "unknown algorithm id {id:#06x}"),
+            Self::UnknownAlgorithm(id) => write!(f, "unknown algorithm id {id:#04x}"),
             Self::NotImplemented(id) => {
-                write!(f, "algorithm id {id:#06x} is reserved but not implemented")
+                write!(f, "algorithm id {id:#04x} is reserved but not implemented")
             }
             Self::InvalidLength { expected, actual } => {
                 write!(f, "invalid length: expected {expected} bytes, got {actual}")

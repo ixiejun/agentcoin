@@ -1,31 +1,35 @@
 //! Algorithm identifiers (AlgId).
 //!
-//! Each identifier is a stable `u16`. Once published, a number is never reused and never
-//! changes meaning; new algorithms get new numbers.
+//! Each category (signatures, KEMs) has its own 1-byte identifier space. An identifier is
+//! also the SCALE enum index of the tagged types, so the canonical encoding, the on-chain
+//! encoding and the chain metadata all describe the same bytes (decision D34).
+//!
+//! Once published, a number is never reused and never changes meaning; new algorithms get
+//! new numbers. `0x00` is never allocated and `0xFF` is reserved in every category as an
+//! extension marker.
 
 use crate::error::Error;
 
-/// Identifier range reserved for future proof systems (`0x2000..=0x2FFF`). Nothing is
-/// allocated in it yet; identifiers in this range decode as unknown.
-pub const PROOF_SYSTEM_RESERVED: core::ops::RangeInclusive<u16> = 0x2000..=0x2FFF;
+/// Identifier reserved in every category for a future extension mechanism. Never allocated.
+pub const EXTENSION_MARKER: u8 = 0xFF;
 
 /// Signature algorithms.
 #[non_exhaustive]
-#[repr(u16)]
+#[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SigAlg {
     /// ML-DSA-44 (FIPS 204). Default for user accounts.
-    MlDsa44 = 0x0101,
+    MlDsa44 = 0x01,
     /// ML-DSA-65 (FIPS 204). Validators and high-value accounts.
-    MlDsa65 = 0x0102,
+    MlDsa65 = 0x02,
     /// ML-DSA-87 (FIPS 204).
-    MlDsa87 = 0x0103,
+    MlDsa87 = 0x03,
     /// SLH-DSA-SHA2-128s (FIPS 205). Reserved: hash-based fallback.
-    SlhDsaSha2_128s = 0x0201,
+    SlhDsaSha2_128s = 0x10,
     /// FN-DSA-512 (Falcon). Reserved: smaller signatures.
-    FnDsa512 = 0x0301,
+    FnDsa512 = 0x20,
     /// XMSS (lean variant). Reserved: consensus signatures with STARK aggregation.
-    XmssLean = 0x0401,
+    XmssLean = 0x30,
 }
 
 impl SigAlg {
@@ -41,8 +45,8 @@ impl SigAlg {
 
     /// The stable numeric identifier.
     #[must_use]
-    pub const fn id(self) -> u16 {
-        self as u16
+    pub const fn id(self) -> u8 {
+        self as u8
     }
 
     /// Looks up an identifier.
@@ -50,14 +54,14 @@ impl SigAlg {
     /// # Errors
     ///
     /// Returns [`Error::UnknownAlgorithm`] if `id` is not in the signature table.
-    pub const fn from_id(id: u16) -> Result<Self, Error> {
+    pub const fn from_id(id: u8) -> Result<Self, Error> {
         match id {
-            0x0101 => Ok(Self::MlDsa44),
-            0x0102 => Ok(Self::MlDsa65),
-            0x0103 => Ok(Self::MlDsa87),
-            0x0201 => Ok(Self::SlhDsaSha2_128s),
-            0x0301 => Ok(Self::FnDsa512),
-            0x0401 => Ok(Self::XmssLean),
+            0x01 => Ok(Self::MlDsa44),
+            0x02 => Ok(Self::MlDsa65),
+            0x03 => Ok(Self::MlDsa87),
+            0x10 => Ok(Self::SlhDsaSha2_128s),
+            0x20 => Ok(Self::FnDsa512),
+            0x30 => Ok(Self::XmssLean),
             other => Err(Error::UnknownAlgorithm(other)),
         }
     }
@@ -99,13 +103,13 @@ impl SigAlg {
 
 /// Key-encapsulation algorithms.
 #[non_exhaustive]
-#[repr(u16)]
+#[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum KemAlg {
     /// X-Wing (ML-KEM-768 + X25519), bound to draft-connolly-cfrg-xwing-kem-06.
-    XWing = 0x1101,
+    XWing = 0x01,
     /// ML-KEM-1024 (FIPS 203). Reserved.
-    MlKem1024 = 0x1102,
+    MlKem1024 = 0x02,
 }
 
 impl KemAlg {
@@ -114,8 +118,8 @@ impl KemAlg {
 
     /// The stable numeric identifier.
     #[must_use]
-    pub const fn id(self) -> u16 {
-        self as u16
+    pub const fn id(self) -> u8 {
+        self as u8
     }
 
     /// Looks up an identifier.
@@ -123,10 +127,10 @@ impl KemAlg {
     /// # Errors
     ///
     /// Returns [`Error::UnknownAlgorithm`] if `id` is not in the KEM table.
-    pub const fn from_id(id: u16) -> Result<Self, Error> {
+    pub const fn from_id(id: u8) -> Result<Self, Error> {
         match id {
-            0x1101 => Ok(Self::XWing),
-            0x1102 => Ok(Self::MlKem1024),
+            0x01 => Ok(Self::XWing),
+            0x02 => Ok(Self::MlKem1024),
             other => Err(Error::UnknownAlgorithm(other)),
         }
     }

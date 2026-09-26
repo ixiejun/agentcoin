@@ -63,15 +63,15 @@ fn tampered_ciphertext_implicitly_rejected() {
 #[test]
 fn public_key_is_tagged() {
     let enc = key(4).public_key().unwrap().to_canonical();
-    assert_eq!(&enc[..2], &[0x01, 0x11]);
-    assert_eq!(enc.len(), 2 + 1216);
+    assert_eq!(enc[0], 0x01);
+    assert_eq!(enc.len(), 1 + 1216);
 }
 
 #[test]
 fn reserved_kem_not_implemented() {
     assert_eq!(
         KemSecretKey::from_seed(KemAlg::MlKem1024, &SecretSeed::new([0; 32])).unwrap_err(),
-        Error::NotImplemented(0x1102)
+        Error::NotImplemented(0x02)
     );
 }
 

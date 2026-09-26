@@ -8,20 +8,20 @@
     clippy::indexing_slicing
 )]
 
-use ac_crypto::{Error, KemAlg, PROOF_SYSTEM_RESERVED, SigAlg};
+use ac_crypto::{EXTENSION_MARKER, Error, KemAlg, SigAlg};
 
 /// The published table. Changing any row is a breaking, consensus-level change.
-const SIG_TABLE: [(SigAlg, u16, bool); 6] = [
-    (SigAlg::MlDsa44, 0x0101, true),
-    (SigAlg::MlDsa65, 0x0102, true),
-    (SigAlg::MlDsa87, 0x0103, true),
-    (SigAlg::SlhDsaSha2_128s, 0x0201, false),
-    (SigAlg::FnDsa512, 0x0301, false),
-    (SigAlg::XmssLean, 0x0401, false),
+const SIG_TABLE: [(SigAlg, u8, bool); 6] = [
+    (SigAlg::MlDsa44, 0x01, true),
+    (SigAlg::MlDsa65, 0x02, true),
+    (SigAlg::MlDsa87, 0x03, true),
+    (SigAlg::SlhDsaSha2_128s, 0x10, false),
+    (SigAlg::FnDsa512, 0x20, false),
+    (SigAlg::XmssLean, 0x30, false),
 ];
-const KEM_TABLE: [(KemAlg, u16, bool); 2] = [
-    (KemAlg::XWing, 0x1101, true),
-    (KemAlg::MlKem1024, 0x1102, false),
+const KEM_TABLE: [(KemAlg, u8, bool); 2] = [
+    (KemAlg::XWing, 0x01, true),
+    (KemAlg::MlKem1024, 0x02, false),
 ];
 
 // Scenario "编号表被固化".
@@ -50,21 +50,16 @@ fn round_trip() {
     }
 }
 
-// Scenario "未知 AlgId".
+// Scenario "未知 AlgId" and "保留编号不可用".
 #[test]
 fn unknown_ids() {
-    for id in [0x0000, 0x0104, 0xFFFF, 0x1101] {
+    for id in [0x00, 0x04, 0x0F, 0xEE, EXTENSION_MARKER] {
         assert_eq!(SigAlg::from_id(id), Err(Error::UnknownAlgorithm(id)));
     }
-    assert_eq!(
-        KemAlg::from_id(0x0101),
-        Err(Error::UnknownAlgorithm(0x0101))
-    );
-    // The proof-system range is reserved but unallocated.
-    for id in [*PROOF_SYSTEM_RESERVED.start(), *PROOF_SYSTEM_RESERVED.end()] {
-        assert_eq!(SigAlg::from_id(id), Err(Error::UnknownAlgorithm(id)));
+    for id in [0x00, 0x03, EXTENSION_MARKER] {
         assert_eq!(KemAlg::from_id(id), Err(Error::UnknownAlgorithm(id)));
     }
+    assert_eq!(EXTENSION_MARKER, 0xFF);
 }
 
 // Scenario "预留算法".
@@ -72,15 +67,15 @@ fn unknown_ids() {
 fn reserved_algorithms_are_not_implemented() {
     assert_eq!(
         SigAlg::SlhDsaSha2_128s.public_key_len(),
-        Err(Error::NotImplemented(0x0201))
+        Err(Error::NotImplemented(0x10))
     );
     assert_eq!(
         SigAlg::FnDsa512.signature_len(),
-        Err(Error::NotImplemented(0x0301))
+        Err(Error::NotImplemented(0x20))
     );
     assert_eq!(
         KemAlg::MlKem1024.ciphertext_len(),
-        Err(Error::NotImplemented(0x1102))
+        Err(Error::NotImplemented(0x02))
     );
 }
 

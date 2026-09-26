@@ -23,10 +23,10 @@ produce byte-identical output.
 - **ML-DSA sigVer**: groups with `signatureInterface = external`, `preHash = pure`, `externalMu = false`; per parameter set every expected-pass case plus the first 7 expected-fail cases (so both outcomes are covered); fields `pk`, `message`, `context`, `signature`, `testPassed`, `reason`.
 - **ML-KEM-768 keyGen**: parameter set ML-KEM-768, the first 10 cases; fields `d`, `z`, `ek`, `dk`.
 - **ML-KEM-768 encapDecap**: encapsulation — the first 10 cases (`ek`, `m`, `c`, `k`); decapsulation — all cases (`dk`, `c`, `k`).
-- **X-Wing**: all vectors of the specification repository. The specification text changed only editorially after draft-06 (ASN.1 module, wording); the vectors are identical to those shipped with the RustCrypto `x-wing` 0.1.0 crate, which implements draft-06. AlgId `0x1101` is bound to these semantics.
+- **X-Wing**: all vectors of the specification repository. The specification text changed only editorially after draft-06 (ASN.1 module, wording); the vectors are identical to those shipped with the RustCrypto `x-wing` 0.1.0 crate, which implements draft-06. KEM AlgId `0x01` is bound to these semantics.
 
 Output is written with `jq -S` (sorted keys) so that re-running the script is byte-stable.
 
 ## Repository-generated vectors
 
-- `account_id.json`: fixed ML-DSA-44 / ML-DSA-65 key seeds, the resulting public keys and the expected 32-byte account IDs (context `agentcoin 2026-09 account-id v1`). Regression only — once published these values must never change.
+- `account_id.json`: fixed ML-DSA-44 / ML-DSA-65 key seeds, the resulting public keys and the expected 32-byte account IDs (context `agentcoin 2026-09 account-id v1`, input `1-byte AlgId ‖ public key`). Regression only — once published these values must never change.

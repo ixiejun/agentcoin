@@ -1,42 +1,69 @@
 //! Algorithm-tagged byte objects and their canonical wire format.
 //!
-//! Canonical encoding: a 2-byte little-endian AlgId followed by exactly the fixed number of
-//! raw bytes the algorithm prescribes, and nothing else.
+//! Each tagged type is an enum with one variant per implemented algorithm. The variant's
+//! SCALE index is the algorithm's 1-byte AlgId and its payload is the algorithm's
+//! fixed-length raw bytes, so:
+//!
+//! canonical encoding = `AlgId ‖ raw bytes` = SCALE encoding = on-chain encoding,
+//!
+//! and the derived `TypeInfo` describes exactly those bytes (decision D34).
 
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use crate::alg::{KemAlg, SigAlg};
 use crate::error::Error;
 
 /// Length of the AlgId prefix in the canonical encoding.
-pub const ALG_ID_LEN: usize = 2;
+pub const ALG_ID_LEN: usize = 1;
+
+/// Copies `raw` into a boxed fixed-size array, checking the length.
+fn boxed<const N: usize>(raw: &[u8]) -> Result<Box<[u8; N]>, Error> {
+    let array: [u8; N] = raw.try_into().map_err(|_| Error::InvalidLength {
+        expected: N,
+        actual: raw.len(),
+    })?;
+    Ok(Box::new(array))
+}
 
 /// Splits a canonical encoding into its AlgId and raw payload.
-fn split_prefix(bytes: &[u8]) -> Result<(u16, &[u8]), Error> {
+fn split_prefix(bytes: &[u8]) -> Result<(u8, &[u8]), Error> {
     match bytes {
-        [lo, hi, rest @ ..] => Ok((u16::from_le_bytes([*lo, *hi]), rest)),
-        _ => Err(Error::InvalidLength {
+        [id, rest @ ..] => Ok((*id, rest)),
+        [] => Err(Error::InvalidLength {
             expected: ALG_ID_LEN,
-            actual: bytes.len(),
+            actual: 0,
         }),
     }
 }
 
-fn check_len(expected: usize, actual: usize) -> Result<(), Error> {
-    if expected == actual {
-        Ok(())
-    } else {
-        Err(Error::InvalidLength { expected, actual })
-    }
-}
-
-macro_rules! tagged_type {
-    ($(#[$doc:meta])* $name:ident, $alg:ty, $len_fn:ident) => {
+macro_rules! tagged_enum {
+    (
+        $(#[$doc:meta])*
+        $name:ident, $alg:ident, $len_fn:ident {
+            $( $variant:ident = $index:literal, $len:literal; )+
+        }
+    ) => {
         $(#[$doc])*
+        ///
+        /// Variants are boxed so that large post-quantum objects do not live on the stack.
+        #[non_exhaustive]
         #[derive(Clone, PartialEq, Eq, Hash)]
-        pub struct $name {
-            alg: $alg,
-            bytes: Vec<u8>,
+        #[cfg_attr(
+            feature = "scale",
+            derive(
+                parity_scale_codec::Encode,
+                parity_scale_codec::Decode,
+                parity_scale_codec::MaxEncodedLen,
+                scale_info::TypeInfo
+            )
+        )]
+        pub enum $name {
+            $(
+                #[doc = concat!("Raw bytes for `", stringify!($alg), "::", stringify!($variant), "`.")]
+                #[cfg_attr(feature = "scale", codec(index = $index))]
+                $variant(Box<[u8; $len]>),
+            )+
         }
 
         impl $name {
@@ -47,34 +74,40 @@ macro_rules! tagged_type {
             /// [`Error::NotImplemented`] for reserved algorithms and
             /// [`Error::InvalidLength`] if `raw` has the wrong length.
             pub fn new(alg: $alg, raw: &[u8]) -> Result<Self, Error> {
-                check_len(alg.$len_fn()?, raw.len())?;
-                Ok(Self { alg, bytes: raw.to_vec() })
+                match alg {
+                    $( $alg::$variant => Ok(Self::$variant(boxed::<$len>(raw)?)), )+
+                    other => Err(Error::NotImplemented(other.id())),
+                }
             }
 
             /// The algorithm of this object.
             #[must_use]
             pub const fn alg(&self) -> $alg {
-                self.alg
+                match self {
+                    $( Self::$variant(_) => $alg::$variant, )+
+                }
             }
 
             /// The raw bytes, without the AlgId prefix.
             #[must_use]
             pub fn as_bytes(&self) -> &[u8] {
-                &self.bytes
+                match self {
+                    $( Self::$variant(bytes) => bytes.as_slice(), )+
+                }
             }
 
             /// Length of the canonical encoding.
             #[must_use]
             pub fn encoded_len(&self) -> usize {
-                ALG_ID_LEN.saturating_add(self.bytes.len())
+                ALG_ID_LEN.saturating_add(self.as_bytes().len())
             }
 
-            /// Canonical encoding: little-endian AlgId followed by the raw bytes.
+            /// Canonical encoding: the 1-byte AlgId followed by the raw bytes.
             #[must_use]
             pub fn to_canonical(&self) -> Vec<u8> {
                 let mut out = Vec::with_capacity(self.encoded_len());
-                out.extend_from_slice(&self.alg.id().to_le_bytes());
-                out.extend_from_slice(&self.bytes);
+                out.push(self.alg().id());
+                out.extend_from_slice(self.as_bytes());
                 out
             }
 
@@ -86,74 +119,56 @@ macro_rules! tagged_type {
             /// [`Error::InvalidLength`] (including trailing bytes).
             pub fn from_canonical(bytes: &[u8]) -> Result<Self, Error> {
                 let (id, raw) = split_prefix(bytes)?;
-                Self::new(<$alg>::from_id(id)?, raw)
+                Self::new($alg::from_id(id)?, raw)
             }
         }
 
         impl core::fmt::Debug for $name {
             fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
                 f.debug_struct(stringify!($name))
-                    .field("alg", &self.alg)
-                    .field("len", &self.bytes.len())
+                    .field("alg", &self.alg())
+                    .field("len", &self.as_bytes().len())
                     .finish()
             }
         }
 
-        #[cfg(feature = "scale")]
-        impl parity_scale_codec::Encode for $name {
-            fn size_hint(&self) -> usize {
-                self.encoded_len()
-            }
-
-            fn encode_to<T: parity_scale_codec::Output + ?Sized>(&self, dest: &mut T) {
-                dest.write(&self.alg.id().to_le_bytes());
-                dest.write(&self.bytes);
-            }
-        }
-
-        #[cfg(feature = "scale")]
-        impl parity_scale_codec::Decode for $name {
-            fn decode<I: parity_scale_codec::Input>(
-                input: &mut I,
-            ) -> Result<Self, parity_scale_codec::Error> {
-                let mut id = [0u8; ALG_ID_LEN];
-                input.read(&mut id)?;
-                let alg = <$alg>::from_id(u16::from_le_bytes(id))
-                    .map_err(|_| parity_scale_codec::Error::from("unknown algorithm id"))?;
-                let len = alg
-                    .$len_fn()
-                    .map_err(|_| parity_scale_codec::Error::from("algorithm not implemented"))?;
-                let mut bytes = alloc::vec![0u8; len];
-                input.read(&mut bytes)?;
-                Ok(Self { alg, bytes })
-            }
-        }
+        // The AlgId table and the enum indices must never drift apart.
+        const _: () = {
+            $( assert!($alg::$variant.id() == $index); )+
+        };
     };
 }
 
-tagged_type!(
+tagged_enum!(
     /// A signature public key tagged with its [`SigAlg`].
-    PqPublicKey,
-    SigAlg,
-    public_key_len
+    PqPublicKey, SigAlg, public_key_len {
+        MlDsa44 = 0x01, 1312;
+        MlDsa65 = 0x02, 1952;
+        MlDsa87 = 0x03, 2592;
+    }
 );
-tagged_type!(
+
+tagged_enum!(
     /// A signature tagged with its [`SigAlg`].
-    PqSignature,
-    SigAlg,
-    signature_len
+    PqSignature, SigAlg, signature_len {
+        MlDsa44 = 0x01, 2420;
+        MlDsa65 = 0x02, 3309;
+        MlDsa87 = 0x03, 4627;
+    }
 );
-tagged_type!(
+
+tagged_enum!(
     /// A KEM encapsulation (public) key tagged with its [`KemAlg`].
-    KemPublicKey,
-    KemAlg,
-    public_key_len
+    KemPublicKey, KemAlg, public_key_len {
+        XWing = 0x01, 1216;
+    }
 );
-tagged_type!(
+
+tagged_enum!(
     /// A KEM ciphertext tagged with its [`KemAlg`].
-    KemCiphertext,
-    KemAlg,
-    ciphertext_len
+    KemCiphertext, KemAlg, ciphertext_len {
+        XWing = 0x01, 1120;
+    }
 );
 
 #[cfg(test)]
@@ -188,33 +203,32 @@ mod tests {
     // Requirement "未知与预留算法的安全处理" / Scenario "未知 AlgId".
     #[test]
     fn rejects_unknown_alg_id() {
-        let bytes = [0xFF, 0xFF, 1, 2, 3];
+        let bytes = [0xEE, 1, 2, 3];
         assert_eq!(
             PqPublicKey::from_canonical(&bytes),
-            Err(Error::UnknownAlgorithm(0xFFFF))
+            Err(Error::UnknownAlgorithm(0xEE))
         );
         assert_eq!(
             KemCiphertext::from_canonical(&bytes),
-            Err(Error::UnknownAlgorithm(0xFFFF))
+            Err(Error::UnknownAlgorithm(0xEE))
         );
     }
 
     #[test]
     fn rejects_reserved_alg() {
-        let bytes = [0x01, 0x02, 0, 0];
         assert_eq!(
-            PqPublicKey::from_canonical(&bytes),
-            Err(Error::NotImplemented(0x0201))
+            PqPublicKey::from_canonical(&[0x10, 0, 0]),
+            Err(Error::NotImplemented(0x10))
         );
     }
 
     #[test]
-    fn rejects_truncated_prefix() {
+    fn rejects_empty_input() {
         assert_eq!(
-            PqPublicKey::from_canonical(&[0x01]),
+            PqPublicKey::from_canonical(&[]),
             Err(Error::InvalidLength {
-                expected: 2,
-                actual: 1
+                expected: 1,
+                actual: 0
             })
         );
     }
@@ -225,8 +239,17 @@ mod tests {
         let raw = alloc::vec![7u8; 1952];
         let pk = PqPublicKey::new(SigAlg::MlDsa65, &raw).unwrap();
         let enc = pk.to_canonical();
-        assert_eq!(enc.len(), 2 + 1952);
-        assert_eq!(enc.get(..2), Some(&[0x02, 0x01][..]));
+        assert_eq!(enc.len(), 1 + 1952);
+        assert_eq!(enc.first(), Some(&0x02));
         assert_eq!(PqPublicKey::from_canonical(&enc).unwrap(), pk);
+    }
+
+    #[test]
+    fn lengths_match_the_alg_table() {
+        for alg in [SigAlg::MlDsa44, SigAlg::MlDsa65, SigAlg::MlDsa87] {
+            let pk = PqPublicKey::new(alg, &alloc::vec![0; alg.public_key_len().unwrap()]);
+            let sig = PqSignature::new(alg, &alloc::vec![0; alg.signature_len().unwrap()]);
+            assert!(pk.is_ok() && sig.is_ok());
+        }
     }
 }

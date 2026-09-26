@@ -3,7 +3,7 @@
 # AgentCoin MVP 技术方案 v0.1
 
 > 状态：初版，待评审。日期：2026-09。
-> 依据：`docs/decisions.md`（D1–D33）。全量版方案见 `full-technical-plan.md`。
+> 依据：`docs/decisions.md`（D1–D34）。全量版方案见 `full-technical-plan.md`。
 > 约定：“**[预留]**” 表示 MVP 不实现，但接口或数据结构必须在 MVP 阶段就定义好，供全量版使用。
 
 ---
@@ -115,25 +115,29 @@ TEE 机密层、训练和 RL、存储层、L1 私有功能（投票、竞价、�
 ### 3.2 数据结构
 
 ```rust
-#[repr(u16)]
+// 每个类别有独立的 1 字节 AlgId 空间；AlgId 同时就是 SCALE 枚举序号（D34）。
+// 0x00 不分配；0xFF 在每个类别中保留为扩展标记。
+#[repr(u8)]
 pub enum SigAlg {
-    MlDsa44   = 0x0101,  // MVP 默认（用户账户）
-    MlDsa65   = 0x0102,  // MVP（验证者 / 高价值账户）
-    MlDsa87   = 0x0103,
-    SlhDsaSha2_128s = 0x0201,  // [预留] 纯哈希，作为格密码被攻破时的后备
-    FnDsa512  = 0x0301,        // [预留] Falcon，签名更小
-    XmssLean  = 0x0401,        // [预留] 共识签名 + STARK 聚合（全量版）
+    MlDsa44   = 0x01,  // MVP 默认（用户账户）
+    MlDsa65   = 0x02,  // MVP（验证者 / 高价值账户）
+    MlDsa87   = 0x03,
+    SlhDsaSha2_128s = 0x10,  // [预留] 纯哈希，作为格密码被攻破时的后备
+    FnDsa512  = 0x20,        // [预留] Falcon，签名更小
+    XmssLean  = 0x30,        // [预留] 共识签名 + STARK 聚合（全量版）
 }
 
-#[repr(u16)]
-pub enum KemAlg { XWing /* ML-KEM-768 + X25519，draft-06 */ = 0x1101, MlKem1024 = 0x1102 }
+#[repr(u8)]
+pub enum KemAlg { XWing /* ML-KEM-768 + X25519, draft-06 */ = 0x01, MlKem1024 = 0x02 }
 
-pub struct PqPublicKey  { alg: SigAlg, bytes: BoundedVec<u8, MaxPk> }   // ML-DSA-44 为 1312B
-pub struct PqSignature  { alg: SigAlg, bytes: BoundedVec<u8, MaxSig> }  // ML-DSA-44 为 2420B
+// 带标签类型是枚举：变体序号 = AlgId，载荷 = 定长字节。
+// 规范编码 = SCALE 编码 = 链上存储编码 = TypeInfo 描述的格式。
+pub enum PqPublicKey { #[codec(index = 0x01)] MlDsa44(Box<[u8; 1312]>), /* 0x02, 0x03 … */ }
+pub enum PqSignature { #[codec(index = 0x01)] MlDsa44(Box<[u8; 2420]>), /* 0x02, 0x03 … */ }
 
 /// 账户 ID：32 字节，与算法无关、换钥后保持不变
-/// 创建时：AccountId = BLAKE3-derive_key("agentcoin 2026-09 account-id v1", alg_le16 ‖ pk)
-pub type AccountId = [u8; 32];
+/// 创建时： AccountId = BLAKE3-derive_key("agentcoin 2026-09 account-id v1", alg_id ‖ pk)
+pub struct AccountId([u8; 32]);
 ```
 
 ### 3.3 交易签名方案

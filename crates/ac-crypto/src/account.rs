@@ -30,15 +30,15 @@ impl core::fmt::Debug for AccountId {
 }
 
 /// Derives the account ID of a public key:
-/// `BLAKE3-derive_key(ACCOUNT_ID_CONTEXT, alg_id_le16 ‖ raw_public_key)`.
+/// `BLAKE3-derive_key(ACCOUNT_ID_CONTEXT, alg_id ‖ raw_public_key)` (1-byte AlgId).
 #[must_use]
 pub fn account_id(public_key: &PqPublicKey) -> AccountId {
     derive_from_parts(public_key.alg().id(), public_key.as_bytes())
 }
 
-pub(crate) fn derive_from_parts(alg_id: u16, raw: &[u8]) -> AccountId {
+pub(crate) fn derive_from_parts(alg_id: u8, raw: &[u8]) -> AccountId {
     let mut hasher = blake3::Hasher::new_derive_key(ACCOUNT_ID_CONTEXT);
-    hasher.update(&alg_id.to_le_bytes());
+    hasher.update(&[alg_id]);
     hasher.update(raw);
     AccountId(*hasher.finalize().as_bytes())
 }
@@ -56,19 +56,16 @@ mod tests {
     #[test]
     fn algorithm_id_is_part_of_the_derivation() {
         let raw = [9u8; 64];
-        assert_ne!(
-            derive_from_parts(0x0101, &raw),
-            derive_from_parts(0x0102, &raw)
-        );
+        assert_ne!(derive_from_parts(0x01, &raw), derive_from_parts(0x02, &raw));
     }
 
     #[test]
     fn matches_the_documented_formula() {
         let raw = [3u8; 16];
         let mut material = alloc::vec::Vec::new();
-        material.extend_from_slice(&0x0101u16.to_le_bytes());
+        material.push(0x01);
         material.extend_from_slice(&raw);
         let expected = crate::hash::derive(ACCOUNT_ID_CONTEXT, &material).unwrap();
-        assert_eq!(derive_from_parts(0x0101, &raw).0, expected);
+        assert_eq!(derive_from_parts(0x01, &raw).0, expected);
     }
 }

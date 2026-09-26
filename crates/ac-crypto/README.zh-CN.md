@@ -12,27 +12,27 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 
 ## 示例
 
-示例代码见英文版 [README.md](README.md)（英文版中的示例作为 doctest 运行）。流程：从种子生成 ML-DSA-44 密钥 → 在上下文 `agentcoin/tx/v1` 下签名 → 同一上下文验证通过、换成 `agentcoin/bft-vote/v1` 验证失败 → 规范编码以小端序 AlgId `0x0101` 开头 → 由公钥派生账户 ID。
+示例代码见英文版 [README.md](README.md)（英文版中的示例作为 doctest 运行）。流程：从种子生成 ML-DSA-44 密钥 → 在上下文 `agentcoin/tx/v1` 下签名 → 同一上下文验证通过、换成 `agentcoin/bft-vote/v1` 验证失败 → 规范编码以 1 字节 AlgId `0x01` 开头、总长 1 + 2420 字节 → 由公钥派生账户 ID。
 
 ## AlgId 编号表
 
-编号永不复用，含义永不改变。
+每个类别（签名、KEM）各自拥有独立的 1 字节编号空间。编号永不复用，含义永不改变；`0x00` 不分配，`0xFF` 在每个类别中都保留为扩展标记。按算法家族分段：ML-DSA `0x01–0x0F`，SLH-DSA `0x10–0x1F`，FN-DSA `0x20–0x2F`，XMSS `0x30–0x3F`。
 
-| AlgId | 算法 | 类别 | 状态 | 公钥原始长度 | 签名 / 密文原始长度 |
+| 类别 | AlgId | 算法 | 状态 | 公钥原始长度 | 签名 / 密文原始长度 |
 |---|---|---|---|---|---|
-| `0x0101` | ML-DSA-44 | 签名 | 已实现 | 1312 | 2420 |
-| `0x0102` | ML-DSA-65 | 签名 | 已实现 | 1952 | 3309 |
-| `0x0103` | ML-DSA-87 | 签名 | 已实现 | 2592 | 4627 |
-| `0x0201` | SLH-DSA-SHA2-128s | 签名 | 预留 | — | — |
-| `0x0301` | FN-DSA-512 | 签名 | 预留 | — | — |
-| `0x0401` | XMSS（lean） | 签名 | 预留 | — | — |
-| `0x1101` | X-Wing（ML-KEM-768 + X25519，draft-06） | KEM | 已实现 | 1216 | 1120 |
-| `0x1102` | ML-KEM-1024 | KEM | 预留 | — | — |
-| `0x2000–0x2FFF` | 证明系统 | — | 区段预留，未分配 | — | — |
+| 签名 | `0x01` | ML-DSA-44 | 已实现 | 1312 | 2420 |
+| 签名 | `0x02` | ML-DSA-65 | 已实现 | 1952 | 3309 |
+| 签名 | `0x03` | ML-DSA-87 | 已实现 | 2592 | 4627 |
+| 签名 | `0x10` | SLH-DSA-SHA2-128s | 预留 | — | — |
+| 签名 | `0x20` | FN-DSA-512 | 预留 | — | — |
+| 签名 | `0x30` | XMSS（lean） | 预留 | — | — |
+| KEM | `0x01` | X-Wing（ML-KEM-768 + X25519，draft-06） | 已实现 | 1216 | 1120 |
+| KEM | `0x02` | ML-KEM-1024 | 预留 | — | — |
+| 各类别 | `0xFF` | 扩展标记 | 保留 | — | — |
 
 ## 线格式
 
-`PqPublicKey`、`PqSignature`、`KemPublicKey`、`KemCiphertext` 的规范编码为：`AlgId（u16，小端序）‖ 原始字节`，长度严格等于上表规定，不含其他字节。未知 AlgId、预留 AlgId、长度错误和多余字节都会返回错误。启用 `scale` 功能时，SCALE 编码与规范编码逐字节一致。
+`PqPublicKey`、`PqSignature`、`KemPublicKey`、`KemCiphertext` 都是枚举：变体序号就是 AlgId，载荷是该算法的定长字节。它们的规范编码为 `AlgId（1 字节）‖ 原始字节`，这同时就是 SCALE 编码、链上存储编码，也正是 `TypeInfo` 元数据所描述的格式（决策 D34）——全局只有一种字节形式。未知 AlgId、预留 AlgId、长度错误和多余字节都会返回错误。
 
 ## 功能开关
 
@@ -43,7 +43,7 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 | `rand` | 由随机源生成密钥、hedged 签名、KEM 封装 | 节点、钱包 |
 | `kem` | X-Wing 混合 KEM | 节点 P2P、网关、客户端 |
 | `deterministic` | 确定性签名、指定随机数的封装 | 仅限测试与工具 |
-| `scale` | 带标签类型的 SCALE `Encode` / `Decode` | pallet |
+| `scale` | 带标签类型的 SCALE `Encode` / `Decode` / `MaxEncodedLen` / `TypeInfo` | pallet |
 
 ## 上下文登记表
 
@@ -60,7 +60,7 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 ## 新增一个算法
 
 1. 通过 OpenSpec 提出（AGENT.md §3），并引用它服务的决策。
-2. 在 `src/alg.rs` 中分配新的 AlgId（或把预留编号改为已实现），并在 `tests/alg_table.rs` 的固化表中追加——不得修改已有行。
+2. 在 `src/alg.rs` 中分配新的 AlgId（或把预留编号改为已实现），在 `src/tagged.rs` 中以 `codec(index = AlgId)` 增加变体，并在 `tests/alg_table.rs` 与 `tests/scale_codec.rs` 的固化表中追加——不得修改已有行。
 3. 在独立模块中实现后端，只有该模块依赖新的库；在 `sig/mod.rs` 或 `kem/mod.rs` 中按 AlgId 分派。
 4. 通过 `scripts/fetch-test-vectors.sh` 加入官方测试向量，并记录在 `tests/vectors/SOURCES.md`。
 5. 更新本 README（中英文两个版本）；如需新的上下文，同时更新上下文登记表。

@@ -3,7 +3,7 @@
 # AgentCoin MVP Technical Plan v0.1
 
 > Status: first draft, under review. Date: 2026-09.
-> Basis: `docs/decisions.md` (D1–D33). For the full version see `full-technical-plan.md`.
+> Basis: `docs/decisions.md` (D1–D34). For the full version see `full-technical-plan.md`.
 > Convention: "**[reserved]**" means not implemented in the MVP, but the interface or data structure must already be defined in the MVP for the full version to use.
 
 ---
@@ -117,25 +117,29 @@ Engineering conventions: stable Rust toolchain (the version the Polkadot SDK req
 ### 3.2 Data structures
 
 ```rust
-#[repr(u16)]
+// Each category has its own 1-byte AlgId space; the AlgId is also the SCALE enum index (D34).
+// 0x00 is never allocated; 0xFF is reserved in every category as an extension marker.
+#[repr(u8)]
 pub enum SigAlg {
-    MlDsa44   = 0x0101,  // MVP default (user accounts)
-    MlDsa65   = 0x0102,  // MVP (validators / high-value accounts)
-    MlDsa87   = 0x0103,
-    SlhDsaSha2_128s = 0x0201,  // [reserved] hash-based fallback if lattices are broken
-    FnDsa512  = 0x0301,        // [reserved] Falcon, smaller signatures
-    XmssLean  = 0x0401,        // [reserved] consensus signatures + STARK aggregation (full version)
+    MlDsa44   = 0x01,  // MVP default (user accounts)
+    MlDsa65   = 0x02,  // MVP (validators / high-value accounts)
+    MlDsa87   = 0x03,
+    SlhDsaSha2_128s = 0x10,  // [reserved] hash-based fallback if lattices are broken
+    FnDsa512  = 0x20,        // [reserved] Falcon, smaller signatures
+    XmssLean  = 0x30,        // [reserved] consensus signatures + STARK aggregation (full version)
 }
 
-#[repr(u16)]
-pub enum KemAlg { XWing /* ML-KEM-768 + X25519, draft-06 */ = 0x1101, MlKem1024 = 0x1102 }
+#[repr(u8)]
+pub enum KemAlg { XWing /* ML-KEM-768 + X25519, draft-06 */ = 0x01, MlKem1024 = 0x02 }
 
-pub struct PqPublicKey  { alg: SigAlg, bytes: BoundedVec<u8, MaxPk> }   // 1312 B for ML-DSA-44
-pub struct PqSignature  { alg: SigAlg, bytes: BoundedVec<u8, MaxSig> }  // 2420 B for ML-DSA-44
+// Tagged types are enums: variant index = AlgId, payload = fixed-length bytes.
+// Canonical encoding = SCALE encoding = on-chain encoding = what TypeInfo describes.
+pub enum PqPublicKey { #[codec(index = 0x01)] MlDsa44(Box<[u8; 1312]>), /* 0x02, 0x03 … */ }
+pub enum PqSignature { #[codec(index = 0x01)] MlDsa44(Box<[u8; 2420]>), /* 0x02, 0x03 … */ }
 
 /// Account ID: 32 bytes, algorithm-independent, unchanged by key rotation
-/// At creation: AccountId = BLAKE3-derive_key("agentcoin 2026-09 account-id v1", alg_le16 ‖ pk)
-pub type AccountId = [u8; 32];
+/// At creation: AccountId = BLAKE3-derive_key("agentcoin 2026-09 account-id v1", alg_id ‖ pk)
+pub struct AccountId([u8; 32]);
 ```
 
 ### 3.3 Transaction signing

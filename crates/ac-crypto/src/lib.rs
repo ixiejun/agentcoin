@@ -17,6 +17,6 @@ pub mod sig;
 mod tagged;
 
 pub use account::{ACCOUNT_ID_CONTEXT, AccountId, account_id};
-pub use alg::{KemAlg, PROOF_SYSTEM_RESERVED, SigAlg};
+pub use alg::{EXTENSION_MARKER, KemAlg, SigAlg};
 pub use error::Error;
 pub use tagged::{ALG_ID_LEN, KemCiphertext, KemPublicKey, PqPublicKey, PqSignature};

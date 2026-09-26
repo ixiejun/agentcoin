@@ -27,9 +27,9 @@ fn fixed_vectors() {
         .iter()
         .map(|c| c["alg_id"].as_u64().unwrap())
         .collect();
-    assert_eq!(ids, [0x0101, 0x0102]);
+    assert_eq!(ids, [0x01, 0x02]);
     for c in cases {
-        let alg = SigAlg::from_id(u16::try_from(c["alg_id"].as_u64().unwrap()).unwrap()).unwrap();
+        let alg = SigAlg::from_id(u8::try_from(c["alg_id"].as_u64().unwrap()).unwrap()).unwrap();
         let seed: [u8; 32] = unhex(c["seed"].as_str().unwrap()).try_into().unwrap();
         let pk = SigningKey::from_seed(alg, &SecretSeed::new(seed))
             .unwrap()

@@ -3,7 +3,7 @@
 # AgentCoin 全量技术方案 v0.1
 
 > 状态：初版，待评审。日期：2026-09。
-> 依据：`docs/decisions.md`（D1–D33）。本文描述 MVP 之后（P2–P4）的目标架构，以及它**依赖 MVP 预留的哪些接口**。
+> 依据：`docs/decisions.md`（D1–D34）。本文描述 MVP 之后（P2–P4）的目标架构，以及它**依赖 MVP 预留的哪些接口**。
 > MVP 细节见 `mvp-technical-plan.md`，本文不重复。
 
 ---

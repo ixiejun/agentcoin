@@ -27,8 +27,9 @@ let signature = key.sign_deterministic(b"transfer 1 ATC", b"agentcoin/tx/v1")?;
 assert!(verify(&public_key, b"transfer 1 ATC", b"agentcoin/tx/v1", &signature).is_ok());
 assert!(verify(&public_key, b"transfer 1 ATC", b"agentcoin/bft-vote/v1", &signature).is_err());
 
-let wire = signature.to_canonical(); // 2-byte little-endian AlgId ‖ raw signature
-assert_eq!(&wire[..2], &[0x01, 0x01]);
+let wire = signature.to_canonical(); // 1-byte AlgId ‖ raw signature
+assert_eq!(wire[0], 0x01);
+assert_eq!(wire.len(), 1 + 2420);
 let _account = account_id(&public_key);
 # }
 # Ok::<(), ac_crypto::Error>(())
@@ -36,26 +37,30 @@ let _account = account_id(&public_key);
 
 ## AlgId table
 
-Numbers are never reused and never change meaning.
+Each category (signatures, KEMs) has its own 1-byte space. Numbers are never reused and never
+change meaning; `0x00` is never allocated and `0xFF` is reserved in every category as an
+extension marker. Families are grouped: ML-DSA `0x01–0x0F`, SLH-DSA `0x10–0x1F`,
+FN-DSA `0x20–0x2F`, XMSS `0x30–0x3F`.
 
-| AlgId | Algorithm | Kind | Status | Raw public key | Raw signature / ciphertext |
+| Category | AlgId | Algorithm | Status | Raw public key | Raw signature / ciphertext |
 |---|---|---|---|---|---|
-| `0x0101` | ML-DSA-44 | signature | implemented | 1312 | 2420 |
-| `0x0102` | ML-DSA-65 | signature | implemented | 1952 | 3309 |
-| `0x0103` | ML-DSA-87 | signature | implemented | 2592 | 4627 |
-| `0x0201` | SLH-DSA-SHA2-128s | signature | reserved | — | — |
-| `0x0301` | FN-DSA-512 | signature | reserved | — | — |
-| `0x0401` | XMSS (lean) | signature | reserved | — | — |
-| `0x1101` | X-Wing (ML-KEM-768 + X25519, draft-06) | KEM | implemented | 1216 | 1120 |
-| `0x1102` | ML-KEM-1024 | KEM | reserved | — | — |
-| `0x2000–0x2FFF` | proof systems | — | range reserved, unallocated | — | — |
+| signature | `0x01` | ML-DSA-44 | implemented | 1312 | 2420 |
+| signature | `0x02` | ML-DSA-65 | implemented | 1952 | 3309 |
+| signature | `0x03` | ML-DSA-87 | implemented | 2592 | 4627 |
+| signature | `0x10` | SLH-DSA-SHA2-128s | reserved | — | — |
+| signature | `0x20` | FN-DSA-512 | reserved | — | — |
+| signature | `0x30` | XMSS (lean) | reserved | — | — |
+| KEM | `0x01` | X-Wing (ML-KEM-768 + X25519, draft-06) | implemented | 1216 | 1120 |
+| KEM | `0x02` | ML-KEM-1024 | reserved | — | — |
+| every category | `0xFF` | extension marker | reserved | — | — |
 
 ## Wire format
 
-Canonical encoding of `PqPublicKey`, `PqSignature`, `KemPublicKey`, `KemCiphertext`:
-`AlgId (u16, little endian) ‖ raw bytes` with the exact length from the table and nothing else.
+`PqPublicKey`, `PqSignature`, `KemPublicKey` and `KemCiphertext` are enums whose variant index is
+the AlgId and whose payload is the algorithm's fixed-length bytes. Their canonical encoding is
+`AlgId (1 byte) ‖ raw bytes`, which is also exactly their SCALE encoding, their on-chain encoding
+and what their `TypeInfo` metadata describes (decision D34) — one byte form everywhere.
 Unknown AlgIds, reserved AlgIds, wrong lengths and trailing bytes are rejected with an error.
-With the `scale` feature the SCALE encoding is byte-identical to the canonical encoding.
 
 ## Features
 
@@ -66,7 +71,7 @@ With the `scale` feature the SCALE encoding is byte-identical to the canonical e
 | `rand` | key generation from an RNG, hedged signing, KEM encapsulation | nodes, wallets |
 | `kem` | X-Wing hybrid KEM | node P2P, gateways, clients |
 | `deterministic` | deterministic signing, derandomized encapsulation | tests, tooling only |
-| `scale` | SCALE `Encode` / `Decode` for tagged types | pallets |
+| `scale` | SCALE `Encode` / `Decode` / `MaxEncodedLen` / `TypeInfo` for tagged types | pallets |
 
 ## Context registry
 
@@ -85,8 +90,9 @@ reused for another purpose.
 ## Adding an algorithm
 
 1. Propose it through OpenSpec (AGENT.md §3), citing the decisions it serves.
-2. Allocate a new AlgId in `src/alg.rs` (or turn a reserved one into an implemented one) and extend
-   the frozen table in `tests/alg_table.rs` — never edit existing rows.
+2. Allocate a new AlgId in `src/alg.rs` (or turn a reserved one into an implemented one), add the
+   variant with `codec(index = AlgId)` in `src/tagged.rs`, and extend the frozen tables in
+   `tests/alg_table.rs` and `tests/scale_codec.rs` — never edit existing rows.
 3. Implement the backend in its own module that alone depends on the new library; dispatch on the
    AlgId in `sig/mod.rs` or `kem/mod.rs`.
 4. Add official test vectors via `scripts/fetch-test-vectors.sh` and record them in
