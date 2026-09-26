@@ -247,6 +247,7 @@ To add an override: update this table (in both language versions) and `OVERRIDES
   - **OpenSpec artifacts (`openspec/`) are Simplified Chinese only**; no English version.
   - Third-party upstream snapshots (`docs/rust-guidelines/src/` and the generated `INDEX.md`, `rules.tsv`) keep the upstream language and are not translated.
   - **Code identifiers, rustdoc, code comments and commit messages are in English** (for international open-source collaboration); crate `README.md` files are bilingual too (`README.md` + `README.zh-CN.md`).
+  - **Communication with the user is in Simplified Chinese**: replies, progress reports, and workflow or change summaries (e.g. after apply, archive, or a CI round) are written in Simplified Chinese, unless the user asks otherwise in the current conversation.
 - Every public item has rustdoc; `Result`-returning items document `# Errors`, items that can panic document `# Panics` (there should be none in this project), unsafe items document `# Safety` (G.CMT.01, G.CMT.02, G.UNS.SAS.01).
 - Comments explain "why", not "what" (P.CMT.01); use `//` line comments (P.CMT.03); `TODO` / `FIXME` carry a short explanation (P.CMT.05).
 - Every crate has `README.md` (and `README.zh-CN.md`): purpose, feature flags, a minimal example (the examples in the English version run as doctests).

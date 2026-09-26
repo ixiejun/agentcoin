@@ -247,6 +247,7 @@ scripts/     工具脚本
   - **OpenSpec 产物（`openspec/`）只用简体中文**，不需要英文版。
   - 第三方上游快照（`docs/rust-guidelines/src/` 及生成的 `INDEX.md`、`rules.tsv`）保持上游原语言，不翻译。
   - **代码标识符、rustdoc、代码注释、提交信息用英文**（面向国际开源协作）；crate 的 `README.md` 同样双语（`README.md` + `README.zh-CN.md`）。
+  - **与用户沟通使用简体中文**：回复、进度汇报以及流程或变更摘要（如 apply、archive、一轮 CI 之后的总结）一律用简体中文，除非用户在当前对话中另有要求。
 - 所有公开项必须有 rustdoc；返回 `Result` 的写 `# Errors`，可能 panic 的写 `# Panics`（本项目原则上不应存在），unsafe 写 `# Safety`（G.CMT.01、G.CMT.02、G.UNS.SAS.01）。
 - 注释说明“为什么”，不复述代码（P.CMT.01）；使用 `//` 行注释（P.CMT.03）；`TODO` / `FIXME` 必须附带简短说明（P.CMT.05）。
 - 每个 crate 有 `README.md`（及 `README.zh-CN.md`）：用途、feature 说明、最小示例（英文版中的示例作为 doctest 运行）。
