@@ -36,10 +36,15 @@ The AgentCoin node client (M2: post-quantum chain with finality).
 cargo build --release -p ac-node
 target/release/ac-node --dev --tmp
 
-# Three-node local testnet (alice, bob, charlie); RPC on 127.0.0.1:9944/9945/9946.
+# Four-node local testnet (alice, bob, charlie, dave); RPC on 127.0.0.1:9944-9947,
+# Prometheus metrics on 127.0.0.1:9615-9618.
 scripts/run-local-testnet.sh
-# Same, but check after 40 s that every node reached height 20, then stop.
+# Same, but check after 40 s that every node reached height 20 and finalized height 15, and
+# that alice exports acbft_finalized_number; then stop.
 scripts/run-local-testnet.sh --check
+
+# AC-BFT metrics of alice.
+curl -s http://127.0.0.1:9615/metrics | grep '^acbft_'
 
 # Create an encrypted authority key; prints the public key for the genesis authority list.
 target/release/ac-node pq-key generate --output authority.json --password-file password.txt

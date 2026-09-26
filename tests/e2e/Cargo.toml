@@ -14,10 +14,12 @@ ac-crypto = { workspace = true, features = ["std", "getrandom"] }
 ac-primitives = { workspace = true, features = ["std"] }
 ac-runtime = { workspace = true, features = ["std"] }
 ac-wallet = { workspace = true }
-jsonrpsee = { workspace = true, features = ["http-client"] }
+jsonrpsee = { workspace = true, features = ["http-client", "ws-client"] }
 pallet-balances = { workspace = true, features = ["std"] }
+parity-scale-codec = { workspace = true, features = ["std"] }
 pallet-pq-accounts = { workspace = true, features = ["std"] }
 serde_json = { workspace = true, features = ["std"] }
+sp-core = { workspace = true, features = ["std"] }
 sp-runtime = { workspace = true, features = ["std"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 

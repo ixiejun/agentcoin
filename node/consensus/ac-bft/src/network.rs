@@ -14,7 +14,7 @@ use ac_primitives::ac_bft::{
 use parity_scale_codec::{Decode, Encode};
 use sp_core::H256;
 
-use crate::protocol::{FUTURE_ROUNDS, PAST_ROUNDS};
+use crate::protocol::PAST_ROUNDS;
 
 /// Notification protocol name suffix; the full name is `/<genesis hex>/acbft/1`.
 pub const PROTOCOL_SUFFIX: &str = "acbft/1";
@@ -145,10 +145,9 @@ impl MessageFilter {
         if message.set_id != self.set_id {
             return Verdict::Stale;
         }
-        let round = message.message.round();
-        if round.saturating_add(PAST_ROUNDS) < self.round
-            || round > self.round.saturating_add(FUTURE_ROUNDS)
-        {
+        // Messages far ahead are still checked and passed on: the voter learns from them how
+        // far the others got and catches up.
+        if message.message.round().saturating_add(PAST_ROUNDS) < self.round {
             return Verdict::Stale;
         }
         match verify_message(&self.genesis, self.set_id, &self.authorities, &message) {
@@ -170,6 +169,7 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
 
     use super::*;
+    use crate::protocol::FUTURE_ROUNDS;
     use ac_crypto::sig::SigningKey;
     use ac_crypto::{SigAlg, dev_seed};
     use ac_primitives::ac_bft::{BlockRef, Message, VOTE_CONTEXT, VoteKind, signing_payload};
@@ -273,15 +273,26 @@ mod tests {
         let mut filter = MessageFilter::new(genesis, 1, set(&keys));
         filter.set_round(100);
         let old_round = vote((&keys[0], 0), &genesis, 1, 100 - PAST_ROUNDS - 1, 5);
-        let future_round = vote((&keys[0], 0), &genesis, 1, 100 + FUTURE_ROUNDS + 1, 5);
         let old_set = vote((&keys[0], 0), &genesis, 0, 100, 5);
         let next_set = vote((&keys[1], 0), &genesis, 2, 0, 5);
-        for m in [old_round, future_round, old_set] {
+        for m in [old_round, old_set] {
             assert_eq!(
                 filter.incoming(&VersionedMessage::V1(m).encode()),
                 Verdict::Stale
             );
         }
+        // Far-future messages are verified and passed on, so a lagging voter can catch up.
+        let future_round = vote((&keys[0], 0), &genesis, 1, 100 + FUTURE_ROUNDS + 1, 5);
+        assert_eq!(
+            filter.incoming(&VersionedMessage::V1(future_round.clone()).encode()),
+            Verdict::Accept(future_round)
+        );
+        let mut forged = vote((&keys[0], 0), &genesis, 1, 100 + FUTURE_ROUNDS + 2, 5);
+        forged.signer = 1;
+        assert_eq!(
+            filter.incoming(&VersionedMessage::V1(forged).encode()),
+            Verdict::Invalid
+        );
         let wire = VersionedMessage::V1(next_set.clone()).encode();
         assert_eq!(filter.incoming(&wire), Verdict::Held);
         let held = filter.set_changed(2, set(&keys[1..]));

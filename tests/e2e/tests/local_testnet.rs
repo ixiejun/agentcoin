@@ -1,5 +1,6 @@
-//! M1 acceptance on a three-authority local testnet (tasks 9.1–9.3; spec node/chain-spec
-//! "三节点本地网络", chain/pq-accounts "密钥轮换"). Enabled with `AC_E2E=1`.
+//! Acceptance on the four-authority local testnet: block production and finality (M2 task 8.2;
+//! spec node/chain-spec "四节点本地网络", consensus/ac-bft "四节点最终确定"), and the M1
+//! transfer and key rotation (chain/pq-accounts "密钥轮换"). Enabled with `AC_E2E=1`.
 
 // Test code: failures should abort the test.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
@@ -25,18 +26,47 @@ macro_rules! require_e2e {
     };
 }
 
-// Scenario "三节点持续出块": within 60 s every node is at height ≥ 40 and all agree on the chain
-// except for the latest 3 blocks.
+// Scenario "四节点持续出块": within 60 s every node is at height ≥ 40 and all agree on the chain
+// except for the latest 3 blocks. Scenario "四节点最终确定": meanwhile every node's finalized
+// height keeps growing and all finalize the same block at each height.
 #[tokio::test(flavor = "multi_thread")]
-async fn three_nodes_keep_producing_blocks() {
+async fn four_nodes_produce_and_finalize() {
     require_e2e!();
     let net = Testnet::start("blocks", START).await.unwrap();
-    net.wait_all(&[0, 1, 2], 1, START).await.unwrap();
+    let all = [0, 1, 2, 3];
+    net.wait_all(&all, 1, START).await.unwrap();
     let started = Instant::now();
-    net.wait_all(&[0, 1, 2], 40, Duration::from_secs(60))
-        .await
-        .unwrap();
-    assert!(started.elapsed() <= Duration::from_secs(60));
+    let mut finalized = vec![0; 4];
+    let mut increases = vec![0; 4];
+    while started.elapsed() < Duration::from_secs(60) {
+        for (i, node) in net.nodes.iter().enumerate() {
+            let f = node.finalized().await.map_or(0, |f| f.0);
+            assert!(f >= finalized[i], "{} finality went backwards", node.name);
+            if f > finalized[i] {
+                increases[i] += 1;
+            }
+            finalized[i] = f;
+        }
+        let mut heights = Vec::new();
+        for node in &net.nodes {
+            heights.push(node.height().await.unwrap_or(0));
+        }
+        if heights.iter().all(|h| *h >= 40) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    net.wait_all(
+        &all,
+        40,
+        Duration::from_secs(60).saturating_sub(started.elapsed()),
+    )
+    .await
+    .unwrap();
+    assert!(
+        increases.iter().all(|n| *n >= 10),
+        "finality did not keep growing: {increases:?} increases, finalized {finalized:?}"
+    );
 
     let mut lowest = u64::MAX;
     for node in &net.nodes {
@@ -50,6 +80,15 @@ async fn three_nodes_keep_producing_blocks() {
             "fork at height {n}: {hashes:?}"
         );
     }
+    // Finalized blocks agree: every node's finalized block is on every other node's chain.
+    let lowest_finalized = *finalized.iter().min().unwrap();
+    assert!(lowest_finalized >= 30, "finalized heights {finalized:?}");
+    let hashes: Vec<_> =
+        futures_join(net.nodes.iter().map(|node| node.hash_at(lowest_finalized))).await;
+    assert!(
+        hashes.windows(2).all(|w| w[0] == w[1]),
+        "different blocks finalized at {lowest_finalized}: {hashes:?}"
+    );
 }
 
 async fn futures_join<F: std::future::Future<Output = Option<String>>>(
@@ -69,7 +108,7 @@ async fn futures_join<F: std::future::Future<Output = Option<String>>>(
 async fn transfer_and_rotation_across_nodes() {
     require_e2e!();
     let net = Testnet::start("rotation", START).await.unwrap();
-    net.wait_all(&[0, 1, 2], 2, START).await.unwrap();
+    net.wait_all(&[0, 1, 2, 3], 2, START).await.unwrap();
     let alice = NodeClient::new(&net.nodes[0].url).unwrap();
     let bob = NodeClient::new(&net.nodes[1].url).unwrap();
     let charlie = NodeClient::new(&net.nodes[2].url).unwrap();
@@ -140,27 +179,30 @@ async fn transfer_and_rotation_across_nodes() {
     assert_eq!(charlie.free_balance(&sink).await.unwrap(), before + ATC);
 }
 
-// Scenario "节点重启后追上": charlie stops for 20 s, restarts and is within 3 blocks of the
-// others within 30 s.
+// Scenario "节点重启后追上": dave stops for 20 s, restarts, and within 30 s is within 3 blocks
+// of the others in both best and finalized height.
 #[tokio::test(flavor = "multi_thread")]
 async fn restarted_node_catches_up() {
     require_e2e!();
     let mut net = Testnet::start("restart", START).await.unwrap();
-    net.wait_all(&[0, 1, 2], 5, START).await.unwrap();
-    net.nodes[2].stop();
+    net.wait_finalized(&[0, 1, 2, 3], 5, START).await.unwrap();
+    net.stop("dave").unwrap();
     tokio::time::sleep(Duration::from_secs(20)).await;
-    net.nodes[2].start().unwrap();
+    net.restart("dave").unwrap();
     let restarted = Instant::now();
     loop {
         let leader = net.nodes[0].height().await.unwrap_or(0);
-        if let Some(h) = net.nodes[2].height().await
+        let leader_finalized = net.nodes[0].finalized().await.map_or(0, |f| f.0);
+        let dave = net.node("dave").unwrap();
+        if let (Some(h), Some((f, _))) = (dave.height().await, dave.finalized().await)
             && leader.saturating_sub(h) <= 3
+            && leader_finalized.saturating_sub(f) <= 3
         {
             break;
         }
         assert!(
             restarted.elapsed() < Duration::from_secs(30),
-            "charlie did not catch up within 30 s; logs in {}",
+            "dave did not catch up within 30 s; logs in {}",
             net.base.display()
         );
         tokio::time::sleep(Duration::from_millis(500)).await;

@@ -62,7 +62,8 @@ pub const PAST_ROUNDS: Round = 16;
 /// Signed messages are kept this many rounds back to detect double signing. Bounds memory:
 /// every kept message carries a 3.3 KB signature.
 pub const EVIDENCE_ROUNDS: Round = 8;
-/// Messages of rounds this far ahead of the current round are ignored.
+/// Messages of rounds this far ahead of the current round are not kept; only the round their
+/// signer reached is noted, for catching up.
 pub const FUTURE_ROUNDS: Round = 32;
 
 /// Read-only view of the block tree.
@@ -306,10 +307,22 @@ impl Voter {
             return actions;
         }
         let round = signed.message.round();
-        if round.saturating_add(PAST_ROUNDS) < self.state.round
-            || round > self.state.round.saturating_add(FUTURE_ROUNDS)
-        {
+        if round.saturating_add(PAST_ROUNDS) < self.state.round {
             return actions;
+        }
+        if round > self.state.round.saturating_add(FUTURE_ROUNDS) {
+            // Too far ahead to keep, but it shows how far its signer got: a member that fell far
+            // behind (a new node, a long outage) catches up once members worth more than `W − q`
+            // are seen ahead. Only the round is recorded, so memory stays bounded.
+            self.note_round(signed.signer, round);
+            let before = self.state.round;
+            self.catch_up(chain, now);
+            if round > self.state.round.saturating_add(FUTURE_ROUNDS) {
+                if self.state.round > before {
+                    self.progress(chain, now, &mut actions);
+                }
+                return actions;
+            }
         }
         self.help_lagging_peer(signed.signer, round, now, &mut actions);
         let key = (signed.signer, round, signed.message.kind());
@@ -333,8 +346,7 @@ impl Voter {
                 self.seen.insert(key, signed.clone());
             }
         }
-        let signer_round = self.max_round.entry(signed.signer).or_insert(round);
-        *signer_round = (*signer_round).max(round);
+        self.note_round(signed.signer, round);
 
         match signed.message {
             Message::Proposal {
@@ -642,6 +654,12 @@ impl Voter {
         self.deadline = (self.config.me.is_some() && self.has_candidate(chain))
             .then(|| now.saturating_add(self.timeout_ms(self.failures)));
         self.prune();
+    }
+
+    /// Records that `signer` reached `round`.
+    fn note_round(&mut self, signer: AuthorityIndex, round: Round) {
+        let signer_round = self.max_round.entry(signer).or_insert(round);
+        *signer_round = (*signer_round).max(round);
     }
 
     /// Jumps to the highest round that members worth more than `W − q` have reached: at least

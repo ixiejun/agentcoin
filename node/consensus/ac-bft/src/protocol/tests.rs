@@ -409,6 +409,27 @@ fn catch_up_needs_an_honest_member() {
     assert_eq!(voter.round(), 5);
 }
 
+// Scenario "新节点通过证明跟上终局性" (protocol part): a node more than `FUTURE_ROUNDS` behind,
+// such as a full node joining a running network, catches up from the rounds it sees and then
+// follows finality; a single member far ahead does not move it.
+#[test]
+fn far_behind_node_catches_up() {
+    let mut chain = TreeChain::new();
+    let g = TreeChain::genesis();
+    let b1 = chain.child(&g, 1);
+    let far = FUTURE_ROUNDS * 3;
+    let mut follower = Voter::new(config(4, None, 0), None, g);
+    let commit = vote(VoteKind::Commit, far, b1);
+    let actions = follower.on_message(signed(0, commit.clone()), &chain, 1);
+    assert!(actions.is_empty());
+    assert_eq!(follower.round(), 0, "one member ahead is not enough");
+    for signer in 1..4 {
+        follower.on_message(signed(signer, commit.clone()), &chain, 2);
+    }
+    assert_eq!(follower.round(), far);
+    assert_eq!(follower.finalized(), b1);
+}
+
 // Scenario "集合变更后继续最终确定": the old set finalizes the change block and never goes past
 // it; the new set continues from there.
 #[test]

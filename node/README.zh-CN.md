@@ -19,10 +19,15 @@ AgentCoin 节点客户端（M2：带终局性的抗量子链）。
 cargo build --release -p ac-node
 target/release/ac-node --dev --tmp
 
-# 三节点本地测试网（alice、bob、charlie）；RPC 分别在 127.0.0.1:9944/9945/9946。
+# 四节点本地测试网（alice、bob、charlie、dave）；RPC 在 127.0.0.1:9944-9947，
+# Prometheus 指标在 127.0.0.1:9615-9618。
 scripts/run-local-testnet.sh
-# 同上，但 40 秒后检查每个节点高度都达到 20，然后退出。
+# 同上，但 40 秒后检查每个节点高度达到 20、已最终确定高度达到 15，且 alice 导出了
+# acbft_finalized_number，然后退出。
 scripts/run-local-testnet.sh --check
+
+# 查看 alice 的 AC-BFT 指标。
+curl -s http://127.0.0.1:9615/metrics | grep '^acbft_'
 
 # 生成加密的授权密钥；输出的公钥用于创世授权节点列表。
 target/release/ac-node pq-key generate --output authority.json --password-file password.txt
