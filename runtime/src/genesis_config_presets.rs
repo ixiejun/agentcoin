@@ -81,7 +81,8 @@ pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
         // Short epochs so tests see authority-set changes and randomness quickly.
         sp_genesis_builder::DEV_RUNTIME_PRESET => testnet_genesis(&["alice"], 10),
         sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET => {
-            testnet_genesis(&["alice", "bob", "charlie"], 20)
+            // Four authorities tolerate one faulty member (n ≥ 3f + 1).
+            testnet_genesis(&["alice", "bob", "charlie", "dave"], 20)
         }
         _ => return None,
     };

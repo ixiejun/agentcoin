@@ -210,3 +210,44 @@ pub fn fees_paid() -> Balance {
         })
         .sum()
 }
+
+/// Seal double-signing evidence by development authority `name` in `slot`; `forged` signs the
+/// second header with another key.
+pub fn seal_evidence(name: &str, slot: u64, forged: bool) -> ac_primitives::offences::Evidence {
+    use ac_primitives::aura_pq::{SEAL_CONTEXT, Slot, pre_digest, seal_digest};
+    use ac_primitives::offences::{ChainHeader, EncodedHeader, Evidence};
+    use parity_scale_codec::Encode;
+    use sp_runtime::traits::Header as _;
+    let key =
+        |n: &str| SigningKey::from_seed(SigAlg::MlDsa65, &ac_crypto::dev_seed(n).unwrap()).unwrap();
+    let sealed = |signer: &SigningKey, root: u8| {
+        let mut digest = Digest::default();
+        digest.push(pre_digest(Slot::from(slot)));
+        let mut header = ChainHeader::new(
+            1,
+            H256::repeat_byte(root),
+            H256::zero(),
+            H256::zero(),
+            digest,
+        );
+        let sig = signer
+            .sign_deterministic(header.hash().as_ref(), SEAL_CONTEXT)
+            .unwrap();
+        header.digest_mut().push(seal_digest(&sig));
+        EncodedHeader::try_from(header.encode()).unwrap()
+    };
+    let offender = key(name);
+    let second = if forged { key("zed") } else { key(name) };
+    Evidence::AuraEquivocation {
+        offender: offender.public_key().unwrap(),
+        first: sealed(&offender, 1),
+        second: sealed(&second, 2),
+    }
+}
+
+/// A double-signing report without signature.
+pub fn report(evidence: ac_primitives::offences::Evidence) -> UncheckedExtrinsic {
+    ac_runtime::transaction::assemble_unsigned(RuntimeCall::Offences(
+        pallet_ac_offences::Call::report_equivocation { evidence },
+    ))
+}

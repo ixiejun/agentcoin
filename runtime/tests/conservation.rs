@@ -1,7 +1,8 @@
 //! Requirement "总量守恒" / Scenario "随机交易序列的守恒" (chain/native-token), task 5.4.
 //!
-//! Random sequences of transfers, first-key registrations, rotations and failing transactions:
-//! after every step the sum of all balances equals the total issuance, and issuance never grows.
+//! Random sequences of transfers, first-key registrations, rotations, failing transactions,
+//! double-signing reports (m2-finality 6.3) and randomness inherents: after every step the sum
+//! of all balances equals the total issuance, and issuance never grows.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -29,6 +30,10 @@ enum Op {
     },
     /// Rotate the key of signer `who` to a fresh ML-DSA-65 key.
     Rotate { who: usize, seed: u8 },
+    /// Report the authority's double signing in `slot`; `forged` breaks one seal.
+    Report { slot: u64, forged: bool },
+    /// Apply a randomness inherent with arbitrary data.
+    Randomness { commit: u8, reveal: u8 },
 }
 
 fn op() -> impl Strategy<Value = Op> {
@@ -42,6 +47,8 @@ fn op() -> impl Strategy<Value = Op> {
             }
         }),
         (0usize..6, 100u8..200).prop_map(|(who, seed)| Op::Rotate { who, seed }),
+        (0u64..10, any::<bool>()).prop_map(|(slot, forged)| Op::Report { slot, forged }),
+        (any::<u8>(), any::<u8>()).prop_map(|(commit, reveal)| Op::Randomness { commit, reveal }),
     ]
 }
 
@@ -78,6 +85,16 @@ proptest! {
                         if apply(signed(&signers[who], call)) == Ok(Ok(())) {
                             signers[who].key = new.key;
                         }
+                    }
+                    Op::Report { slot, forged } => {
+                        let _ = apply(common::report(common::seal_evidence("alice", slot, forged)));
+                    }
+                    Op::Randomness { commit, reveal } => {
+                        let call = RuntimeCall::RandomnessCr(pallet_randomness_cr::Call::note_randomness {
+                            commit: Some([commit; 32]),
+                            reveal: Some([reveal; 32]),
+                        });
+                        let _ = apply(ac_runtime::UncheckedExtrinsic::new_bare(call));
                     }
                 }
                 let now = issuance();

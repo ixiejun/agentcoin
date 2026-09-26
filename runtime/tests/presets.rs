@@ -52,18 +52,30 @@ fn development_accounts_are_endowed() {
     });
 }
 
-// consensus/aura-pq Requirement "授权节点集合来自创世" / Scenario "查询授权节点".
+// consensus/aura-pq Scenario "查询授权节点", consensus/validator-set Scenario "查询集合" and
+// node/chain-spec Scenario "本地链有四个授权节点" (runtime part).
 #[test]
-fn local_testnet_has_three_ordered_authorities() {
+fn local_testnet_has_four_ordered_authorities() {
     preset_ext(sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET).execute_with(|| {
-        let expected: Vec<_> = ["alice", "bob", "charlie"]
+        let expected: Vec<_> = ["alice", "bob", "charlie", "dave"]
             .iter()
             .map(|n| dev_public_key(n, SigAlg::MlDsa65).unwrap())
             .collect();
         assert_eq!(ac_runtime::AuraPq::authorities(), expected);
+        let (set_id, set) = ac_runtime::ValidatorSet::authority_set();
+        assert_eq!(set_id, 0);
+        assert_eq!(
+            set,
+            expected
+                .into_iter()
+                .map(ac_primitives::ac_bft::Authority::poa)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(ac_runtime::ValidatorSet::epoch_length(), 20);
     });
     preset_ext(sp_genesis_builder::DEV_RUNTIME_PRESET).execute_with(|| {
         assert_eq!(ac_runtime::AuraPq::authorities().len(), 1);
+        assert_eq!(ac_runtime::ValidatorSet::epoch_length(), 10);
     });
 }
 

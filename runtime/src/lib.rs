@@ -58,7 +58,8 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_version: 1,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
-    transaction_version: 1,
+    // 2: `AuthorizeCall` joined the extension pipeline (m2-finality); encodings are unchanged.
+    transaction_version: 2,
     system_version: 1,
 };
 
