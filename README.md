@@ -15,4 +15,19 @@ Primary language: Rust. Development method: spec-driven development (SDD) with [
 
 Documentation language policy: every project document has an English version (primary, at the canonical path) and a Simplified Chinese version (`*.zh-CN.md`), each linking to the other at the top.
 
-Status: design phase, no code yet.
+Status: M0 in progress — workspace, CI and the `ac-crypto` post-quantum library ([crates/ac-crypto](crates/ac-crypto/README.md)).
+
+## Local development
+
+The toolchain is pinned in `rust-toolchain.toml` (installed automatically by `rustup`). Run the same checks as CI:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+cargo build -p ac-crypto --no-default-features --target wasm32-unknown-unknown
+cargo install --locked cargo-deny cargo-audit   # once
+cargo deny check
+cargo audit
+scripts/fetch-test-vectors.sh && git diff --exit-code -- crates/ac-crypto/tests/vectors
+```

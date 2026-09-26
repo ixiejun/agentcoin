@@ -1,0 +1,43 @@
+[workspace]
+resolver = "3"
+members = ["crates/ac-crypto"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+license = "MIT"
+repository = "https://github.com/ixiejun/agentcoin"
+authors = ["AgentCoin contributors"]
+
+[workspace.dependencies]
+# Cryptography (only `ac-crypto` may depend on these; AGENT.md §6).
+ml-dsa = { version = "0.1", default-features = false }
+ml-kem = { version = "0.3", default-features = false }
+x-wing = { version = "0.1", default-features = false }
+blake3 = { version = "1.8", default-features = false }
+sha3 = { version = "0.12", default-features = false }
+zeroize = { version = "1.9", default-features = false }
+subtle = { version = "2.6", default-features = false }
+rand_core = { version = "0.10", default-features = false }
+parity-scale-codec = { version = "3.7", default-features = false }
+scale-info = { version = "2.11", default-features = false }
+# Test-only
+hex = { version = "0.4", default-features = false }
+serde = { version = "1", default-features = false }
+serde_json = { version = "1", default-features = false }
+proptest = { version = "1.7", default-features = false }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+dbg_macro = "deny"
+wildcard_imports = "deny"

@@ -15,4 +15,19 @@
 
 文档语言约定：每份项目文档都有英文版（主版本，位于规范路径）和简体中文版（`*.zh-CN.md`），两者在页首互相链接。
 
-状态：设计阶段，尚无代码。
+状态：M0 进行中——工作区、CI 与抗量子密码库 `ac-crypto`（[crates/ac-crypto](crates/ac-crypto/README.zh-CN.md)）。
+
+## 本地开发
+
+工具链版本固定在 `rust-toolchain.toml`（`rustup` 会自动安装）。运行与 CI 相同的检查：
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+cargo build -p ac-crypto --no-default-features --target wasm32-unknown-unknown
+cargo install --locked cargo-deny cargo-audit   # 仅需一次
+cargo deny check
+cargo audit
+scripts/fetch-test-vectors.sh && git diff --exit-code -- crates/ac-crypto/tests/vectors
+```
