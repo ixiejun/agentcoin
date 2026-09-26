@@ -41,7 +41,7 @@ TEE 机密层、训练和 RL、存储层、L1 私有功能（投票、竞价、�
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ 客户端层                                                                  │
-│  ac-wallet (CLI)  ·  ac-sdk (TS / Python)  ·  OpenAI 兼容客户端 / Agent 框架  │
+│  ac-wallet (CLI)  ·  ac-sdk (Rust 核心 + 绑定)  ·  OpenAI 兼容客户端 / Agent 框架 │
 └───────────────┬─────────────────────────────────────┬────────────────────┘
                 │ 链上交易（PQ 签名）                  │ HTTPS 推理请求（附额度凭证）
                 ▼                                     ▼
@@ -72,7 +72,7 @@ TEE 机密层、训练和 RL、存储层、L1 私有功能（投票、竞价、�
 
 | 层 | 选型 | 说明 |
 |---|---|---|
-| 语言 | Rust（链、网关、代理）；Python（推理适配、TOPLOC） | |
+| 语言 | **Rust 为主要开发语言**（D31）：链、runtime、共识、密码学、电路、网关、提供者代理、审计员代理、钱包、SDK 核心全部用 Rust | 唯一例外：vLLM / SGLang 引擎内部用于提取 TOPLOC 激活值的**薄 Python 插件**（约 200 行，见 §2.1） |
 | 链框架 | **Polkadot SDK**（最新的 stable 发布版），solochain 模板 | 无分叉 runtime 升级 |
 | EVM | `pallet-revive`（REVM 后端） | Solidity 工具链兼容 |
 | PQ 签名 | ML-DSA-44 / ML-DSA-65（FIPS 204）；预留 SLH-DSA（FIPS 205）、FN-DSA（Falcon） | RustCrypto `ml-dsa` 或 `pqcrypto` / liboqs 绑定；上线前做交叉测试向量验证 |
@@ -83,6 +83,21 @@ TEE 机密层、训练和 RL、存储层、L1 私有功能（投票、竞价、�
 | 推理引擎 | vLLM / SGLang（提供者自选） | |
 | 可验证推理 | TOPLOC | |
 | 网关 | Rust（axum + tokio），SSE 流式 | |
+
+### 2.1 Rust 优先原则与边界（D31）
+
+| 组件 | 语言 | 说明 |
+|---|---|---|
+| 节点、runtime、pallet、共识、不变式检查器 | Rust | Polkadot SDK 原生 |
+| `ac-crypto`、STARK 电路（Plonky3 / Stwo / Winterfell 都是 Rust） | Rust | 同一份代码同时编译成 native、WASM runtime 和客户端 WASM |
+| 网关、提供者代理、审计员代理、eth-RPC 适配器 | Rust（tokio + axum） | |
+| 钱包、SDK 核心 | Rust | Python / TS 只是绑定 |
+| TOPLOC | Rust 移植（`ac-toploc`）：证明的编码、校验、比对 | 审计员的复核逻辑是纯 Rust |
+| 推理引擎 | 不自研；调用 vLLM / SGLang 的 OpenAI 兼容接口 | 引擎本身是第三方 Python 程序 |
+| **TOPLOC 激活值提取** | **薄 Python 插件**，挂在推理引擎内部，只负责把隐藏层激活值交给 Rust 代理（通过本地 socket） | TOPLOC 需要读取模型内部的激活值，只能在引擎进程里完成；插件保持极小、无业务逻辑 |
+| **[可选] Rust 原生推理后端** | mistral.rs / candle | T2 消费级节点可选纯 Rust 路线，此时不需要 Python 插件；性能不及 vLLM 时仍推荐使用 vLLM |
+
+工程约定：Rust stable 工具链（Polkadot SDK 要求的版本）；`#![forbid(unsafe_code)]` 为默认（密码学库和 FFI 例外，需逐条注明原因）；`cargo fmt` + `clippy -D warnings` + `cargo deny`（许可证与漏洞）+ `cargo audit` 进 CI；runtime 与 pallet 保持 `no_std` 兼容。
 
 ---
 
@@ -399,7 +414,7 @@ fn check_block(pre: &State, post: &State, header: &Header) -> Result<(), Reject>
 | **ac-auditor** | 按链上派发执行神秘顾客请求；本地复算 TOPLOC；提交判定 | 可以运行在 T1 / T2 / T3 节点上（T3 只测延迟和一致性） |
 | **ac-wallet** | CLI 钱包：生成和管理 PQ 密钥、转账、质押、换钥；β 版加入屏蔽池和凭证；作为 Foundry 外部签名器 | 助记词 → 种子 → ML-DSA 确定性密钥派生（遵循 FIPS 204 的种子生成接口） |
 | **ac-eth-rpc** | 以太坊 JSON-RPC 适配 | §3.4 |
-| **ac-sdk** | TS / Python SDK：凭证管理、OpenAI 客户端封装、链交互 | Agent 框架可以直接接入 |
+| **ac-sdk** | **Rust 核心**（凭证管理、PQ 签名、STARK 证明生成、链交互）；通过 PyO3 生成 Python 绑定、通过 wasm-bindgen 生成浏览器 / TS 绑定，绑定层只做薄封装 | 密码学只有一份 Rust 实现，避免多语言实现不一致 |
 | **区块浏览器** | 最小化版本 | 可以用 Substrate 生态的开源浏览器改造 |
 
 ### 7.1 一次推理请求的完整流程（β 版）
@@ -460,7 +475,7 @@ agentcoin/
 ├── services/
 │   ├── gateway/ provider/ auditor/ eth-rpc/
 ├── clients/
-│   ├── wallet-cli/ sdk-ts/ sdk-py/
+│   ├── wallet-cli/ sdk/ (Rust 核心) sdk-bindings/{py (PyO3), wasm (wasm-bindgen)}/
 ├── contracts/                  # 示例 Solidity 合约 + PQ 预编译接口
 ├── tests/
 │   ├── e2e/                    # zombienet 式多节点测试
