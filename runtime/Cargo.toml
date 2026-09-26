@@ -1,0 +1,111 @@
+[package]
+name = "ac-runtime"
+description = "AgentCoin WASM runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+ac-crypto = { workspace = true, features = ["scale", "serde"] }
+ac-primitives = { workspace = true }
+pallet-aura-pq = { workspace = true }
+pallet-balances = { workspace = true }
+pallet-pq-accounts = { workspace = true }
+pallet-transaction-payment = { workspace = true }
+pallet-transaction-payment-rpc-runtime-api = { workspace = true }
+parity-scale-codec = { workspace = true, features = ["derive"] }
+scale-info = { workspace = true, features = ["derive", "serde"] }
+serde_json = { workspace = true, features = ["alloc"] }
+frame-benchmarking = { workspace = true, optional = true }
+frame-executive = { workspace = true }
+frame-system-benchmarking = { workspace = true, optional = true }
+frame-support = { workspace = true, features = ["experimental"] }
+frame-system = { workspace = true }
+frame-system-rpc-runtime-api = { workspace = true }
+pallet-timestamp = { workspace = true }
+sp-api = { workspace = true }
+sp-block-builder = { workspace = true }
+sp-core = { workspace = true, features = ["serde"] }
+sp-genesis-builder = { workspace = true }
+sp-inherents = { workspace = true }
+sp-offchain = { workspace = true }
+sp-runtime = { workspace = true, features = ["serde"] }
+sp-session = { workspace = true }
+sp-transaction-pool = { workspace = true }
+sp-version = { workspace = true, features = ["serde"] }
+
+[dev-dependencies]
+ac-crypto = { workspace = true, features = ["scale", "serde", "std", "deterministic"] }
+proptest = { workspace = true, features = ["std"] }
+serde_json = { workspace = true, features = ["std"] }
+pallet-timestamp = { workspace = true, features = ["std"] }
+pallet-balances = { workspace = true, features = ["std"] }
+sp-io = { workspace = true, features = ["std"] }
+
+[build-dependencies]
+substrate-wasm-builder = { workspace = true, optional = true, default-features = true }
+
+[features]
+default = ["std"]
+std = [
+    "ac-crypto/std",
+    "ac-primitives/std",
+    "pallet-aura-pq/std",
+    "pallet-balances/std",
+    "pallet-pq-accounts/std",
+    "pallet-transaction-payment-rpc-runtime-api/std",
+    "pallet-transaction-payment/std",
+    "frame-benchmarking?/std",
+    "frame-executive/std",
+    "frame-system-benchmarking?/std",
+    "frame-support/std",
+    "frame-system-rpc-runtime-api/std",
+    "frame-system/std",
+    "pallet-timestamp/std",
+    "parity-scale-codec/std",
+    "scale-info/std",
+    "serde_json/std",
+    "sp-api/std",
+    "sp-block-builder/std",
+    "sp-core/std",
+    "sp-genesis-builder/std",
+    "sp-inherents/std",
+    "sp-offchain/std",
+    "sp-runtime/std",
+    "sp-session/std",
+    "sp-transaction-pool/std",
+    "sp-version/std",
+    "substrate-wasm-builder",
+]
+
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system-benchmarking/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "pallet-balances/runtime-benchmarks",
+    "pallet-pq-accounts/runtime-benchmarks",
+    "pallet-timestamp/runtime-benchmarks",
+    "pallet-transaction-payment/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+]
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+dbg_macro = "deny"
+wildcard_imports = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"

@@ -11,6 +11,8 @@ repository allowed to call concrete cryptographic implementations (AGENT.md §6)
 - Hybrid KEM: X-Wing = ML-KEM-768 + X25519 (draft-connolly-cfrg-xwing-kem-06)
 - Hashing: BLAKE3-256, SHA3-256, domain-separated BLAKE3 (`derive_key`)
 - 32-byte account IDs derived from public keys
+- Wallet support: 24-word BIP-39 encoding of wallet entropy, deterministic wallet-key and
+  development-key derivation, password-encrypted secret files (Argon2id + XChaCha20-Poly1305)
 - `no_std`; verification, hashing and account IDs need neither `std` nor an RNG (WASM runtime)
 
 ## Example
@@ -72,6 +74,13 @@ Unknown AlgIds, reserved AlgIds, wrong lengths and trailing bytes are rejected w
 | `kem` | X-Wing hybrid KEM | node P2P, gateways, clients |
 | `deterministic` | deterministic signing, derandomized encapsulation | tests, tooling only |
 | `scale` | SCALE `Encode` / `Decode` / `MaxEncodedLen` / `TypeInfo` for tagged types | pallets |
+| `getrandom` | `OsRng`: CSPRNG seeded from the operating system, never panics | nodes, wallets |
+| `mnemonic` | 24-word BIP-39 (English) encoding of wallet entropy (`no_std`) | wallets |
+| `keystore` | password-encrypted secret files (implies `std`, `rand` and `getrandom`) | nodes, wallets |
+
+Key-seed derivation (`wallet_key_seed`, `dev_seed`) is always available: a seed is
+`derive_key(context, input)` with the contexts below. Development seeds are **public** and only
+valid on development and local chains.
 
 ## Context registry
 
@@ -83,9 +92,25 @@ reused for another purpose.
 |---|---|---|---|
 | `agentcoin 2026-09 account-id v1` | hash | account-ID derivation | **in use (consensus-critical)** |
 | `agentcoin 2026-09 test-rng v1` | hash | deterministic RNG in tests | tests only |
-| `agentcoin/tx/v1` | signature | transaction signatures | reserved for M1 |
+| `agentcoin 2026-09 tx-payload v1` | hash | 32-byte transaction signing payload | in use from M1 (consensus-critical) |
+| `agentcoin 2026-09 wallet-key v1` | hash | wallet key seeds: `AlgId ‖ u32_le(index) ‖ entropy` | in use from M1 |
+| `agentcoin 2026-09 dev-seed v1` | hash | public development seeds from a name | in use from M1 (dev chains only) |
+| `agentcoin 2026-09 keystore-aad v1` | hash | associated data of encrypted secret files | in use from M1 |
+| `agentcoin 2026-09 os-rng v1` | hash | output stream of `OsRng` (seeded from the OS) | in use from M1 |
+| `agentcoin/tx/v1` | signature | transaction signatures | in use from M1 (consensus-critical) |
+| `agentcoin/aura-seal/v1` | signature | Aura-PQ block seals | in use from M1 (consensus-critical) |
+| `agentcoin/key-rotation/v1` | signature | proof of possession of a rotated-in key | in use from M1 (consensus-critical) |
 | `agentcoin/bft-vote/v1` | signature | finality votes | reserved for M2 |
 | `agentcoin/receipt/v1` | signature | inference receipts | reserved for M5 |
+
+## Encrypted secret files (format v1)
+
+A JSON document with `version` (1), `kind` (`signing-seed` or `wallet-entropy`), `alg` and
+`public_key` (canonical hex, signing seeds only), `kdf` (`argon2id` with `m_kib`, `t`, `p`, 16-byte
+`salt`) and `cipher` (`xchacha20poly1305` with a 24-byte `nonce` and the `ciphertext`). The
+associated data is `derive_key("agentcoin 2026-09 keystore-aad v1", …)` over every metadata field,
+so tampering with any field makes decryption fail. Files whose KDF parameters are below
+64 MiB / 3 passes / 1 lane are rejected.
 
 ## Adding an algorithm
 
@@ -101,5 +126,7 @@ reused for another purpose.
 
 ## Test vectors
 
-`tests/vectors/` holds filtered NIST ACVP (ML-DSA, ML-KEM-768) and X-Wing specification vectors,
-reproducible with `scripts/fetch-test-vectors.sh`; see `tests/vectors/SOURCES.md`.
+`tests/vectors/` holds filtered NIST ACVP (ML-DSA, ML-KEM-768), X-Wing, Argon2id (RFC 9106),
+XChaCha20-Poly1305 (draft-irtf-cfrg-xchacha-03) and BIP-39 vectors, reproducible with
+`scripts/fetch-test-vectors.sh`, plus repository regression vectors; see
+`tests/vectors/SOURCES.md`.

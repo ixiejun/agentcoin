@@ -14,6 +14,9 @@ produce byte-identical output.
 | `ml_dsa_sigver.json` | ACVP-Server `ML-DSA-sigVer-FIPS204/internalProjection.json` | same | `47cdd6314c7f746d02421ffcba89d4dbc7bb875ac49e07a029fdfc26fba55437` |
 | `ml_kem_768_keygen.json` | ACVP-Server `ML-KEM-keyGen-FIPS203/internalProjection.json` | same | `d7a62a2c3476957f56dd8d24f9004ea6776ccfe995ffe71a65bb9506dc9c7b1b` |
 | `ml_kem_768_encapdecap.json` | ACVP-Server `ML-KEM-encapDecap-FIPS203/internalProjection.json` | same | `a556952ce869bb89c3a3196a701dad89647c193a34c86eafb61a9d710d5b810f` |
+| `argon2id_rfc9106.json` | [P-H-C/phc-winner-argon2](https://github.com/P-H-C/phc-winner-argon2) `kats/argon2id` | `f57e61e19229e23c4445b85494dbf7c07de721cb` | `ba05643e504fc5778dda99e2d9f42ebe7d22ebb3923cc719fd591b1b14a8d28d` |
+| `xchacha20poly1305_draft03.json` | [bikeshedders/xchacha-rfc](https://github.com/bikeshedders/xchacha-rfc) `draft-irtf-cfrg-xchacha-rfc-03.txt` | `9c1dfb870155223360ef7c4818fdbbd41daaaf1c` | `fa796b50265eeee383d40e82fed880267c7835e1b3d64c50c4f06162adaa1cfd` |
+| `bip39_english_256.json` | [trezor/python-mnemonic](https://github.com/trezor/python-mnemonic) `vectors.json` | `b57a5ad77a981e743f4167ab2f7927a55c1e82a8` | `fa3b937b7cff9c9b8ecd3aa011faeb8d6dd67993174b72326e83f4de8fdb30f8` |
 | `xwing_draft06.json` | [dconnolly/draft-connolly-cfrg-xwing-kem](https://github.com/dconnolly/draft-connolly-cfrg-xwing-kem) `spec/test-vectors.json` | `984c2f7a93b8f8d8f8073ebb53f9f4ce50b5babd` | `409efe197550b22985b4a0419418a0c5f2c2b193426c55bd998399ec8d3e614d` |
 
 ## Filtering rules
@@ -24,9 +27,13 @@ produce byte-identical output.
 - **ML-KEM-768 keyGen**: parameter set ML-KEM-768, the first 10 cases; fields `d`, `z`, `ek`, `dk`.
 - **ML-KEM-768 encapDecap**: encapsulation — the first 10 cases (`ek`, `m`, `c`, `k`); decapsulation — all cases (`dk`, `c`, `k`).
 - **X-Wing**: all vectors of the specification repository. The specification text changed only editorially after draft-06 (ASN.1 module, wording); the vectors are identical to those shipped with the RustCrypto `x-wing` 0.1.0 crate, which implements draft-06. KEM AlgId `0x01` is bound to these semantics.
+- **Argon2id**: the parameters, inputs (password, salt, secret, associated data) and the final tag of the reference KAT (Argon2id, version 19, m = 32 KiB, t = 3, p = 4). This is the test vector of RFC 9106 §5.3; the reference repository is used because it can be pinned by commit.
+- **XChaCha20-Poly1305**: appendix A.3.1 of draft-irtf-cfrg-xchacha-03 (plaintext, AAD, key, 24-byte IV, ciphertext, tag), parsed from the draft text in the author's repository.
+- **BIP-39**: the English vectors whose entropy is 256 bits (24 words); fields `entropy` and `mnemonic` only. AgentCoin uses BIP-39 purely as an encoding of the 32-byte entropy, so the PBKDF2 seeds and xprv values are not used.
 
 Output is written with `jq -S` (sorted keys) so that re-running the script is byte-stable.
 
 ## Repository-generated vectors
 
 - `account_id.json`: fixed ML-DSA-44 / ML-DSA-65 key seeds, the resulting public keys and the expected 32-byte account IDs (context `agentcoin 2026-09 account-id v1`, input `1-byte AlgId ‖ public key`). Regression only — once published these values must never change.
+- `wallet_keys.json`: the all-zero-entropy BIP-39 test mnemonic and the account IDs of wallet keys derived from it (context `agentcoin 2026-09 wallet-key v1`, input `AlgId ‖ u32_le(index) ‖ entropy`), plus the development accounts `alice`, `bob`, `charlie`, `dave` (context `agentcoin 2026-09 dev-seed v1`) for ML-DSA-44 and ML-DSA-65. Produced by `examples/gen_wallet_key_vectors.rs`; regression only — never change these values. The mnemonic and development keys are public: never use them for real funds.

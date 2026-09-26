@@ -144,9 +144,9 @@ pub struct AccountId([u8; 32]);
 
 ### 3.3 Transaction signing
 
-- A custom `AcMultiSignature` implements `sp_runtime::traits::Verify` and dispatches on `alg` to the concrete implementation.
-- **Public-key registry** (`pallet-pq-accounts`): an ML-DSA public key is 1.3 KB — too big to carry in every transaction. An account's first transaction carries and registers its public key; later transactions carry only the `AccountId` and signature, and the chain looks the key up. This saves about 1.3 KB per transaction.
-- **Key-rotation transaction**: `rotate_key(new_pk, sig_old, sig_new)`, signed by both old and new keys; the account ID stays the same. Migrating to a new algorithm later uses this transaction.
+- **v5 General transactions + the `PqAuthorize` transaction extension** (D36). The extension heads the extension pipeline and verifies an ML-DSA signature (context `agentcoin/tx/v1`) over `derive_key("agentcoin 2026-09 tx-payload v1", SCALE(inherited implication))` — the extension version, the call and every later extension's explicit and implicit data (spec and transaction version, genesis hash, mortality, nonce). The SDK's `Verify` trait only receives an account ID, never chain state, so it cannot look keys up in a registry; the legacy `Signed` extrinsic is therefore closed with an uninhabited signature type (`NoClassicSignature`), and no classic scheme can authorize an account.
+- **Public-key registry** (`pallet-pq-accounts`): an ML-DSA public key is 1.3 KB — too big to carry in every transaction. An account's first transaction carries its public key, which must derive the claimed account ID; it is registered when the transaction is applied. Later transactions carry only the `AccountId` and signature, and the chain looks the key up. This saves about 1.3 KB per transaction.
+- **Key-rotation transaction**: `rotate_key(new_pk, proof)`, authorized by the current key through `PqAuthorize`; `proof` is the new key's signature (context `agentcoin/key-rotation/v1`) over (genesis hash, account, rotation count, new key). The account ID stays the same, and a key can only belong to one account. Migrating to a new algorithm later uses this transaction.
 - **Replay protection**: nonce + genesis hash + runtime version are all part of the signed payload (standard Substrate practice).
 
 ### 3.4 EVM integration (D13: 100% PQ)
@@ -172,6 +172,12 @@ pub struct AccountId([u8; 32]);
 
 - The libp2p Noise handshake adds **ML-KEM-768 + X25519 hybrid** key exchange to defeat "harvest now, decrypt later".
 - Node identity keys use ML-DSA-65. This requires changing libp2p's identity layer; **if that is too much work for α, Ed25519 node identities + hybrid KEM encryption are allowed temporarily**. Node identity only affects routing, not assets, so the risk is contained. It must be replaced before β.
+
+### 3.7 On-chain hashing (D35)
+
+- **Every integrity commitment is BLAKE3-256**: block header hashes (the block ID), parent references, the extrinsics root, the state root and state-proof nodes. The chain's `Hashing` type is `ac_primitives::Blake3Hasher`, a thin adapter over `ac-crypto`; trie roots computed inside the runtime use it directly, because the SDK only offers BLAKE2 and Keccak trie roots as host functions.
+- **Storage-key hashers are a bounded exception**: SDK pallets (`frame-system`, `pallet-balances`, …) lay out storage keys with 128-bit `Blake2_128Concat` / `Twox` hashers. These only spread keys across the trie and make no integrity claim — the BLAKE3 state root does — so they are kept. AgentCoin's own pallets key account maps with `Identity`: an account ID is already a BLAKE3 output.
+- **Fixed at genesis**: the hashing scheme is published through the `ChainProfileApi` runtime API; changing it means a new chain or a hard fork, never an ordinary runtime upgrade.
 
 ---
 
@@ -216,7 +222,7 @@ the PoA validator list comes from genesis config + multisig add/remove
 
 | Pallet | Version | Responsibility |
 |---|---|---|
-| `pallet-pq-accounts` | α | Public-key registration, key rotation, `AcMultiSignature` verification |
+| `pallet-pq-accounts` | α | Public-key registration, key rotation, `PqAuthorize` transaction authorization |
 | `pallet-emission` | α | Scheduled emission, rollover reserve, four-way split, per-epoch settlement |
 | `pallet-treasury-dual` | α | Community grants + holder treasury; linear vesting of the 5% floor |
 | `pallet-fee-burn` | α | Burns a share of transaction and inference fees |
@@ -501,7 +507,7 @@ agentcoin/
 | Milestone | Time (months) | Deliverables | Acceptance criteria |
 |---|---|---|---|
 | **M0 Foundation** | 0–1 | Repo skeleton, CI, solochain template running, `ac-crypto` (ML-DSA, ML-KEM hybrid, with NIST test vectors) | CI green; 100% of test vectors pass |
-| **M1 PQ chain** | 1–3 | `pallet-pq-accounts`, `AcMultiSignature`, Aura-PQ, key-rotation transaction, CLI wallet | 3-node local network produces blocks; ML-DSA-signed transfers succeed; account ID unchanged after key rotation |
+| **M1 PQ chain** | 1–3 | `pallet-pq-accounts`, `PqAuthorize` transaction authorization, Aura-PQ, key-rotation transaction, CLI wallet | 3-node local network produces blocks; ML-DSA-signed transfers succeed; account ID unchanged after key rotation |
 | **M2 Finality** | 3–5 | AC-BFT, slashing evidence, commit–reveal randomness | 4–10 nodes: finality P95 ≤3s; recovers after killing 1/3 of nodes; double-signing is slashed |
 | **M3 Economics** | 4–6 | Emission, treasury, fee burning, validator-set state machine, **node invariants** | Simulated 8-year emission matches the formula exactly; a runtime upgrade that over-mints is rejected by nodes; PoA → PoS switches automatically when conditions are met |
 | **M4 EVM** | 5–7 | `pallet-revive`, PQ precompiles, eth-RPC adapter, Foundry external signer | Deploy and call ERC-20 and Uniswap-V2-style contracts with Foundry |

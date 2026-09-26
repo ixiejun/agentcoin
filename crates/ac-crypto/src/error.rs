@@ -32,6 +32,26 @@ pub enum Error {
     InvalidKey,
     /// The random number generator failed.
     Randomness,
+    /// A mnemonic could not be decoded.
+    InvalidMnemonic(MnemonicError),
+    /// Decryption of an encrypted secret failed: wrong passphrase or tampered data.
+    DecryptionFailed,
+    /// An encrypted secret file uses KDF parameters below the accepted minimum.
+    WeakKdfParams,
+    /// An encrypted secret file is malformed or uses an unsupported version.
+    InvalidKeystore,
+}
+
+/// Why a mnemonic was rejected.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MnemonicError {
+    /// The phrase does not have the required number of words.
+    WordCount,
+    /// A word is not in the English word list.
+    UnknownWord,
+    /// The checksum does not match.
+    Checksum,
 }
 
 impl fmt::Display for Error {
@@ -50,6 +70,18 @@ impl fmt::Display for Error {
             Self::InvalidSignature => f.write_str("invalid signature"),
             Self::InvalidKey => f.write_str("invalid key"),
             Self::Randomness => f.write_str("random number generator failure"),
+            Self::InvalidMnemonic(MnemonicError::WordCount) => {
+                f.write_str("mnemonic must have 24 words")
+            }
+            Self::InvalidMnemonic(MnemonicError::UnknownWord) => {
+                f.write_str("mnemonic contains an unknown word")
+            }
+            Self::InvalidMnemonic(MnemonicError::Checksum) => {
+                f.write_str("mnemonic checksum mismatch")
+            }
+            Self::DecryptionFailed => f.write_str("decryption failed"),
+            Self::WeakKdfParams => f.write_str("KDF parameters below the accepted minimum"),
+            Self::InvalidKeystore => f.write_str("malformed or unsupported encrypted secret file"),
         }
     }
 }

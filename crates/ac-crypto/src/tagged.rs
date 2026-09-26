@@ -54,6 +54,7 @@ macro_rules! tagged_enum {
             derive(
                 parity_scale_codec::Encode,
                 parity_scale_codec::Decode,
+                parity_scale_codec::DecodeWithMemTracking,
                 parity_scale_codec::MaxEncodedLen,
                 scale_info::TypeInfo
             )
@@ -129,6 +130,26 @@ macro_rules! tagged_enum {
                     .field("alg", &self.alg())
                     .field("len", &self.as_bytes().len())
                     .finish()
+            }
+        }
+
+        /// JSON form: `0x`-prefixed lowercase hex of the canonical encoding (chain specs).
+        #[cfg(feature = "serde")]
+        impl serde::Serialize for $name {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                let mut text = alloc::string::String::from("0x");
+                text.push_str(&hex::encode(self.to_canonical()));
+                serializer.serialize_str(&text)
+            }
+        }
+
+        #[cfg(feature = "serde")]
+        impl<'de> serde::Deserialize<'de> for $name {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let text = <alloc::string::String as serde::Deserialize>::deserialize(deserializer)?;
+                let digits = text.strip_prefix("0x").unwrap_or(&text);
+                let bytes = hex::decode(digits).map_err(serde::de::Error::custom)?;
+                Self::from_canonical(&bytes).map_err(serde::de::Error::custom)
             }
         }
 

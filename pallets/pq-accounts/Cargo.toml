@@ -1,0 +1,68 @@
+[package]
+name = "pallet-pq-accounts"
+description = "AgentCoin post-quantum accounts: public-key registry, PqAuthorize transaction extension and key rotation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+ac-crypto = { workspace = true, features = ["scale"] }
+ac-primitives = { workspace = true }
+parity-scale-codec = { workspace = true, features = ["derive", "max-encoded-len"] }
+scale-info = { workspace = true, features = ["derive"] }
+frame-benchmarking = { workspace = true, optional = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+sp-api = { workspace = true }
+sp-runtime = { workspace = true }
+
+[dev-dependencies]
+frame-benchmarking = { workspace = true, features = ["std"] }
+ac-crypto = { workspace = true, features = ["scale", "std", "deterministic"] }
+sp-core = { workspace = true, features = ["std"] }
+sp-io = { workspace = true, features = ["std"] }
+
+[features]
+default = ["std"]
+std = [
+    "ac-crypto/std",
+    "ac-primitives/std",
+    "frame-benchmarking?/std",
+    "frame-support/std",
+    "frame-system/std",
+    "parity-scale-codec/std",
+    "scale-info/std",
+    "sp-api/std",
+    "sp-runtime/std",
+]
+runtime-benchmarks = [
+    "ac-crypto/deterministic",
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+]
+try-runtime = [
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+    "sp-runtime/try-runtime",
+]
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+dbg_macro = "deny"
+wildcard_imports = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"

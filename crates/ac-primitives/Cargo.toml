@@ -1,0 +1,62 @@
+[package]
+name = "ac-primitives"
+description = "AgentCoin shared on-chain types: BLAKE3 chain hasher, account and address types"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+default = ["std"]
+std = [
+    "ac-crypto/std",
+    "bech32/std",
+    "hash-db/std",
+    "hash256-std-hasher/std",
+    "parity-scale-codec/std",
+    "scale-info/std",
+    "serde/std",
+    "sp-api/std",
+    "sp-consensus-slots/std",
+    "sp-core/std",
+    "sp-runtime/std",
+    "sp-trie/std",
+]
+
+[dependencies]
+bech32 = { workspace = true }
+ac-crypto = { workspace = true, features = ["scale"] }
+hash-db = { workspace = true }
+hash256-std-hasher = { workspace = true }
+parity-scale-codec = { workspace = true, features = ["derive"] }
+scale-info = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive", "alloc"] }
+sp-api = { workspace = true }
+sp-consensus-slots = { workspace = true }
+sp-core = { workspace = true }
+sp-runtime = { workspace = true }
+sp-trie = { workspace = true }
+
+[dev-dependencies]
+# Independent reference implementation used only to cross-check the adapter.
+blake3 = { workspace = true }
+hex = { workspace = true, features = ["alloc"] }
+proptest = { workspace = true, features = ["std"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+dbg_macro = "deny"
+wildcard_imports = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"

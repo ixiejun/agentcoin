@@ -1,0 +1,18 @@
+{
+  "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
+  "wallet": [
+    { "alg_id": 1, "index": 0, "account_id": "5c1a1a670210dad33c958655ff5297016b8092e726b55a884bce4acffad3cdf5" },
+    { "alg_id": 1, "index": 1, "account_id": "e282d70f6b8f05a84229645fbfd5c9b2423d566e500633e61ffc057b7d8dd5aa" },
+    { "alg_id": 2, "index": 0, "account_id": "2ea5e77dadcd5688b0db1434e7593977b65a380712f0394fa2ba14f29460ed61" }
+  ],
+  "dev": [
+    { "name": "alice", "alg_id": 1, "account_id": "a8770b639d8aa43ec4372f2d41a0bc95e1d7f44126abb337539875db3dc2f5e9" },
+    { "name": "alice", "alg_id": 2, "account_id": "165aff83ad254d41dfc71d2165c30b4f517b1f2cce1ce951b15e5b0f0be02044" },
+    { "name": "bob", "alg_id": 1, "account_id": "47592053989fd7c09115bdcb386dd9d9a482ec198131d480c1da53605a674a9e" },
+    { "name": "bob", "alg_id": 2, "account_id": "512fee0a23e34baf7f0b120957667595c2fa7ace681c40e09547af9b6c1b03b0" },
+    { "name": "charlie", "alg_id": 1, "account_id": "bd0d1d9526fc7602cb94c5a69b0cc4559583f4b0bf4fe00c00817b41981719c3" },
+    { "name": "charlie", "alg_id": 2, "account_id": "164d76fcad599c7fdd541c65b5ed1489aa143128b4c16e48fd7d1447b8e35aef" },
+    { "name": "dave", "alg_id": 1, "account_id": "1348ce41aa478b8c101addf342720946b3eee172b47b6917613f929dc98a526f" },
+    { "name": "dave", "alg_id": 2, "account_id": "631b0804e8f8a7c576588b979b857155bd10da87c558212d54d86e71f88965fd" }
+  ]
+}

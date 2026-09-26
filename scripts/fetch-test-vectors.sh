@@ -3,7 +3,7 @@
 # deterministic, filtered subsets to crates/ac-crypto/tests/vectors/.
 #
 # Usage: scripts/fetch-test-vectors.sh
-# Requirements: bash, curl, jq, sha256sum.
+# Requirements: bash, curl, jq, python3, sha256sum.
 # Re-running must produce byte-identical files (checked in CI via `git diff --exit-code`).
 set -euo pipefail
 
@@ -17,6 +17,12 @@ acvp_commit="975de31eb83d87039ec88934fdc47d8c312b892d"
 acvp_base="https://raw.githubusercontent.com/usnistgov/ACVP-Server/$acvp_commit/gen-val/json-files"
 xwing_commit="984c2f7a93b8f8d8f8073ebb53f9f4ce50b5babd"
 xwing_url="https://raw.githubusercontent.com/dconnolly/draft-connolly-cfrg-xwing-kem/$xwing_commit/spec/test-vectors.json"
+# Argon2id reference KATs (the final tag is the RFC 9106 §5.3 vector); XChaCha20-Poly1305 draft-03
+# source text from the author's repository; BIP-39 reference vectors. GitHub mirrors are used
+# because they are pinned by commit and reachable from CI.
+argon2_url="https://raw.githubusercontent.com/P-H-C/phc-winner-argon2/f57e61e19229e23c4445b85494dbf7c07de721cb/kats/argon2id"
+xchacha_url="https://raw.githubusercontent.com/bikeshedders/xchacha-rfc/9c1dfb870155223360ef7c4818fdbbd41daaaf1c/draft-irtf-cfrg-xchacha-rfc-03.txt"
+bip39_url="https://raw.githubusercontent.com/trezor/python-mnemonic/b57a5ad77a981e743f4167ab2f7927a55c1e82a8/vectors.json"
 
 # name|url|sha256 of the upstream file
 sources=(
@@ -26,11 +32,14 @@ sources=(
   "mlkem-keygen|$acvp_base/ML-KEM-keyGen-FIPS203/internalProjection.json|d7a62a2c3476957f56dd8d24f9004ea6776ccfe995ffe71a65bb9506dc9c7b1b"
   "mlkem-encapdecap|$acvp_base/ML-KEM-encapDecap-FIPS203/internalProjection.json|a556952ce869bb89c3a3196a701dad89647c193a34c86eafb61a9d710d5b810f"
   "xwing|$xwing_url|409efe197550b22985b4a0419418a0c5f2c2b193426c55bd998399ec8d3e614d"
+  "argon2id|$argon2_url|ba05643e504fc5778dda99e2d9f42ebe7d22ebb3923cc719fd591b1b14a8d28d"
+  "xchacha|$xchacha_url|fa796b50265eeee383d40e82fed880267c7835e1b3d64c50c4f06162adaa1cfd"
+  "bip39|$bip39_url|fa3b937b7cff9c9b8ecd3aa011faeb8d6dd67993174b72326e83f4de8fdb30f8"
 )
 
 fetch() {
   local name="$1" url="$2" sum="$3"
-  curl -sSfL --retry 4 -o "$tmp/$name.json" "$url"
+  curl -sSfL --retry 4 -o "$tmp/$name.json" "$url"  # raw text for the non-JSON sources
   local got
   got="$(sha256sum "$tmp/$name.json" | cut -d' ' -f1)"
   if [[ "$got" != "$sum" ]]; then
@@ -86,6 +95,47 @@ jq -S --argjson n "$per_set" \
 
 # X-Wing: all vectors from the specification repository.
 jq -S '.' "$tmp/xwing.json" >"$out/xwing_draft06.json"
+
+# Argon2id: parameters, inputs and the final tag of the reference KAT (RFC 9106 §5.3).
+python3 - "$tmp/argon2id.json" <<'PY' | jq -S '.' >"$out/argon2id_rfc9106.json"
+import json, re, sys
+text = open(sys.argv[1]).read()
+def field(label):
+    m = re.search(r"^" + re.escape(label) + r"\[\d+\]: ([0-9a-f ]+)$", text, re.M)
+    return m.group(1).replace(" ", "")
+params = re.search(r"Memory: (\d+) KiB, Iterations: (\d+), Parallelism: (\d+) lanes", text)
+tag = re.findall(r"^Tag: ([0-9a-f ]+)$", text, re.M)[-1].replace(" ", "")
+print(json.dumps({
+    "m_kib": int(params.group(1)), "t": int(params.group(2)), "p": int(params.group(3)),
+    "password": field("Password"), "salt": field("Salt"), "secret": field("Secret"),
+    "associated_data": field("Associated data"), "tag": tag,
+}))
+PY
+
+# XChaCha20-Poly1305: appendix A.3.1 of draft-irtf-cfrg-xchacha-03.
+python3 - "$tmp/xchacha.json" <<'PY' | jq -S '.' >"$out/xchacha20poly1305_draft03.json"
+import json, re, sys
+text = open(sys.argv[1]).read()
+section = text[text.index("A.3.1.  AEAD_XCHACHA20_POLY1305\n\n   Plaintext:"):text.index("A.3.2.  XChaCha20\n\nA.3.2.1")]
+def block(label):
+    body = section.split("   " + label + ":\n", 1)[1]
+    hexes = []
+    for line in body.splitlines()[1:]:
+        stripped = line.strip()
+        if not stripped:
+            if hexes:
+                break
+            continue
+        if not re.fullmatch(r"[0-9a-f]+", stripped):
+            break
+        hexes.append(stripped)
+    return "".join(hexes)
+print(json.dumps({k.lower(): block(k) for k in ["Plaintext", "AAD", "Key", "IV", "Ciphertext", "Tag"]}))
+PY
+
+# BIP-39: English vectors with 256-bit entropy (entropy <-> mnemonic only; the PBKDF2 seed is not used).
+jq -S '[.english[] | select((.[0] | length) == 64) | {entropy: .[0], mnemonic: .[1]}]' \
+  "$tmp/bip39.json" >"$out/bip39_english_256.json"
 
 echo "test vectors written to $out"
 du -ch "$out"/*.json | tail -1

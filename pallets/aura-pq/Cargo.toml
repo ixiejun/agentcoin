@@ -1,0 +1,60 @@
+[package]
+name = "pallet-aura-pq"
+description = "AgentCoin Aura-PQ: ML-DSA-65 authority set and slot tracking"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+ac-crypto = { workspace = true, features = ["scale", "serde"] }
+ac-primitives = { workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+log = { workspace = true }
+parity-scale-codec = { workspace = true, features = ["derive", "max-encoded-len"] }
+scale-info = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive", "alloc"] }
+sp-runtime = { workspace = true }
+
+[dev-dependencies]
+ac-crypto = { workspace = true, features = ["scale", "serde", "std"] }
+sp-core = { workspace = true, features = ["std"] }
+sp-io = { workspace = true, features = ["std"] }
+
+[features]
+default = ["std"]
+std = [
+    "ac-crypto/std",
+    "ac-primitives/std",
+    "frame-support/std",
+    "frame-system/std",
+    "log/std",
+    "parity-scale-codec/std",
+    "scale-info/std",
+    "serde/std",
+    "sp-runtime/std",
+]
+try-runtime = [
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+    "sp-runtime/try-runtime",
+]
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+dbg_macro = "deny"
+wildcard_imports = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"

@@ -1,0 +1,62 @@
+[package]
+name = "ac-node"
+description = "AgentCoin node client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+build = "build.rs"
+
+[[bin]]
+name = "ac-node"
+path = "src/main.rs"
+
+[dependencies]
+ac-primitives = { workspace = true, features = ["std"] }
+ac-runtime = { workspace = true, features = ["std"] }
+clap = { workspace = true }
+futures = { workspace = true, features = ["std", "thread-pool"] }
+jsonrpsee = { workspace = true, features = ["server"] }
+sc-basic-authorship = { workspace = true }
+sc-chain-spec = { workspace = true }
+sc-cli = { workspace = true }
+sc-client-api = { workspace = true }
+sc-consensus = { workspace = true }
+sc-consensus-manual-seal = { workspace = true }
+sc-executor = { workspace = true, features = ["std"] }
+sc-network = { workspace = true }
+sc-service = { workspace = true }
+sc-telemetry = { workspace = true }
+sc-transaction-pool = { workspace = true }
+sc-transaction-pool-api = { workspace = true }
+sp-api = { workspace = true, features = ["std"] }
+sp-block-builder = { workspace = true, features = ["std"] }
+sp-blockchain = { workspace = true }
+sp-core = { workspace = true, features = ["std"] }
+sp-genesis-builder = { workspace = true, features = ["std"] }
+sp-io = { workspace = true, features = ["std"] }
+sp-runtime = { workspace = true, features = ["std"] }
+sp-timestamp = { workspace = true, features = ["std"] }
+substrate-frame-rpc-system = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
+
+[build-dependencies]
+substrate-build-script-utils = { workspace = true }
+
+[dev-dependencies]
+# Independent reference implementation for the hash recomputation tests.
+blake3 = { workspace = true, features = ["std"] }
+hash-db = { workspace = true, features = ["std"] }
+hash256-std-hasher = { workspace = true, features = ["std"] }
+hex = { workspace = true, features = ["std"] }
+jsonrpsee = { workspace = true, features = ["http-client"] }
+parity-scale-codec = { workspace = true, features = ["std"] }
+serde_json = { workspace = true, features = ["std"] }
+sp-trie = { workspace = true, features = ["std"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+[lints]
+workspace = true

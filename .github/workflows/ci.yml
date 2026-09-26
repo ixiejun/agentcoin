@@ -9,6 +9,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
   RUSTFLAGS: -D warnings
 
 jobs:
@@ -21,18 +22,19 @@ jobs:
 
   clippy:
     runs-on: ubuntu-latest
+    env:
+      # The runtime WASM blob is built and checked by the `runtime-wasm` job.
+      SKIP_WASM_BUILD: "1"
     steps:
       - uses: actions/checkout@v4
-      - run: rustup show
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup-substrate
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: rustup show
-      - uses: Swatinem/rust-cache@v2
+      - uses: ./.github/actions/setup-substrate
       - run: cargo test --workspace --all-features
       - name: Test vectors are reproducible
         run: |
@@ -45,12 +47,37 @@ jobs:
       - uses: actions/checkout@v4
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build -p ac-crypto --no-default-features --target wasm32-unknown-unknown
+      - name: Runtime-usable crates build for wasm32 without std
+        run: |
+          for crate in ac-crypto ac-primitives pallet-pq-accounts pallet-aura-pq; do
+            cargo build -p "$crate" --no-default-features --target wasm32-unknown-unknown
+          done
+
+  runtime-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-substrate
+      - run: cargo build -p ac-runtime --release
+      - name: Runtime blob exists
+        run: ls -l target/release/wbuild/ac-runtime/ac_runtime.compact.compressed.wasm
+
+  license-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - run: scripts/check-license-boundary.sh
+      - run: scripts/check-license-boundary.sh --self-test
 
   deny:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Advisory exceptions are documented, current and in sync
+        run: |
+          python3 -m unittest discover -s scripts/tests
+          scripts/sync-audit-exceptions.py
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check

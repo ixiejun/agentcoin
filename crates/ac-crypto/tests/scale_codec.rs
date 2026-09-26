@@ -90,3 +90,16 @@ fn type_info_matches_the_alg_table() {
         assert_eq!(alg.signature_len().unwrap(), len as usize);
     }
 }
+
+// JSON form used in chain specifications: `0x` + hex of the canonical encoding.
+#[cfg(feature = "serde")]
+#[test]
+fn serde_hex_round_trip() {
+    let raw = vec![5u8; 1952];
+    let pk = ac_crypto::PqPublicKey::new(ac_crypto::SigAlg::MlDsa65, &raw).unwrap();
+    let json = serde_json::to_string(&pk).unwrap();
+    assert!(json.starts_with("\"0x02"));
+    let back: ac_crypto::PqPublicKey = serde_json::from_str(&json).unwrap();
+    assert_eq!(back, pk);
+    assert!(serde_json::from_str::<ac_crypto::PqPublicKey>("\"0x10\"").is_err());
+}

@@ -1,0 +1,122 @@
+# Security-advisory exceptions (spec engineering/ci-quality-gates, m1-pq-chain task 10.2).
+#
+# Every entry records the advisory, the affected crate, how it enters our dependency graph,
+# why it is not exploitable here or cannot be fixed from this repository, when it was added and
+# a review date at most 90 days later. `scripts/sync-audit-exceptions.py --write` generates the
+# ignore lists of `deny.toml` and `.cargo/audit.toml` from this file; CI runs the script in check
+# mode, which fails on missing fields, stale review dates or out-of-sync generated lists.
+
+[[exception]]
+id = "RUSTSEC-2026-0119"
+crate = "hickory-proto 0.24.4"
+path = "sc-network → libp2p 0.54 → libp2p-mdns / libp2p-dns → hickory-proto"
+reason = "CPU exhaustion when *encoding* messages with many names. The node only encodes DNS queries and mDNS records it builds itself, never attacker-supplied name lists; test networks run with --no-mdns. Fixed only in 0.26.1, which libp2p 0.54 (pinned by the Polkadot SDK) cannot use."
+added = "2026-09-26"
+review_by = "2026-12-20"
+
+[[exception]]
+id = "RUSTSEC-2025-0055"
+crate = "tracing-subscriber 0.3.19"
+path = "sc-tracing / sp-tracing (pinned to =0.3.19 by the Polkadot SDK)"
+reason = "ANSI escape sequences in logged user input can alter terminal output. Node logs are written by the node for operators; the fix (0.3.20) cannot be selected while the SDK pins =0.3.19. Operators should not view untrusted logs in a raw terminal."
+added = "2026-09-26"
+review_by = "2026-12-20"
+
+[[exception]]
+id = "RUSTSEC-2025-0057"
+crate = "fxhash 0.2.1"
+path = "sc-executor → wasmtime 36 → fxprof-processed-profile → fxhash"
+reason = "Unmaintained notice only (no vulnerability); used by wasmtime's profiler support inside the SDK executor."
+added = "2026-09-26"
+review_by = "2026-12-20"
+
+[[exception]]
+id = "RUSTSEC-2024-0384"
+crate = "instant 0.1.13"
+path = "sc-network → wasm-timer → parking_lot 0.11 → instant"
+reason = "Unmaintained notice only (no vulnerability); pulled in by the SDK's networking stack."
+added = "2026-09-26"
+review_by = "2026-12-20"
+
+[[exception]]
+id = "RUSTSEC-2025-0161"
+crate = "libsecp256k1 0.7.2"
+path = "sp-core (std) → libsecp256k1"
+reason = "Unmaintained notice only (no vulnerability). It backs the SDK's ECDSA host functions; AgentCoin never uses secp256k1 for account authorization or consensus (red line 1): the legacy signature slot is closed by NoClassicSignature."
+added = "2026-09-26"
+review_by = "2026-12-20"
+
+[[exception]]
+id = "RUSTSEC-2022-0061"
+crate = "parity-wasm 0.45.0"
+path = "sp-version → parity-wasm"
+reason = "Deprecation notice only (no vulnerability); used by the SDK to read the runtime version section from WASM blobs we build ourselves."
+added = "2026-09-26"
+review_by = "2026-12-20"
+
+[[exception]]
+id = "RUSTSEC-2024-0436"
+crate = "paste 1.0.15"
+path = "frame-support → paste (proc macro)"
+reason = "Unmaintained notice only (no vulnerability); compile-time proc macro used by FRAME."
+added = "2026-09-26"
+review_by = "2026-12-20"
+
+[[exception]]
+id = "RUSTSEC-2024-0370"
+crate = "proc-macro-error 1.0.4"
+path = "frame-support / frame-executive → aquamarine → proc-macro-error"
+reason = "Unmaintained notice only (no vulnerability); compile-time documentation macro used by FRAME."
+added = "2026-09-26"
+review_by = "2026-12-20"
+
+# The following crates appear in Cargo.lock only through optional dependency features that no
+# workspace crate enables (hyper 0.14 / libp2p-tls / rcgen); `cargo tree --all-features
+# --target all -i <crate>` finds no path, so they are never compiled. `cargo audit` reads the
+# lock file and reports them; `cargo deny` evaluates the real graph and does not. They are
+# therefore ignored for cargo-audit only.
+
+[[exception]]
+id = "RUSTSEC-2026-0258"
+crate = "h2 0.3.27"
+path = "Cargo.lock only: hyper 0.14 (optional, not enabled) → h2"
+reason = "Not compiled into any AgentCoin binary: no enabled feature reaches hyper 0.14."
+added = "2026-09-26"
+review_by = "2026-12-20"
+scope = "audit"
+
+[[exception]]
+id = "RUSTSEC-2025-0009"
+crate = "ring 0.16.20"
+path = "Cargo.lock only: libp2p-tls (optional, not enabled) → rcgen 0.11 → ring 0.16"
+reason = "Not compiled into any AgentCoin binary: libp2p's TLS transport is not enabled."
+added = "2026-09-26"
+review_by = "2026-12-20"
+scope = "audit"
+
+[[exception]]
+id = "RUSTSEC-2026-0098"
+crate = "rustls-webpki 0.101.7"
+path = "Cargo.lock only: libp2p-tls (optional, not enabled) → rustls-webpki 0.101"
+reason = "Not compiled into any AgentCoin binary: libp2p's TLS transport is not enabled."
+added = "2026-09-26"
+review_by = "2026-12-20"
+scope = "audit"
+
+[[exception]]
+id = "RUSTSEC-2026-0099"
+crate = "rustls-webpki 0.101.7"
+path = "Cargo.lock only: libp2p-tls (optional, not enabled) → rustls-webpki 0.101"
+reason = "Not compiled into any AgentCoin binary: libp2p's TLS transport is not enabled."
+added = "2026-09-26"
+review_by = "2026-12-20"
+scope = "audit"
+
+[[exception]]
+id = "RUSTSEC-2026-0104"
+crate = "rustls-webpki 0.101.7"
+path = "Cargo.lock only: libp2p-tls (optional, not enabled) → rustls-webpki 0.101"
+reason = "Not compiled into any AgentCoin binary: libp2p's TLS transport is not enabled."
+added = "2026-09-26"
+review_by = "2026-12-20"
+scope = "audit"

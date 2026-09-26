@@ -12,25 +12,40 @@ authors.workspace = true
 default = []
 # Standard-library integration (std::error::Error etc.).
 std = []
-# Randomized operations: key generation from OS entropy, hedged signing, KEM encapsulation.
+# Randomized operations: key generation from an RNG, hedged signing, KEM encapsulation.
 rand = ["ml-dsa/rand_core"]
+# `OsRng`: a CSPRNG seeded from the operating system (nodes and wallets).
+getrandom = ["rand", "dep:getrandom"]
 # X-Wing hybrid KEM (not needed on chain).
 kem = ["dep:x-wing"]
 # Deterministic signing / derandomized encapsulation for test vectors and tooling.
 deterministic = []
 # SCALE codec and TypeInfo for tagged types (used by pallets).
 scale = ["dep:parity-scale-codec", "dep:scale-info"]
+# JSON (hex) form of tagged types, used in chain specifications.
+serde = ["dep:serde", "dep:hex"]
+# Password-encrypted secret files (Argon2id + XChaCha20-Poly1305); wallets and nodes only.
+keystore = ["std", "rand", "getrandom", "serde", "dep:argon2", "dep:chacha20poly1305", "dep:serde_json"]
+# 24-word BIP-39 encoding of wallet entropy.
+mnemonic = ["dep:bip39"]
 
 [dependencies]
 ml-dsa = { workspace = true, features = ["zeroize", "alloc"] }
 x-wing = { workspace = true, optional = true, features = ["zeroize"] }
 blake3 = { workspace = true }
 sha3 = { workspace = true }
-zeroize = { workspace = true, features = ["zeroize_derive"] }
+zeroize = { workspace = true, features = ["zeroize_derive", "alloc"] }
 subtle = { workspace = true }
 rand_core = { workspace = true }
 parity-scale-codec = { workspace = true, optional = true, features = ["derive", "max-encoded-len"] }
 scale-info = { workspace = true, optional = true, features = ["derive"] }
+argon2 = { workspace = true, optional = true }
+chacha20poly1305 = { workspace = true, optional = true }
+bip39 = { workspace = true, optional = true }
+getrandom = { workspace = true, optional = true }
+serde = { workspace = true, optional = true, features = ["derive", "alloc"] }
+serde_json = { workspace = true, optional = true, features = ["alloc"] }
+hex = { workspace = true, optional = true, features = ["alloc"] }
 
 # Crate-local lints: the workspace set plus `indexing_slicing` for crypto code (AGENT.md §5.2).
 # Cargo cannot extend `[lints] workspace = true`, so the full set is repeated here.
@@ -50,6 +65,9 @@ wildcard_imports = "deny"
 indexing_slicing = "deny"
 
 [dev-dependencies]
+argon2 = { workspace = true }
+chacha20poly1305 = { workspace = true }
+blake3 = { workspace = true }
 ml-dsa = { workspace = true, features = ["zeroize", "alloc"] }
 ml-kem = { workspace = true }
 hex = { workspace = true, features = ["alloc"] }
@@ -60,3 +78,7 @@ rand_core = { workspace = true }
 parity-scale-codec = { workspace = true }
 scale-info = { workspace = true }
 subtle = { workspace = true }
+
+[[example]]
+name = "gen_wallet_key_vectors"
+required-features = ["mnemonic"]

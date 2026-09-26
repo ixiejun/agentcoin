@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/ac-crypto"]
+members = ["crates/ac-crypto", "crates/ac-primitives", "node", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/pq-accounts", "runtime"]
 
 [workspace.package]
 version = "0.1.0"
@@ -20,8 +20,80 @@ sha3 = { version = "0.12", default-features = false }
 zeroize = { version = "1.9", default-features = false }
 subtle = { version = "2.6", default-features = false }
 rand_core = { version = "0.10", default-features = false }
+getrandom = { version = "0.4", default-features = false }
+argon2 = { version = "0.6", default-features = false, features = ["alloc"] }
+chacha20poly1305 = { version = "0.11", default-features = false, features = ["alloc"] }
+bip39 = { version = "3.0", default-features = false, features = ["alloc"] }
 parity-scale-codec = { version = "3.7", default-features = false }
 scale-info = { version = "2.11", default-features = false }
+# Polkadot SDK stable2606 (versions taken from the `polkadot-sdk` 2606.4.0 umbrella manifest).
+# Runtime-side crates are declared without default features; the node enables `std`.
+frame-benchmarking = { version = "49.0", default-features = false }
+frame-benchmarking-cli = { version = "60.0", default-features = false }
+frame-executive = { version = "48.0", default-features = false }
+frame-support = { version = "48.1", default-features = false }
+frame-system = { version = "48.0", default-features = false }
+frame-system-benchmarking = { version = "49.0", default-features = false }
+frame-system-rpc-runtime-api = { version = "43.0", default-features = false }
+pallet-balances = { version = "50.0", default-features = false }
+pallet-timestamp = { version = "48.0", default-features = false }
+pallet-transaction-payment = { version = "49.0", default-features = false }
+pallet-transaction-payment-rpc = { version = "52.0", default-features = false }
+pallet-transaction-payment-rpc-runtime-api = { version = "49.0", default-features = false }
+sc-basic-authorship = { version = "0.56", default-features = false }
+sc-chain-spec = { version = "52.0", default-features = false }
+sc-cli = { version = "0.62", default-features = false }
+sc-client-api = { version = "47.0", default-features = false }
+sc-consensus = { version = "0.58", default-features = false }
+sc-consensus-slots = { version = "0.58", default-features = false }
+sc-executor = { version = "0.50", default-features = false }
+sc-network = { version = "0.59", default-features = false }
+sc-offchain = { version = "54.0", default-features = false }
+sc-service = { version = "0.61", default-features = false }
+sc-telemetry = { version = "33.0", default-features = false }
+sc-transaction-pool = { version = "47.0", default-features = false }
+sc-transaction-pool-api = { version = "46.0", default-features = false }
+sp-api = { version = "43.0", default-features = false }
+sp-block-builder = { version = "43.0", default-features = false }
+sp-blockchain = { version = "46.0", default-features = false }
+sp-consensus = { version = "0.49", default-features = false }
+sp-consensus-slots = { version = "0.49", default-features = false }
+sp-core = { version = "43.0", default-features = false }
+sp-genesis-builder = { version = "0.24", default-features = false }
+sp-inherents = { version = "43.0", default-features = false }
+sp-io = { version = "48.0", default-features = false }
+sp-offchain = { version = "43.0", default-features = false }
+sp-runtime = { version = "48.0", default-features = false }
+sp-session = { version = "45.0", default-features = false }
+sp-state-machine = { version = "0.53", default-features = false }
+sp-storage = { version = "25.0", default-features = false }
+sp-timestamp = { version = "43.0", default-features = false }
+sp-transaction-pool = { version = "43.0", default-features = false }
+sp-trie = { version = "46.0", default-features = false }
+sp-version = { version = "46.0", default-features = false }
+substrate-build-script-utils = { version = "11.0", default-features = false }
+substrate-frame-rpc-system = { version = "54.0", default-features = false }
+substrate-wasm-builder = { version = "34.0", default-features = false }
+sc-consensus-manual-seal = { version = "0.60", default-features = false }
+sc-rpc = { version = "55.0", default-features = false }
+# Off-chain async / CLI stack (node, wallet)
+clap = { version = "4.5", features = ["derive"] }
+async-trait = { version = "0.1", default-features = false }
+substrate-prometheus-endpoint = { version = "0.17", default-features = false }
+futures = { version = "0.3", default-features = false }
+jsonrpsee = { version = "0.24", default-features = false }
+log = { version = "0.4", default-features = false }
+tokio = { version = "1.45", default-features = false }
+hash-db = { version = "0.16", default-features = false }
+hash256-std-hasher = { version = "0.15", default-features = false }
+bech32 = { version = "0.12", default-features = false, features = ["alloc"] }
+# Workspace crates
+ac-crypto = { path = "crates/ac-crypto", version = "0.1", default-features = false }
+ac-primitives = { path = "crates/ac-primitives", version = "0.1", default-features = false }
+ac-runtime = { path = "runtime", version = "0.1", default-features = false }
+ac-consensus-aura-pq = { path = "node/consensus/aura-pq", version = "0.1", default-features = false }
+pallet-aura-pq = { path = "pallets/aura-pq", version = "0.1", default-features = false }
+pallet-pq-accounts = { path = "pallets/pq-accounts", version = "0.1", default-features = false }
 # Test-only
 hex = { version = "0.4", default-features = false }
 serde = { version = "1", default-features = false }
@@ -41,3 +113,18 @@ unimplemented = "deny"
 unreachable = "deny"
 dbg_macro = "deny"
 wildcard_imports = "deny"
+
+# Substrate node builds are large; line tables keep backtraces useful while
+# keeping `target/` within CI and container disk budgets.
+[profile.dev]
+debug = "line-tables-only"
+
+# Argon2id with production parameters (64 MiB) is too slow unoptimized for tests.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
+
+[profile.release]
+# The runtime and node rely on unwinding to turn host-side panics into errors.
+panic = "unwind"

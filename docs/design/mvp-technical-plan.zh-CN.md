@@ -142,9 +142,9 @@ pub struct AccountId([u8; 32]);
 
 ### 3.3 交易签名方案
 
-- 自定义 `AcMultiSignature` 实现 `sp_runtime::traits::Verify`，按 `alg` 分派到具体实现。
-- **公钥注册表**（`pallet-pq-accounts`）：ML-DSA 公钥有 1.3KB，不适合每笔交易都携带。账户的首笔交易携带公钥并注册，之后的交易只带 `AccountId` 和签名，由链上查找公钥。每笔交易因此节省约 1.3KB。
-- **换钥交易**：`rotate_key(new_pk, sig_old, sig_new)`，新旧两把密钥同时签名，账户 ID 不变。以后迁移到新算法就是用这个交易。
+- **v5 General 交易 + `PqAuthorize` 交易扩展**（D36）。该扩展位于扩展流水线的首位，验证 ML-DSA 签名（上下文 `agentcoin/tx/v1`），签名对象为 `derive_key("agentcoin 2026-09 tx-payload v1", SCALE(继承的隐含数据))`，即扩展版本、调用以及其后所有扩展的显式与隐式数据（spec 版本、交易格式版本、创世哈希、有效期、nonce）。SDK 的 `Verify` trait 只拿得到账户 ID、拿不到链上状态，无法查登记表；因此旧式 `Signed` 交易的签名位置用一个不可能有值的类型（`NoClassicSignature`）封死，任何经典签名算法都无法授权账户。
+- **公钥注册表**（`pallet-pq-accounts`）：ML-DSA 公钥有 1.3KB，不适合每笔交易都携带。账户的首笔交易携带公钥（该公钥必须派生出所声明的账户 ID），交易被执行时完成登记；之后的交易只带 `AccountId` 和签名，由链上查找公钥。每笔交易因此节省约 1.3KB。
+- **换钥交易**：`rotate_key(new_pk, proof)`，由当前密钥通过 `PqAuthorize` 授权；`proof` 是新密钥（上下文 `agentcoin/key-rotation/v1`）对（创世哈希、账户、轮换计数、新公钥）的签名。账户 ID 不变，一个公钥只能属于一个账户。以后迁移到新算法就是用这个交易。
 - **防重放**：nonce + genesis hash + runtime 版本号都纳入签名载荷（Substrate 标准做法）。
 
 ### 3.4 EVM 集成（D13：100% PQ）
@@ -170,6 +170,12 @@ pub struct AccountId([u8; 32]);
 
 - libp2p Noise 握手加入 **ML-KEM-768 + X25519 混合**密钥交换，防止“先截获、后解密”。
 - 节点身份密钥用 ML-DSA-65。这需要修改 libp2p 的身份层；**如果 α 阶段工作量过大，允许先用 Ed25519 节点身份 + 混合 KEM 加密**。节点身份只关系到路由，不涉及资产，风险可控。必须在 β 阶段之前完成替换。
+
+### 3.7 链上哈希（D35）
+
+- **所有完整性承诺都使用 BLAKE3-256**：区块头哈希（即区块 ID）、父区块引用、外部交易根、状态根以及状态证明中的节点。链的 `Hashing` 类型为 `ac_primitives::Blake3Hasher`，它只是 `ac-crypto` 的一层适配；runtime 内计算的树根直接使用它，因为 SDK 只以 host function 形式提供 BLAKE2 和 Keccak 的树根计算。
+- **存储键哈希器是有界的例外**：SDK 自带模块（`frame-system`、`pallet-balances` 等）用 128 位的 `Blake2_128Concat` / `Twox` 哈希器排列存储键。这些哈希只负责把键分散到树中，不承担完整性承诺（完整性由 BLAKE3 状态根保证），因此保留。AgentCoin 自有模块以账户为键的映射使用 `Identity`：账户 ID 本身就是 BLAKE3 输出。
+- **随创世固定**：哈希方案通过 `ChainProfileApi` runtime API 对外声明；更换哈希方案意味着新链或硬分叉，不能通过普通 runtime 升级完成。
 
 ---
 
@@ -213,7 +219,7 @@ PoA 阶段：验证者安全预算不发放，计入滚存储备；PoA 验证者
 
 | Pallet | 版本 | 职责 |
 |---|---|---|
-| `pallet-pq-accounts` | α | 公钥注册、换钥、`AcMultiSignature` 验证 |
+| `pallet-pq-accounts` | α | 公钥注册、换钥、`PqAuthorize` 交易授权 |
 | `pallet-emission` | α | 计划排放、滚存储备、四份分配、按 epoch 结算 |
 | `pallet-treasury-dual` | α | 社区赠款 + 持币人金库；5% 保底线性归属 |
 | `pallet-fee-burn` | α | 交易费和推理费按比例销毁 |
@@ -498,7 +504,7 @@ agentcoin/
 | 里程碑 | 时间（月） | 交付 | 验收标准 |
 |---|---|---|---|
 | **M0 基础** | 0–1 | 仓库骨架、CI、solochain 模板跑通、`ac-crypto`（ML-DSA、ML-KEM 混合，含 NIST 测试向量） | CI 全绿；测试向量 100% 通过 |
-| **M1 PQ 链** | 1–3 | `pallet-pq-accounts`、`AcMultiSignature`、Aura-PQ、换钥交易、CLI 钱包 | 3 节点本地网出块；ML-DSA 签名的转账成功；换钥后账户 ID 不变 |
+| **M1 PQ 链** | 1–3 | `pallet-pq-accounts`、`PqAuthorize` 交易授权、Aura-PQ、换钥交易、CLI 钱包 | 3 节点本地网出块；ML-DSA 签名的转账成功；换钥后账户 ID 不变 |
 | **M2 最终性** | 3–5 | AC-BFT、罚没证据、承诺-揭示随机数 | 4–10 节点：最终性 P95 ≤3s；杀掉 1/3 节点后恢复；双签被罚没 |
 | **M3 经济** | 4–6 | 排放、金库、费用销毁、validator-set 状态机、**节点不变式** | 仿真 8 年排放与公式误差为 0；构造超发的 runtime 升级被节点拒绝；PoA → PoS 在条件满足时自动切换 |
 | **M4 EVM** | 5–7 | `pallet-revive`、PQ 预编译、eth-RPC 适配器、Foundry 外部签名器 | 用 Foundry 部署并调用 ERC-20 和 Uniswap-V2 式合约 |

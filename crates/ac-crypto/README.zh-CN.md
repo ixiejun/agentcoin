@@ -8,6 +8,7 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 - 混合 KEM：X-Wing = ML-KEM-768 + X25519（draft-connolly-cfrg-xwing-kem-06）
 - 哈希：BLAKE3-256、SHA3-256、域分离 BLAKE3（`derive_key`）
 - 由公钥派生的 32 字节账户 ID
+- 钱包支持：钱包熵的 24 词 BIP-39 编码、确定性的钱包密钥与开发密钥派生、口令加密的私钥文件（Argon2id + XChaCha20-Poly1305）
 - `no_std`；验证、哈希和账户 ID 既不需要 `std` 也不需要随机源（可用于 WASM runtime）
 
 ## 示例
@@ -44,6 +45,11 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 | `kem` | X-Wing 混合 KEM | 节点 P2P、网关、客户端 |
 | `deterministic` | 确定性签名、指定随机数的封装 | 仅限测试与工具 |
 | `scale` | 带标签类型的 SCALE `Encode` / `Decode` / `MaxEncodedLen` / `TypeInfo` | pallet |
+| `getrandom` | `OsRng`：由操作系统播种的密码学安全随机源，从不 panic | 节点、钱包 |
+| `mnemonic` | 钱包熵的 24 词 BIP-39（英文）编码（`no_std`） | 钱包 |
+| `keystore` | 口令加密的私钥文件（同时启用 `std`、`rand` 与 `getrandom`） | 节点、钱包 |
+
+密钥种子派生（`wallet_key_seed`、`dev_seed`）始终可用：种子为 `derive_key(上下文, 输入)`，上下文见下表。开发种子是**公开的**，只能用于开发链和本地链。
 
 ## 上下文登记表
 
@@ -53,9 +59,20 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 |---|---|---|---|
 | `agentcoin 2026-09 account-id v1` | 哈希 | 账户 ID 派生 | **使用中（共识关键）** |
 | `agentcoin 2026-09 test-rng v1` | 哈希 | 测试中的确定性随机源 | 仅限测试 |
-| `agentcoin/tx/v1` | 签名 | 交易签名 | 为 M1 预留 |
+| `agentcoin 2026-09 tx-payload v1` | 哈希 | 32 字节交易签名载荷 | 自 M1 起使用（共识关键） |
+| `agentcoin 2026-09 wallet-key v1` | 哈希 | 钱包密钥种子：`AlgId ‖ u32_le(序号) ‖ 熵` | 自 M1 起使用 |
+| `agentcoin 2026-09 dev-seed v1` | 哈希 | 由名称派生的公开开发种子 | 自 M1 起使用（仅限开发链） |
+| `agentcoin 2026-09 keystore-aad v1` | 哈希 | 加密私钥文件的附加认证数据 | 自 M1 起使用 |
+| `agentcoin 2026-09 os-rng v1` | 哈希 | `OsRng`（由操作系统播种）的输出流 | 自 M1 起使用 |
+| `agentcoin/tx/v1` | 签名 | 交易签名 | 自 M1 起使用（共识关键） |
+| `agentcoin/aura-seal/v1` | 签名 | Aura-PQ 区块封印 | 自 M1 起使用（共识关键） |
+| `agentcoin/key-rotation/v1` | 签名 | 轮换新密钥的持有证明 | 自 M1 起使用（共识关键） |
 | `agentcoin/bft-vote/v1` | 签名 | 最终性投票 | 为 M2 预留 |
 | `agentcoin/receipt/v1` | 签名 | 推理回执 | 为 M5 预留 |
+
+## 加密私钥文件（格式 v1）
+
+JSON 文档，字段包括：`version`（1）、`kind`（`signing-seed` 或 `wallet-entropy`）、`alg` 与 `public_key`（规范编码的十六进制，仅签名种子有）、`kdf`（`argon2id`，含 `m_kib`、`t`、`p` 和 16 字节 `salt`）、`cipher`（`xchacha20poly1305`，含 24 字节 `nonce` 和 `ciphertext`）。附加认证数据为对全部元数据字段计算的 `derive_key("agentcoin 2026-09 keystore-aad v1", …)`，因此篡改任一字段都会导致解密失败。KDF 参数低于 64 MiB / 3 轮 / 1 路并行的文件会被拒绝。
 
 ## 新增一个算法
 
@@ -67,4 +84,4 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 
 ## 测试向量
 
-`tests/vectors/` 存放筛选后的 NIST ACVP（ML-DSA、ML-KEM-768）和 X-Wing 规范向量，可通过 `scripts/fetch-test-vectors.sh` 复现，详见 `tests/vectors/SOURCES.md`。
+`tests/vectors/` 存放筛选后的 NIST ACVP（ML-DSA、ML-KEM-768）、X-Wing、Argon2id（RFC 9106）、XChaCha20-Poly1305（draft-irtf-cfrg-xchacha-03）和 BIP-39 向量（可通过 `scripts/fetch-test-vectors.sh` 复现），以及本仓库生成的回归向量，详见 `tests/vectors/SOURCES.md`。
