@@ -49,13 +49,50 @@ pub fn read_password(path: &Path) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+/// A validator's key: the ML-DSA-65 signing key used for block seals and AC-BFT messages
+/// (distinct signing contexts), and its seed, from which per-epoch randomness secrets are derived
+/// (design D8/D11 of m2-finality). Its `Debug` output is redacted; the seed is wiped on drop.
+pub struct ValidatorKey {
+    /// Signing key.
+    pub signing: SigningKey,
+    seed: SecretSeed,
+}
+
+impl ValidatorKey {
+    fn from_seed(seed: SecretSeed) -> Result<Self, ac_crypto::Error> {
+        Ok(Self {
+            signing: SigningKey::from_seed(AUTHORITY_ALG, &seed)?,
+            seed,
+        })
+    }
+
+    /// The commit–reveal secret for `epoch` of the chain `genesis`.
+    ///
+    /// # Errors
+    ///
+    /// Only if the built-in hashing context were malformed (never in practice).
+    pub fn randomness_secret(
+        &self,
+        genesis: &[u8; 32],
+        epoch: u64,
+    ) -> Result<ac_crypto::RandomnessSecret, ac_crypto::Error> {
+        ac_crypto::randomness_secret(&self.seed, genesis, epoch)
+    }
+}
+
+impl std::fmt::Debug for ValidatorKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ValidatorKey(<redacted>)")
+    }
+}
+
 /// Decrypts an authority key file. Every failure after parsing reports only "decryption failed"
 /// or a format problem, never key material.
 ///
 /// # Errors
 ///
 /// A human-readable message.
-pub fn load_key_file(path: &Path, password: &[u8]) -> Result<SigningKey, String> {
+pub fn load_key_file(path: &Path, password: &[u8]) -> Result<ValidatorKey, String> {
     let json = std::fs::read_to_string(path)
         .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     let file = EncryptedSecret::from_json(&json).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -71,9 +108,10 @@ pub fn load_key_file(path: &Path, password: &[u8]) -> Result<SigningKey, String>
     let seed = file
         .decrypt(password)
         .map_err(|_| format!("{}: decryption failed", path.display()))?;
-    let key = SigningKey::from_seed(AUTHORITY_ALG, &SecretSeed::new(*seed))
+    let key = ValidatorKey::from_seed(SecretSeed::new(*seed))
         .map_err(|_| format!("{}: decryption failed", path.display()))?;
     if key
+        .signing
         .public_key()
         .map_err(|_| "decryption failed".to_string())?
         != expected
@@ -88,9 +126,9 @@ pub fn load_key_file(path: &Path, password: &[u8]) -> Result<SigningKey, String>
 /// # Errors
 ///
 /// Only if key derivation failed (never in practice).
-pub fn dev_key(name: &str) -> Result<SigningKey, String> {
+pub fn dev_key(name: &str) -> Result<ValidatorKey, String> {
     let seed = ac_crypto::dev_seed(name).map_err(|e| e.to_string())?;
-    SigningKey::from_seed(AUTHORITY_ALG, &seed).map_err(|e| e.to_string())
+    ValidatorKey::from_seed(seed).map_err(|e| e.to_string())
 }
 
 /// Resolves the authority key for a chain of `chain_type`. With `--dev` and no explicit key the
@@ -103,7 +141,7 @@ pub fn resolve(
     args: &PqKeyArgs,
     chain_type: &ChainType,
     dev_flag: bool,
-) -> Result<Option<SigningKey>, String> {
+) -> Result<Option<ValidatorKey>, String> {
     let dev_allowed = matches!(chain_type, ChainType::Development | ChainType::Local);
     match (&args.pq_key_file, &args.dev_key) {
         (Some(path), _) => {
@@ -128,7 +166,7 @@ mod tests {
 
     fn write_key(dir: &Path, password: &[u8]) -> (PathBuf, ac_crypto::PqPublicKey) {
         let key = dev_key("keyfile-test").unwrap();
-        let pk = key.public_key().unwrap();
+        let pk = key.signing.public_key().unwrap();
         let seed = ac_crypto::dev_seed("keyfile-test").unwrap();
         let mut rng = ac_crypto::OsRng::new().unwrap();
         let file = EncryptedSecret::encrypt(
@@ -158,6 +196,7 @@ mod tests {
         assert_eq!(
             load_key_file(&path, b"secret")
                 .unwrap()
+                .signing
                 .public_key()
                 .unwrap(),
             pk
@@ -200,9 +239,54 @@ mod tests {
     #[test]
     fn dev_keys_are_reproducible() {
         assert_eq!(
-            dev_key("alice").unwrap().public_key().unwrap(),
-            dev_key("alice").unwrap().public_key().unwrap()
+            dev_key("alice").unwrap().signing.public_key().unwrap(),
+            dev_key("alice").unwrap().signing.public_key().unwrap()
         );
+    }
+
+    // Task 7.5: block seals, AC-BFT votes and randomness come from one key: the signing key
+    // and the randomness secrets both derive from the loaded seed.
+    #[test]
+    fn one_key_for_seals_votes_and_randomness() {
+        let dir = tmp();
+        let (path, pk) = write_key(&dir, b"secret");
+        let key = load_key_file(&path, b"secret").unwrap();
+        assert_eq!(key.signing.public_key().unwrap(), pk);
+        let seed = ac_crypto::dev_seed("keyfile-test").unwrap();
+        let genesis = [7u8; 32];
+        for epoch in [0, 1, 42] {
+            assert_eq!(
+                key.randomness_secret(&genesis, epoch).unwrap().expose(),
+                ac_crypto::randomness_secret(&seed, &genesis, epoch)
+                    .unwrap()
+                    .expose()
+            );
+        }
+        assert_eq!(format!("{key:?}"), "ValidatorKey(<redacted>)");
+    }
+
+    // Task 7.5: a key file of another algorithm is refused.
+    #[test]
+    fn non_ml_dsa_65_key_is_refused() {
+        let dir = tmp();
+        let seed = ac_crypto::dev_seed("keyfile-44").unwrap();
+        let pk = SigningKey::from_seed(ac_crypto::SigAlg::MlDsa44, &seed)
+            .unwrap()
+            .public_key()
+            .unwrap();
+        let mut rng = ac_crypto::OsRng::new().unwrap();
+        let file = EncryptedSecret::encrypt(
+            seed.expose(),
+            SecretKind::SigningSeed,
+            Some(&pk),
+            b"secret",
+            &mut rng,
+        )
+        .unwrap();
+        let path = dir.join("ml-dsa-44.json");
+        std::fs::write(&path, file.to_json()).unwrap();
+        let err = load_key_file(&path, b"secret").err().unwrap();
+        assert!(err.contains("not an ML-DSA-65 authority key"), "{err}");
     }
 
     #[test]

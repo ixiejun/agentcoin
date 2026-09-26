@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use ac_primitives::aura_pq::{AuraPqApi, find_slot};
 use sc_client_api::backend::AuxStore;
-use sc_consensus::import_queue::{BasicQueue, BoxBlockImport};
+use sc_consensus::import_queue::{BasicQueue, BoxBlockImport, BoxJustificationImport};
 use sc_consensus::{BlockImportParams, Verifier};
 use sc_consensus_slots::InherentDataProviderExt;
 use sp_api::ProvideRuntimeApi;
@@ -16,18 +16,30 @@ use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 use crate::equivocation;
 use crate::seal::{SealError, check_header};
 
+/// Submits double-signing evidence on chain (the node implements it with the transaction pool).
+pub trait EquivocationReporter: Send + Sync {
+    /// Reports `evidence` (best effort).
+    fn report(&self, evidence: ac_primitives::offences::Evidence);
+}
+
 /// Verifies Aura-PQ headers before import.
 pub struct AuraPqVerifier<C, CIDP> {
     client: Arc<C>,
     create_inherent_data_providers: CIDP,
+    reporter: Option<Arc<dyn EquivocationReporter>>,
 }
 
 impl<C, CIDP> AuraPqVerifier<C, CIDP> {
-    /// Creates a verifier.
-    pub fn new(client: Arc<C>, create_inherent_data_providers: CIDP) -> Self {
+    /// Creates a verifier; seal double signing is reported through `reporter` when given.
+    pub fn new(
+        client: Arc<C>,
+        create_inherent_data_providers: CIDP,
+        reporter: Option<Arc<dyn EquivocationReporter>>,
+    ) -> Self {
         Self {
             client,
             create_inherent_data_providers,
+            reporter,
         }
     }
 }
@@ -83,7 +95,7 @@ where
             Err(e) => return Err(format!("header {hash:?} rejected: {e}")),
         };
 
-        equivocation::check(
+        let report = equivocation::check(
             self.client.as_ref(),
             slot_now,
             checked.slot,
@@ -91,6 +103,11 @@ where
             &checked.author,
         )
         .map_err(|e| e.to_string())?;
+        if let (Some(report), Some(reporter)) = (report, &self.reporter)
+            && let Some(evidence) = equivocation::evidence(&report, &checked.author)
+        {
+            reporter.report(evidence);
+        }
 
         if let Some(body) = block.body.take() {
             let new_block = B::new(checked.pre_header.clone(), body);
@@ -119,21 +136,44 @@ where
     }
 }
 
-/// Builds the import queue that runs [`AuraPqVerifier`] before `block_import`.
-pub fn import_queue<B, C, CIDP>(
-    client: Arc<C>,
-    block_import: BoxBlockImport<B>,
-    create_inherent_data_providers: CIDP,
-    spawner: &impl sp_core::traits::SpawnEssentialNamed,
-    registry: Option<&substrate_prometheus_endpoint::Registry>,
-) -> BasicQueue<B>
+/// Parameters of [`import_queue`].
+pub struct ImportQueueParams<'a, B: BlockT, C, CIDP, S> {
+    /// The client.
+    pub client: Arc<C>,
+    /// Block import run after verification (the AC-BFT wrapper around the client).
+    pub block_import: BoxBlockImport<B>,
+    /// Import of finality proofs requested separately from blocks.
+    pub justification_import: Option<BoxJustificationImport<B>>,
+    /// Inherent data providers for checking inherents.
+    pub create_inherent_data_providers: CIDP,
+    /// Receives seal double-signing evidence.
+    pub reporter: Option<Arc<dyn EquivocationReporter>>,
+    /// Spawner of the queue's task.
+    pub spawner: &'a S,
+    /// Metrics registry.
+    pub registry: Option<&'a substrate_prometheus_endpoint::Registry>,
+}
+
+/// Builds the import queue that runs [`AuraPqVerifier`] before the block import.
+pub fn import_queue<B, C, CIDP, S>(params: ImportQueueParams<'_, B, C, CIDP, S>) -> BasicQueue<B>
 where
     B: BlockT,
     C: ProvideRuntimeApi<B> + HeaderBackend<B> + AuxStore + Send + Sync + 'static,
     C::Api: AuraPqApi<B> + BlockBuilderApi<B>,
     CIDP: CreateInherentDataProviders<B, ()> + Send + Sync + 'static,
     CIDP::InherentDataProviders: InherentDataProviderExt + InherentDataProvider + Send + Sync,
+    S: sp_core::traits::SpawnEssentialNamed,
 {
-    let verifier = AuraPqVerifier::new(client, create_inherent_data_providers);
-    BasicQueue::new(verifier, block_import, None, spawner, registry)
+    let verifier = AuraPqVerifier::new(
+        params.client,
+        params.create_inherent_data_providers,
+        params.reporter,
+    );
+    BasicQueue::new(
+        verifier,
+        params.block_import,
+        params.justification_import,
+        params.spawner,
+        params.registry,
+    )
 }

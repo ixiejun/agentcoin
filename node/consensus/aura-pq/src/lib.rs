@@ -37,7 +37,7 @@ use sp_consensus_slots::SlotDuration;
 use sp_inherents::{CreateInherentDataProviders, InherentData, InherentIdentifier};
 use sp_runtime::traits::Block as BlockT;
 
-pub use verifier::{AuraPqVerifier, import_queue};
+pub use verifier::{AuraPqVerifier, EquivocationReporter, ImportQueueParams, import_queue};
 pub use worker::AuraPqWorker;
 
 /// Supplies the current slot to the slot machinery; contributes no inherent data (the runtime

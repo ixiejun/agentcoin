@@ -16,8 +16,10 @@ The SDK's `sc-consensus-aura` signs through the keystore, which only supports cl
   is missing or duplicated, whose slot is more than one slot ahead of the local clock or not above
   the parent's, or whose author is not entitled to the slot. Inherents are checked as usual.
 - **Equivocation**: two headers from one author in one slot are logged with both SCALE-encoded
-  headers (`equivocation::check`). Slashing comes with AC-BFT in M2.
-- There is no finality gadget in M1; fork choice is the longest chain.
+  headers (`equivocation::check`) and, when the import queue has an `EquivocationReporter`,
+  handed to it as on-chain evidence (`equivocation::evidence`); the node submits the report.
+- Fork choice is the longest chain; the import queue takes the AC-BFT block import and
+  justification import (`ImportQueueParams`), which apply finality.
 
 ## Example
 

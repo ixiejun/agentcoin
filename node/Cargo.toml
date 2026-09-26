@@ -16,6 +16,8 @@ path = "src/main.rs"
 
 [dependencies]
 ac-consensus-aura-pq = { workspace = true }
+ac-consensus-bft = { workspace = true }
+async-trait = { workspace = true }
 ac-crypto = { workspace = true, features = ["std", "keystore", "getrandom"] }
 ac-primitives = { workspace = true, features = ["std"] }
 ac-runtime = { workspace = true, features = ["std"] }
@@ -26,6 +28,7 @@ pallet-balances = { workspace = true, features = ["std"] }
 parity-scale-codec = { workspace = true, features = ["std"] }
 futures = { workspace = true, features = ["std", "thread-pool"] }
 jsonrpsee = { workspace = true, features = ["server"] }
+log = { workspace = true, features = ["std"] }
 sc-basic-authorship = { workspace = true }
 sc-chain-spec = { workspace = true }
 sc-cli = { workspace = true }
@@ -43,6 +46,7 @@ sp-block-builder = { workspace = true, features = ["std"] }
 sp-blockchain = { workspace = true }
 sp-consensus-slots = { workspace = true, features = ["std"] }
 sp-core = { workspace = true, features = ["std"] }
+sp-inherents = { workspace = true, features = ["std"] }
 sp-genesis-builder = { workspace = true, features = ["std"] }
 sp-io = { workspace = true, features = ["std"] }
 sp-runtime = { workspace = true, features = ["std"] }
@@ -66,7 +70,7 @@ jsonrpsee = { workspace = true, features = ["http-client"] }
 parity-scale-codec = { workspace = true, features = ["std"] }
 serde_json = { workspace = true, features = ["std"] }
 sp-trie = { workspace = true, features = ["std"] }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net", "io-util"] }
 
 [features]
 default = []

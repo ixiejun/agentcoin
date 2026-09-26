@@ -13,7 +13,7 @@ use hash256_std_hasher::Hash256StdHasher;
 use jsonrpsee::{core::client::ClientT, rpc_params};
 use parity_scale_codec::Encode;
 use sp_core::H256;
-use sp_trie::{LayoutV1, TrieConfiguration};
+use sp_trie::{LayoutV0, LayoutV1, TrieConfiguration};
 
 use common::{start_dev_node, unhex, wait_for_height};
 
@@ -63,7 +63,9 @@ async fn block_hashes_and_roots_are_blake3() {
             .iter()
             .map(|x| unhex(x.as_str().unwrap()))
             .collect();
-        let root = LayoutV1::<RefBlake3>::ordered_trie_root(extrinsics);
+        // `system_version: 1` builds the extrinsics root with the V0 trie layout (values over
+        // 32 bytes stored inline, not hashed), like every Substrate chain before system version 2.
+        let root = LayoutV0::<RefBlake3>::ordered_trie_root(extrinsics);
         assert_eq!(
             root, header.extrinsics_root,
             "extrinsics root of block {number}"

@@ -8,8 +8,8 @@ SDK 自带的 `sc-consensus-aura` 通过 keystore 签名，而 keystore 只支�
 
 - **出块**（`start_aura_pq`）：时隙 `s` 属于第 `s mod N` 个授权节点（时隙 1 秒）。出块人加入声明时隙的预运行摘要（引擎 ID `acpq`），并用 hedged ML-DSA-65 签名（上下文 `agentcoin/aura-seal/v1`）对去掉封印后的区块头哈希封印。
 - **导入**（`import_queue`）：拒绝以下区块：封印缺失或无效、时隙摘要缺失或重复、时隙比本地时钟超前一个以上、时隙不大于父区块、出块人不是该时隙的合法授权节点。交易内部的固有数据照常校验。
-- **双签**：同一出块人在同一时隙签出的两个区块头会连同两个 SCALE 编码的区块头一起记入日志（`equivocation::check`）。罚没随 M2 的 AC-BFT 引入。
-- M1 没有终局性组件，分叉选择采用最长链。
+- **双签**：同一出块人在同一时隙签出的两个区块头会连同两个 SCALE 编码的区块头一起记入日志（`equivocation::check`）；导入队列配置了 `EquivocationReporter` 时，还会作为链上证据（`equivocation::evidence`）交给它，由节点提交举报。
+- 分叉选择采用最长链；导入队列接收 AC-BFT 的区块导入和证明导入（`ImportQueueParams`），由它们落实终局性。
 
 ## 示例
 

@@ -55,6 +55,21 @@ pub fn check<C: AuxStore, H: HeaderT>(
     Ok(Some(report))
 }
 
+/// On-chain evidence for `report`, signed (sealed) by `author`. `None` if a header exceeds the
+/// evidence size limit.
+#[must_use]
+pub fn evidence(
+    report: &EquivocationReport,
+    author: &PqPublicKey,
+) -> Option<ac_primitives::offences::Evidence> {
+    use ac_primitives::offences::{EncodedHeader, Evidence};
+    Some(Evidence::AuraEquivocation {
+        offender: author.clone(),
+        first: EncodedHeader::try_from(report.first_header.clone()).ok()?,
+        second: EncodedHeader::try_from(report.second_header.clone()).ok()?,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,5 +142,17 @@ mod tests {
         let report = check(&aux, slot, slot, &second, &author).unwrap().unwrap();
         assert_eq!(report.first_header, first.encode());
         assert_eq!(report.second_header, second.encode());
+        let Some(ac_primitives::offences::Evidence::AuraEquivocation {
+            offender,
+            first: a,
+            second: b,
+        }) = evidence(&report, &author)
+        else {
+            panic!("seal evidence expected");
+        };
+        assert_eq!(
+            (offender, a.into_inner(), b.into_inner()),
+            (author, first.encode(), second.encode())
+        );
     }
 }
