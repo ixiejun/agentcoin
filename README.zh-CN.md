@@ -16,7 +16,7 @@
 
 文档语言约定：每份项目文档都有英文版（主版本，位于规范路径）和简体中文版（`*.zh-CN.md`），两者在页首互相链接。
 
-状态：M0（工作区、CI 与抗量子密码库 `ac-crypto`，[crates/ac-crypto](crates/ac-crypto/README.zh-CN.md)）和 M1（抗量子链，[node](node/README.zh-CN.md)）已完成；M2（AC-BFT 终局性、双签证据、commit–reveal 随机数）已实现，待归档。规范见 `openspec/specs/`。
+状态：M0（工作区、CI 与抗量子密码库 `ac-crypto`，[crates/ac-crypto](crates/ac-crypto/README.zh-CN.md)）和 M1（抗量子链，[node](node/README.zh-CN.md)）已完成；M2（AC-BFT 终局性、双签证据、commit–reveal 随机数）已完成。规范见 `openspec/specs/`。
 
 ## 本地开发
 

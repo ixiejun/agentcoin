@@ -1,6 +1,6 @@
 > 🌐 **English** | [简体中文](decisions.zh-CN.md)
 
-# AgentCoin Decision Log (D1–D37)
+# AgentCoin Decision Log (D1–D39)
 
 > This file consolidates the final conclusions of the requirements discussion. The discussion itself is in `docs/research/01–07`; the technical plans are in `docs/design/`.
 
@@ -43,3 +43,5 @@
 | D35 | Cryptography | On-chain hashing is BLAKE3-256: block hashes, the extrinsics root and the state trie all use it (`Hashing = Blake3Hasher`). Documented exception: storage-key hashers of SDK pallets (`Blake2_128Concat` / `Twox64Concat` / `Twox128`) only spread keys and commit to nothing; AgentCoin's own pallets key by account ID with `Identity`. Fixed at genesis | M1 apply |
 | D36 | Signatures | Transactions are v5 General transactions authorized by the `PqAuthorize` extension (first in the pipeline): ML-DSA over a BLAKE3 `derive_key` payload with context `agentcoin/tx/v1`; the first transaction registers the public key, later ones look it up; the legacy `Signed` form is closed (`NoClassicSignature`). Replaces "`AcMultiSignature` implements `Verify`" in the MVP plan §3.3 | M1 apply |
 | D37 | Licensing | Source stays MIT. GPL-3.0 with Classpath exception is allowed only in the dependency closure of `node/` (and `tests/e2e`, which runs the node); `crates/`, `pallets/`, `runtime/` and `clients/` stay GPL-free, enforced in CI. `ac-node` binary releases ship a GPL source offer | M1 apply |
+| D38 | Consensus | AC-BFT finality: two-phase voting (prepare, commit) in rounds with a locking rule, threshold `q = ⌊2W/3⌋ + 1`, pipelined rounds, timeouts from two slots backing off ×1.5 up to 30 s, and catch-up from the rounds that members worth more than `W − q` have reached. Messages are versioned, bound to the genesis hash and set id, and signed with the validator's ML-DSA-65 key (context `agentcoin/bft-vote/v1`); the same key seals blocks (`agentcoin/aura-seal/v1`) and derives randomness secrets. A finality proof is a versioned set of ≥ q commit votes, verifiable with only the genesis hash and the set; it is stored for every set-change block and at least every 64 blocks. Sets change only at epoch boundaries. Votes are persisted before they are sent | M2 apply |
+| D39 | Offences | PoA offence handling: block-seal and AC-BFT vote double signing are reported on chain by unsigned, authorized extrinsics and verified by the runtime. Each offence kind is recorded at most once per offender and authority set; the offender's first record removes it from the next epoch's set (never emptying it) and punishment happens only once. The slash handler is told the kinds already recorded; from M3 slashing follows the most severe kind and never adds up. M2 slashes nothing (validators hold no stake, D9, D19) | M2 apply |

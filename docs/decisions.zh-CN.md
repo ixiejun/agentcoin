@@ -1,6 +1,6 @@
 > 🌐 [English](decisions.md) | **简体中文**
 
-# AgentCoin 决策记录（D1–D37）
+# AgentCoin 决策记录（D1–D39）
 
 > 本文件是需求讨论的最终结论汇总。讨论过程见 `docs/research/01–07`（`*.zh-CN.md`），技术方案见 `docs/design/`。
 
@@ -43,3 +43,5 @@
 | D35 | 密码学 | 链上哈希为 BLAKE3-256：区块哈希、外部交易根和状态树统一使用（`Hashing = Blake3Hasher`）。有记录的例外：SDK 模块的存储键哈希器（`Blake2_128Concat` / `Twox64Concat` / `Twox128`）只负责键的分布、不承担承诺；本项目自有模块以账户 ID 为键时用 `Identity`。随创世固定 | M1 实现 |
 | D36 | 签名 | 交易采用 v5 General 交易，由位于扩展管线首位的 `PqAuthorize` 授权：对 BLAKE3 `derive_key` 载荷做 ML-DSA 签名，上下文 `agentcoin/tx/v1`；首笔交易登记公钥，后续查表；旧式 `Signed` 交易关闭（`NoClassicSignature`）。取代 MVP 方案 §3.3 的“`AcMultiSignature` 实现 `Verify`” | M1 实现 |
 | D37 | 许可证 | 源码保持 MIT。带 Classpath 例外的 GPL-3.0 只允许出现在 `node/`（以及运行节点的 `tests/e2e`）的依赖闭包中；`crates/`、`pallets/`、`runtime/`、`clients/` 保持无 GPL，由 CI 强制检查。发布 `ac-node` 二进制时附 GPL 源码提供说明 | M1 实现 |
+| D38 | 共识 | AC-BFT 终局性：按轮次进行两阶段投票（prepare、commit）并带锁定规则，阈值 `q = ⌊2W/3⌋ + 1`，轮次流水线化；超时从两个时隙开始、按 ×1.5 退避、上限 30 秒；根据权重超过 `W − q` 的成员已到达的轮次追赶。消息带版本号，绑定创世哈希与集合编号，用验证人的 ML-DSA-65 密钥签名（上下文 `agentcoin/bft-vote/v1`）；同一把密钥也用于出块封印（`agentcoin/aura-seal/v1`）和派生随机数秘密值。终局性证明是带版本号的 ≥ q 张 commit 票集合，只需创世哈希和集合即可验证；每个集合变更区块以及至少每 64 个区块保存一份。集合只在纪元边界变更。投票先持久化再发送 | M2 实现 |
+| D39 | 违规 | PoA 阶段的违规处置：出块双签和 AC-BFT 投票双签通过无签名的授权交易上链举报，由 runtime 验证。同一授权节点集合内，每个违规者每类违规最多记录一条；违规者的第一条记录使其被移出下一纪元的集合（集合不会被移空），处罚只执行一次。罚没接口会得知已记录的违规类型；M3 起罚没按最重的一类计算，不累加。M2 不罚没（验证人没有质押，D9、D19） | M2 实现 |
