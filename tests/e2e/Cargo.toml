@@ -20,6 +20,12 @@ ac-runtime = { workspace = true, features = ["std"] }
 ac-wallet = { workspace = true }
 jsonrpsee = { workspace = true, features = ["http-client", "ws-client"] }
 pallet-balances = { workspace = true, features = ["std"] }
+pallet-collective = { workspace = true, features = ["std"] }
+pallet-emission = { workspace = true, features = ["std"] }
+pallet-poa-admin = { workspace = true, features = ["std"] }
+pallet-treasury-dual = { workspace = true, features = ["std"] }
+frame-support = { workspace = true, features = ["std"] }
+frame-system = { workspace = true, features = ["std"] }
 parity-scale-codec = { workspace = true, features = ["std"] }
 pallet-pq-accounts = { workspace = true, features = ["std"] }
 serde_json = { workspace = true, features = ["std"] }

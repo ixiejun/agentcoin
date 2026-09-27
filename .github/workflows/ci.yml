@@ -74,7 +74,7 @@ jobs:
       - uses: ./.github/actions/setup-substrate
       - run: cargo build -p ac-node -p ac-wallet
       # One network at a time: each test runs four to six debug nodes.
-      - name: Four-node network, finality, fault tolerance, double signing, randomness, transfers and key rotation
+      - name: Four-node network, finality, fault tolerance, double signing, randomness, transfers, key rotation, emission and the PoA multisig
         run: cargo test -p ac-e2e -- --test-threads 1
       - name: Local testnet script
         run: AC_TESTNET_DIR="$AC_E2E_LOGS/testnet" scripts/run-local-testnet.sh --check
