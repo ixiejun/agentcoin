@@ -7,7 +7,7 @@ context: |
 
   ## 项目
   AgentCoin（代币 ATC）：抗量子、天生隐私、无许可的 L1，面向大模型训练 / 后训练 / 推理的去中心化算力网络，兼容 EVM。
-  - 决策记录（权威来源）：docs/decisions.md（D1–D39；中文版 docs/decisions.zh-CN.md）
+  - 决策记录（权威来源）：docs/decisions.md（D1–D42；中文版 docs/decisions.zh-CN.md）
   - MVP 技术方案：docs/design/mvp-technical-plan.md
   - 全量技术方案：docs/design/full-technical-plan.md
   - 调研过程：docs/research/
