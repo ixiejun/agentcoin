@@ -12,8 +12,8 @@ use frame_support::traits::fungible::{Balanced, Inspect};
 use frame_support::traits::{Hooks, OnUnbalanced};
 
 use crate::mock::{
-    Balances, COMMUNITY, Emission, FLOOR, HOLDER, PHASE, RuntimeEvent, System, Test, VALIDATOR,
-    WORK, ext,
+    Balances, COMMUNITY, Emission, FLOOR, FLOOR_MINTED, HOLDER, PHASE, RuntimeEvent, System, Test,
+    VALIDATOR, WORK, ext,
 };
 use crate::{EpochLength, Event, LastSettled, Reserve, TotalBurned, TotalMinted};
 
@@ -53,6 +53,8 @@ fn poa_epoch_without_work_mints_only_the_floor() {
         let floor = s * 5 / 100;
         assert_eq!(Balances::total_issuance(), floor);
         assert_eq!(Balances::balance(&FLOOR), floor);
+        // The treasury is told what reached the floor account, for its vesting batches.
+        assert_eq!(FLOOR_MINTED.with(|f| *f.borrow()), floor);
         assert_eq!(Balances::balance(&VALIDATOR), 0);
         assert_eq!(
             Balances::balance(&COMMUNITY) + Balances::balance(&HOLDER),

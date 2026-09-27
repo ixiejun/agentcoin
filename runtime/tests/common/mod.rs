@@ -82,6 +82,32 @@ pub fn start_block(number: u32, parent: H256) {
     Executive::initialize_block(&header);
 }
 
+/// Starts block `number` in slot `number`, so that it has an author.
+pub fn start_authored_block(number: u32, parent: H256) {
+    let mut digest = Digest::default();
+    digest.push(ac_primitives::aura_pq::pre_digest(
+        ac_primitives::aura_pq::Slot::from(u64::from(number)),
+    ));
+    Executive::initialize_block(&Header::new(
+        number,
+        Default::default(),
+        Default::default(),
+        parent,
+        digest,
+    ));
+}
+
+/// Finalizes the current block and starts the next one, in the next slot.
+pub fn next_authored_block() {
+    let number = System::block_number();
+    pallet_timestamp::Pallet::<Runtime>::set_timestamp(
+        u64::from(number) * ac_runtime::MILLISECS_PER_BLOCK,
+    );
+    let header = Executive::finalize_block();
+    let hash = header.hash();
+    start_authored_block(header.number + 1, hash);
+}
+
 /// Finalizes the current block and starts the next one.
 pub fn next_block() {
     let number = System::block_number();
@@ -189,6 +215,13 @@ pub fn issuance() -> Balance {
     pallet_balances::Pallet::<Runtime>::total_issuance()
 }
 
+/// Issuance expected from `genesis_issuance` after emission minted and fees were burned
+/// (chain/native-token "总量守恒": Δissuance = minted − burned).
+pub fn expected_issuance(genesis_issuance: Balance) -> Balance {
+    genesis_issuance + pallet_emission::TotalMinted::<Runtime>::get()
+        - ac_runtime::Emission::total_burned()
+}
+
 /// Sum of every account's free and reserved balance.
 pub fn sum_of_balances() -> Balance {
     frame_system::Account::<Runtime>::iter()
@@ -202,10 +235,9 @@ pub fn fees_paid() -> Balance {
         .into_iter()
         .filter_map(|r| match r.event {
             ac_runtime::RuntimeEvent::TransactionPayment(
-                pallet_transaction_payment::Event::TransactionFeePaid {
-                    actual_fee, tip, ..
-                },
-            ) => Some(actual_fee + tip),
+                // `actual_fee` already includes the tip.
+                pallet_transaction_payment::Event::TransactionFeePaid { actual_fee, .. },
+            ) => Some(actual_fee),
             _ => None,
         })
         .sum()

@@ -14,11 +14,16 @@ use sp_runtime::{Perbill, traits::IdentityLookup, traits::One};
 
 // `derive_impl` expands to associated types that name these items.
 use super::{
-    AccountId, AuraPq, Balance, Balances, Block, BlockNumber, EXISTENTIAL_DEPOSIT, Hash,
+    AccountId, AuraPq, Balance, Balances, Block, BlockNumber, EXISTENTIAL_DEPOSIT, Emission, Hash,
     MILLISECS_PER_BLOCK, Nonce, PalletInfo, Runtime, RuntimeCall, RuntimeEvent,
-    RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, VERSION, ValidatorSet,
+    RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, TreasuryDual, VERSION,
+    ValidatorSet,
 };
 use ac_primitives::Blake3Hasher;
+use ac_primitives::emission::{FLOOR_BATCH_BLOCKS, FLOOR_VESTING_BLOCKS, PoaPhase};
+use frame_support::traits::fungible::{Balanced, Credit};
+use frame_support::traits::{Imbalance, OnUnbalanced};
+use frame_system::EnsureRoot;
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
@@ -86,10 +91,49 @@ impl pallet_balances::Config for Runtime {
 /// 0.0004 ATC). Economic parameters are revisited in M3.
 pub const TRANSACTION_BYTE_FEE: Balance = 100_000_000_000;
 
+/// Share of every fee and tip paid to the block author, in percent (plan §8); the rest,
+/// including the rounding remainder, is burned.
+pub const AUTHOR_FEE_PERCENT: Balance = 20;
+
+/// Fee distribution (spec economics/fee-distribution): 20% (rounded down) of every fee and tip
+/// to the block author, the rest burned through [`Emission`] so it counts in
+/// `Emission::TotalBurned`. The author's share is burned too when there is no author or its
+/// account cannot receive it (below the existential deposit of a new account).
+pub struct DealWithFees;
+
+impl DealWithFees {
+    /// Account of the current block's author: derived from its block-sealing key.
+    fn author() -> Option<AccountId> {
+        pallet_aura_pq::CurrentAuthor::<Runtime>::get()
+            .map(|key| pallet_pq_accounts::derived_account(&key))
+    }
+}
+
+impl OnUnbalanced<Credit<AccountId, Balances>> for DealWithFees {
+    fn on_nonzero_unbalanced(amount: Credit<AccountId, Balances>) {
+        let share = amount
+            .peek()
+            .saturating_mul(AUTHOR_FEE_PERCENT)
+            .checked_div(100)
+            .unwrap_or(0);
+        let (to_author, to_burn) = amount.split(share);
+        Emission::on_unbalanced(to_burn);
+        match Self::author() {
+            Some(author) => {
+                if let Err(refused) = <Balances as Balanced<AccountId>>::resolve(&author, to_author)
+                {
+                    Emission::on_unbalanced(refused);
+                }
+            }
+            None => Emission::on_unbalanced(to_author),
+        }
+    }
+}
+
 impl pallet_transaction_payment::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    // `()` as the imbalance handler burns every fee and tip (M1: 100% burn, native-token spec).
-    type OnChargeTransaction = FungibleAdapter<Balances, ()>;
+    // Fees and tips alike: 20% to the author, 80% burned (m3-economics design D7).
+    type OnChargeTransaction = FungibleAdapter<Balances, DealWithFees>;
     type OperationalFeeMultiplier = ConstU8<5>;
     type WeightToFee = IdentityFee<Balance>;
     type LengthToFee = ConstantMultiplier<Balance, ConstU128<TRANSACTION_BYTE_FEE>>;
@@ -131,4 +175,32 @@ impl pallet_randomness_cr::Config for Runtime {
     /// Randomness of the last sixteen epochs stays queryable.
     type KeepEpochs = ConstU32<16>;
     type WeightInfo = pallet_randomness_cr::weights::SubstrateWeight<Runtime>;
+}
+
+impl pallet_emission::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    /// No verified work before M5 (`pallet-work`).
+    type WorkSource = ();
+    /// PoA: the security budget rolls over (decision D19) until `m3-pos`.
+    type SecurityBudget = PoaPhase;
+    type Treasury = TreasuryDual;
+    type WeightInfo = pallet_emission::weights::SubstrateWeight<Runtime>;
+}
+
+parameter_types! {
+    pub const FloorBatchBlocks: u64 = FLOOR_BATCH_BLOCKS;
+    pub const FloorVestingBlocks: u64 = FLOOR_VESTING_BLOCKS;
+    // Batches still vesting: VestingBlocks / BatchBlocks + 2 (the open batch and a partial one).
+    pub const MaxFloorBatches: u32 = 26;
+}
+
+impl pallet_treasury_dual::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type AdminOrigin = EnsureRoot<AccountId>;
+    type BatchBlocks = FloorBatchBlocks;
+    type VestingBlocks = FloorVestingBlocks;
+    type MaxBatches = MaxFloorBatches;
+    type WeightInfo = pallet_treasury_dual::weights::SubstrateWeight<Runtime>;
 }

@@ -316,15 +316,21 @@ pub fn split_treasury(proportional: u128, community_bps: u128) -> (u128, u128) {
 /// block `now`: linear over [`FLOOR_VESTING_BLOCKS`] from `batch_end`, rounded down.
 #[must_use]
 pub fn vested(amount: u128, batch_end: u64, now: u64) -> u128 {
+    vested_over(amount, batch_end, now, FLOOR_VESTING_BLOCKS)
+}
+
+/// [`vested`] with a vesting period of `vesting_blocks` (shortened in tests); a period of 0
+/// vests everything at `batch_end`.
+#[must_use]
+pub fn vested_over(amount: u128, batch_end: u64, now: u64, vesting_blocks: u64) -> u128 {
+    if now < batch_end {
+        return 0;
+    }
     let elapsed = now.saturating_sub(batch_end);
-    if elapsed >= FLOOR_VESTING_BLOCKS {
+    if elapsed >= vesting_blocks {
         return amount;
     }
-    scale(
-        amount,
-        u128::from(elapsed),
-        u128::from(FLOOR_VESTING_BLOCKS),
-    )
+    scale(amount, u128::from(elapsed), u128::from(vesting_blocks))
 }
 
 /// Source of verified work for the market and public shares (M5 `pallet-work`, M6
@@ -365,10 +371,13 @@ impl<AccountId> SecurityBudget<AccountId> for PoaPhase {
 
 /// Where the treasury part of an epoch goes (`pallet-treasury-dual`).
 pub trait TreasuryDeposit<AccountId> {
-    /// Accounts and amounts receiving the proportional share and the floor top-up; called once
-    /// per settlement, so an implementation may record the floor batch here. The amounts sum to
-    /// `proportional + floor_topup`.
+    /// Accounts and amounts receiving the proportional share and the floor top-up, in this
+    /// order: community grants, holder treasury, floor. The amounts sum to
+    /// `proportional + floor_topup`; the floor entry is exactly `floor_topup`.
     fn recipients(proportional: u128, floor_topup: u128) -> [(AccountId, u128); 3];
+    /// Called after `amount` was actually minted to the floor account, so that the
+    /// implementation records the vesting batch only for what exists.
+    fn floor_minted(amount: u128);
 }
 
 sp_api::decl_runtime_apis! {
@@ -386,6 +395,18 @@ sp_api::decl_runtime_apis! {
         fn total_minted() -> u128;
         /// Total burned since genesis.
         fn total_burned() -> u128;
+    }
+
+    /// Treasury queries (spec economics/treasury).
+    pub trait TreasuryApi<AccountId> where AccountId: parity_scale_codec::Codec {
+        /// Community-grants account and its balance.
+        fn community() -> (AccountId, u128);
+        /// Holder-treasury account and its balance (locked until on-chain holder voting).
+        fn holder() -> (AccountId, u128);
+        /// Floor account and its balance.
+        fn floor() -> (AccountId, u128);
+        /// Amount of the floor that can be spent now: vested minus already spent.
+        fn floor_spendable() -> u128;
     }
 }
 
@@ -555,6 +576,10 @@ mod tests {
         );
         assert_eq!(vested(amount, 100, 100 + FLOOR_VESTING_BLOCKS), amount);
         assert_eq!(vested(amount, 100, u64::MAX), amount);
+        // Shortened periods (tests) behave the same; a zero period vests at the batch end.
+        assert_eq!(vested_over(amount, 10, 15, 10), amount / 2);
+        assert_eq!(vested_over(amount, 10, 9, 0), 0);
+        assert_eq!(vested_over(amount, 10, 10, 0), amount);
     }
 
     proptest! {

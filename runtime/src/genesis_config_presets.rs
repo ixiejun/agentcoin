@@ -72,6 +72,12 @@ fn testnet_genesis(authorities: &[&str], epoch_length: u64) -> Result<Value, ac_
         balances: BalancesConfig { balances },
         aura_pq: pallet_aura_pq::GenesisConfig { authorities },
         validator_set: pallet_validator_set::GenesisConfig { epoch_length },
+        // Emission epochs as short as the validator epochs, so tests see settlements quickly;
+        // both lengths divide the four-year period.
+        emission: pallet_emission::GenesisConfig { epoch_length },
+        treasury_dual: pallet_treasury_dual::GenesisConfig {
+            community_share: pallet_treasury_dual::DEFAULT_COMMUNITY_SHARE
+        },
     }))
 }
 

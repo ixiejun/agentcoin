@@ -55,7 +55,8 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     impl_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     authoring_version: 1,
-    spec_version: 1,
+    // 2: emission, treasury and fee distribution (m3-economics).
+    spec_version: 2,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     // 2: `AuthorizeCall` joined the extension pipeline (m2-finality); encodings are unchanged.
@@ -202,4 +203,12 @@ mod runtime {
 
     #[runtime::pallet_index(8)]
     pub type RandomnessCr = pallet_randomness_cr;
+
+    // Pallet name and index are published: the node invariants read the well-known
+    // `Emission::TotalBurned` and `Emission::EpochLength` keys (red line 3).
+    #[runtime::pallet_index(9)]
+    pub type Emission = pallet_emission;
+
+    #[runtime::pallet_index(10)]
+    pub type TreasuryDual = pallet_treasury_dual;
 }

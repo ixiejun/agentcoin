@@ -5,4 +5,6 @@ frame_benchmarking::define_benchmarks!(
     [pallet_validator_set, ValidatorSet]
     [pallet_ac_offences, Offences]
     [pallet_randomness_cr, RandomnessCr]
+    [pallet_emission, Emission]
+    [pallet_treasury_dual, TreasuryDual]
 );

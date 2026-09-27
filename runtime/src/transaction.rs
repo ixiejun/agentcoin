@@ -37,7 +37,7 @@ pub struct ChainContext {
 pub struct TxParams {
     /// Account nonce.
     pub nonce: Nonce,
-    /// Tip for the block author (burned with the fee in M1).
+    /// Tip; distributed like the fee (20% to the block author, the rest burned).
     pub tip: Balance,
     /// Mortality; `Era::Immortal` never expires.
     pub era: Era,

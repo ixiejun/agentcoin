@@ -12,9 +12,9 @@ use sp_runtime::{
 use sp_version::RuntimeVersion;
 
 use super::{
-    AccountId, AuraPq, Balance, Block, Executive, InherentDataExt, Nonce, Offences, PqAccounts,
-    RandomnessCr, Runtime, RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION,
-    ValidatorSet,
+    AccountId, AuraPq, Balance, Block, Emission, Executive, InherentDataExt, Nonce, Offences,
+    PqAccounts, RandomnessCr, Runtime, RuntimeCall, RuntimeGenesisConfig, System,
+    TransactionPayment, TreasuryDual, VERSION, ValidatorSet,
 };
 
 impl_runtime_apis! {
@@ -176,6 +176,56 @@ impl_runtime_apis! {
 
         fn reveals(epoch: u64) -> Vec<([u8; 32], [u8; 32])> {
             RandomnessCr::reveals(epoch)
+        }
+    }
+
+    impl ac_primitives::emission::EmissionApi<Block> for Runtime {
+        fn epoch_length() -> u64 {
+            pallet_emission::EpochLength::<Runtime>::get().unwrap_or(0)
+        }
+
+        fn current_epoch() -> ac_primitives::emission::EpochIndex {
+            Emission::current_epoch()
+        }
+
+        fn scheduled(epoch: ac_primitives::emission::EpochIndex) -> u128 {
+            Emission::schedule().map_or(0, |s| s.scheduled(epoch))
+        }
+
+        fn reserve() -> u128 {
+            pallet_emission::Reserve::<Runtime>::get()
+        }
+
+        fn total_minted() -> u128 {
+            pallet_emission::TotalMinted::<Runtime>::get()
+        }
+
+        fn total_burned() -> u128 {
+            Emission::total_burned()
+        }
+    }
+
+    impl ac_primitives::emission::TreasuryApi<Block, AccountId> for Runtime {
+        fn community() -> (AccountId, u128) {
+            let who = TreasuryDual::community_account();
+            let balance = TreasuryDual::balance(&who);
+            (who, balance)
+        }
+
+        fn holder() -> (AccountId, u128) {
+            let who = TreasuryDual::holder_account();
+            let balance = TreasuryDual::balance(&who);
+            (who, balance)
+        }
+
+        fn floor() -> (AccountId, u128) {
+            let who = TreasuryDual::floor_account();
+            let balance = TreasuryDual::balance(&who);
+            (who, balance)
+        }
+
+        fn floor_spendable() -> u128 {
+            TreasuryDual::floor_spendable()
         }
     }
 

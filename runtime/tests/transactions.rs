@@ -333,7 +333,8 @@ fn rotation_through_runtime() {
     });
 }
 
-// Requirement "手续费与销毁" / Scenario "手续费被销毁".
+// Requirement "手续费与销毁": a block without an author (no pre-runtime digest) burns the whole
+// fee; the 80/20 split with an author is tested in `economics.rs`.
 #[test]
 fn fees_are_burned() {
     dev_ext().execute_with(|| {

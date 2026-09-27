@@ -72,6 +72,13 @@ impl TreasuryDeposit<u64> for TestTreasury {
             (FLOOR, floor_topup),
         ]
     }
+
+    fn floor_minted(amount: u128) {
+        FLOOR_MINTED.with(|f| {
+            let total = f.borrow().saturating_add(amount);
+            *f.borrow_mut() = total;
+        });
+    }
 }
 
 std::thread_local! {
@@ -79,6 +86,8 @@ std::thread_local! {
     pub static PHASE: RefCell<Phase> = const { RefCell::new(Phase::Poa) };
     /// Verified work reported by the test work source.
     pub static WORK: RefCell<(u128, u128)> = const { RefCell::new((0, 0)) };
+    /// Floor amounts reported as minted.
+    pub static FLOOR_MINTED: RefCell<u128> = const { RefCell::new(0) };
 }
 
 pub struct TestBudget;
@@ -115,6 +124,7 @@ impl pallet_emission::Config for Test {
 pub fn ext(length: u64) -> sp_io::TestExternalities {
     PHASE.with(|p| *p.borrow_mut() = Phase::Poa);
     WORK.with(|w| *w.borrow_mut() = (0, 0));
+    FLOOR_MINTED.with(|f| *f.borrow_mut() = 0);
     let storage = RuntimeGenesisConfig {
         system: Default::default(),
         balances: Default::default(),

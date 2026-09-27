@@ -211,11 +211,13 @@ dependencies = [
  "pallet-ac-offences",
  "pallet-aura-pq",
  "pallet-balances",
+ "pallet-emission",
  "pallet-pq-accounts",
  "pallet-randomness-cr",
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
+ "pallet-treasury-dual",
  "pallet-validator-set",
  "parity-scale-codec",
  "proptest",
@@ -6222,6 +6224,21 @@ dependencies = [
  "sp-api",
  "sp-runtime",
  "sp-weights",
+]
+
+[[package]]
+name = "pallet-treasury-dual"
+version = "0.1.0"
+dependencies = [
+ "ac-primitives",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-io",
+ "sp-runtime",
 ]
 
 [[package]]

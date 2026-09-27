@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["clients/wallet-cli", "tests/e2e", "tests/sim", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "pallets/emission", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "runtime"]
+members = ["clients/wallet-cli", "tests/e2e", "tests/sim", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "pallets/emission", "pallets/treasury-dual", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "runtime"]
 
 [workspace.package]
 version = "0.1.0"
@@ -100,6 +100,7 @@ pallet-aura-pq = { path = "pallets/aura-pq", version = "0.1", default-features =
 pallet-ac-offences = { path = "pallets/offences", version = "0.1", default-features = false }
 pallet-pq-accounts = { path = "pallets/pq-accounts", version = "0.1", default-features = false }
 pallet-emission = { path = "pallets/emission", version = "0.1", default-features = false }
+pallet-treasury-dual = { path = "pallets/treasury-dual", version = "0.1", default-features = false }
 pallet-randomness-cr = { path = "pallets/randomness-cr", version = "0.1", default-features = false }
 pallet-validator-set = { path = "pallets/validator-set", version = "0.1", default-features = false }
 # Test-only

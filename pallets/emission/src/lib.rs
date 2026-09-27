@@ -225,10 +225,10 @@ pub mod pallet {
                 payments.clear();
                 paid_security = 0;
             }
-            payments.extend(T::Treasury::recipients(
-                out.treasury_proportional,
-                out.treasury_floor_topup,
-            ));
+            let [community, holder, (floor, floor_amount)] =
+                T::Treasury::recipients(out.treasury_proportional, out.treasury_floor_topup);
+            payments.push(community);
+            payments.push(holder);
             // Market and public work are paid by their modules from M5 on; until then they
             // are zero because no work is verified.
             let mut minted = 0u128;
@@ -236,6 +236,10 @@ pub mod pallet {
                 if Self::mint(who, *amount) {
                     minted = minted.saturating_add(*amount);
                 }
+            }
+            if floor_amount > 0 && Self::mint(&floor, floor_amount) {
+                minted = minted.saturating_add(floor_amount);
+                T::Treasury::floor_minted(floor_amount);
             }
             // Everything the formula allotted but that was not minted (unpaid security budget,
             // refused mints) returns to the reserve: reserve' = reserve + S − minted.

@@ -1,6 +1,6 @@
 //! Runtime integration of the M2 consensus pallets on the `local` preset (four authorities,
 //! 20-block epochs): epoch-boundary set changes, reports leading to disabling, and a full
-//! randomness cycle, with total issuance unchanged throughout (m2-finality 6.3).
+//! randomness cycle, with total issuance following emission and burns throughout (m2-finality 6.3).
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -20,7 +20,9 @@ use ac_runtime::{
     AuraPq, Executive, Header, RandomnessCr, Runtime, RuntimeCall, System, UncheckedExtrinsic,
     ValidatorSet,
 };
-use common::{apply, issuance, preset_ext, report, seal_evidence, sum_of_balances};
+use common::{
+    apply, expected_issuance, issuance, preset_ext, report, seal_evidence, sum_of_balances,
+};
 use frame_support::pallet_prelude::ProvideInherent;
 use sp_core::H256;
 use sp_inherents::InherentData;
@@ -159,8 +161,8 @@ fn report_disables_at_next_boundary() {
         // Block 22, slot 22: new list [alice, charlie, dave] gives charlie (22 mod 3 = 1).
         chain.run_to(EPOCH + 2, &[]);
         assert_eq!(AuraPq::current_author_name(), Some("charlie"));
-        assert_eq!(issuance(), supply);
-        assert_eq!(sum_of_balances(), supply);
+        assert_eq!(issuance(), expected_issuance(supply));
+        assert_eq!(sum_of_balances(), issuance());
     });
 }
 
@@ -183,7 +185,7 @@ fn randomness_full_cycle() {
             values.push(expected);
         }
         assert_ne!(values[0], values[1]);
-        assert_eq!(issuance(), supply);
-        assert_eq!(sum_of_balances(), supply);
+        assert_eq!(issuance(), expected_issuance(supply));
+        assert_eq!(sum_of_balances(), issuance());
     });
 }
