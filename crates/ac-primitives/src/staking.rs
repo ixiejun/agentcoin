@@ -11,6 +11,8 @@
 
 use alloc::vec::Vec;
 
+use ac_crypto::PqPublicKey;
+
 use parity_scale_codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 
@@ -125,6 +127,67 @@ impl Default for TransitionParams {
     fn default() -> Self {
         Self::CONSTITUTION
     }
+}
+
+/// ML-DSA signing context of a validator key's proof of possession. Never change it.
+pub const VALIDATOR_POP_CONTEXT: &[u8] = b"agentcoin/validator-pop/v1";
+
+/// Domain tag at the start of every proof-of-possession statement.
+pub const VALIDATOR_POP_TAG: &[u8] = b"agentcoin/validator-pop-statement";
+
+/// The statement a validator key signs (context [`VALIDATOR_POP_CONTEXT`]) to prove that the
+/// registering account controls it: SCALE of (tag, genesis hash, account, key). Binding the
+/// account stops anyone from registering someone else's validator key.
+#[must_use]
+pub fn pop_statement<H: Encode, A: Encode>(
+    genesis_hash: &H,
+    who: &A,
+    key: &PqPublicKey,
+) -> Vec<u8> {
+    (VALIDATOR_POP_TAG, genesis_hash, who, key).encode()
+}
+
+/// Identifier of a validator key: the account ID it derives (`ac_crypto::account_id`). The
+/// randomness pallet identifies validators the same way.
+#[must_use]
+pub fn validator_key_id(key: &PqPublicKey) -> [u8; 32] {
+    *ac_crypto::account_id(key).as_bytes()
+}
+
+/// A candidate validator, stored under the well-known key `StakingPos::Candidates`
+/// (`Identity`-hashed account → this record). Its self-stake is the account's
+/// `StakingPos::Ledger` entry. The field order is part of the published format.
+#[derive(
+    Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo,
+)]
+pub struct CandidateRecord {
+    /// ML-DSA-65 key for block seals, AC-BFT votes and randomness.
+    pub key: PqPublicKey,
+    /// Commission in basis points.
+    pub commission_bps: u32,
+    /// A scheduled commission change: new value and the block it takes effect at.
+    pub pending_commission: Option<(u32, u64)>,
+    /// Paused from elections (by itself, an offence or missed reveals).
+    pub chilled: bool,
+}
+
+impl CandidateRecord {
+    /// Commission in force at block `now`.
+    #[must_use]
+    pub fn commission_at(&self, now: u64) -> u32 {
+        match self.pending_commission {
+            Some((value, at)) if now >= at => value,
+            _ => self.commission_bps,
+        }
+    }
+}
+
+/// Head of a staking ledger as the node reads it from the well-known key `StakingPos::Ledger`:
+/// the first field is the active (bonded, not unbonding) amount. Decoding stops after it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Encode, Decode)]
+pub struct LedgerHead {
+    /// Active amount.
+    pub active: u128,
 }
 
 /// What one epoch-boundary check of the switch conditions looks at.
@@ -417,6 +480,83 @@ impl<A> ElectionInput<A> {
             voters,
             seats,
         }
+    }
+}
+
+/// Stake of one account (spec consensus/staking "质押查询与守恒").
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Encode, Decode, TypeInfo)]
+pub struct AccountStake {
+    /// Bonded and counting.
+    pub active: u128,
+    /// Unbonding, not yet unlocked.
+    pub unlocking: u128,
+    /// Unlocked and ready to withdraw.
+    pub withdrawable: u128,
+}
+
+impl AccountStake {
+    /// Stake split into its three parts.
+    #[must_use]
+    pub fn new(active: u128, unlocking: u128, withdrawable: u128) -> Self {
+        Self {
+            active,
+            unlocking,
+            withdrawable,
+        }
+    }
+}
+
+/// A candidate as reported to clients.
+#[non_exhaustive]
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
+pub struct CandidateInfo<A> {
+    /// Validator key.
+    pub key: PqPublicKey,
+    /// Active self-stake.
+    pub self_active: u128,
+    /// Commission in force now, in basis points.
+    pub commission_bps: u32,
+    /// Scheduled commission change: value and effective block.
+    pub pending_commission: Option<(u32, u64)>,
+    /// Paused from elections.
+    pub chilled: bool,
+    /// Nominators naming this candidate and their active nominated amounts.
+    pub nominators: Vec<(A, u128)>,
+}
+
+impl<A> CandidateInfo<A> {
+    /// Candidate information.
+    #[must_use]
+    pub fn new(
+        record: CandidateRecord,
+        now: u64,
+        self_active: u128,
+        nominators: Vec<(A, u128)>,
+    ) -> Self {
+        Self {
+            commission_bps: record.commission_at(now),
+            pending_commission: record.pending_commission.filter(|(_, at)| *at > now),
+            key: record.key,
+            self_active,
+            chilled: record.chilled,
+            nominators,
+        }
+    }
+}
+
+sp_api::decl_runtime_apis! {
+    /// Staking queries (specs consensus/staking, consensus/npos-election,
+    /// consensus/pos-transition).
+    pub trait StakingApi<AccountId> where AccountId: parity_scale_codec::Codec {
+        /// Active, unbonding and withdrawable stake of `who`.
+        fn stake(who: AccountId) -> AccountStake;
+        /// Candidate record, commission in force and received nominations.
+        fn candidate(who: AccountId) -> Option<CandidateInfo<AccountId>>;
+        /// All active stake.
+        fn total_active() -> u128;
+        /// Current minimum self-stake and minimum nomination.
+        fn minimums() -> (u128, u128);
     }
 }
 

@@ -73,6 +73,7 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 | `agentcoin/aura-seal/v1` | 签名 | Aura-PQ 区块封印 | 自 M1 起使用（共识关键） |
 | `agentcoin/key-rotation/v1` | 签名 | 轮换新密钥的持有证明 | 自 M1 起使用（共识关键） |
 | `agentcoin/bft-vote/v1` | 签名 | AC-BFT 的全部消息（提议、投票、超时） | 自 M2 起使用（共识关键） |
+| `agentcoin/validator-pop/v1` | 签名 | 质押注册的验证人公钥的持有证明 | 自 M3 起使用（共识关键） |
 | `agentcoin/receipt/v1` | 签名 | 推理回执 | 为 M5 预留 |
 
 ## 加密私钥文件（格式 v1）

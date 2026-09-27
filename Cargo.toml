@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["clients/wallet-cli", "tests/e2e", "tests/sim", "tests/overmint-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "runtime"]
+members = ["clients/wallet-cli", "tests/e2e", "tests/sim", "tests/overmint-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "pallets/staking-pos", "runtime"]
 
 [workspace.package]
 version = "0.1.0"
@@ -106,6 +106,7 @@ pallet-poa-admin = { path = "pallets/poa-admin", version = "0.1", default-featur
 pallet-treasury-dual = { path = "pallets/treasury-dual", version = "0.1", default-features = false }
 pallet-randomness-cr = { path = "pallets/randomness-cr", version = "0.1", default-features = false }
 pallet-validator-set = { path = "pallets/validator-set", version = "0.1", default-features = false }
+pallet-staking-pos = { path = "pallets/staking-pos", version = "0.1", default-features = false }
 # Test-only
 hex = { version = "0.4", default-features = false }
 serde = { version = "1", default-features = false }

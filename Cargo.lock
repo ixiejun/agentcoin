@@ -6230,6 +6230,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-staking-pos"
+version = "0.1.0"
+dependencies = [
+ "ac-crypto",
+ "ac-primitives",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-balances",
+ "parity-scale-codec",
+ "proptest",
+ "scale-info",
+ "serde",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-timestamp"
 version = "48.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

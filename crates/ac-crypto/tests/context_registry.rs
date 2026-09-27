@@ -43,6 +43,7 @@ fn readme_lists_every_context() {
         "agentcoin/aura-seal/v1",
         "agentcoin/key-rotation/v1",
         "agentcoin/bft-vote/v1",
+        "agentcoin/validator-pop/v1",
     ] {
         assert!(readme.contains(context) && readme_zh.contains(context));
     }
