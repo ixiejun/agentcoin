@@ -31,6 +31,11 @@ The AgentCoin node client (M3: post-quantum chain with finality and scheduled em
     `Emission::TotalBurned`), both published well-known keys. A violating block is rejected
     (our own is neither imported nor announced) and the log names the rule and the values.
     This holds after any runtime upgrade;
+  - the PoA → PoS switch: at every PoA epoch boundary the node recomputes the switch checkpoint
+    from the parent state (all active stake summed over `StakingPos::Ledger`, qualified
+    candidates, issuance, height) and rejects a block that switches early or late, goes back to
+    PoA, keeps a PoA roster in PoS, or changes the switch state elsewhere. A `Live` spec must
+    use the constitution's switch values (10%, 21 candidates, 63,115,200 and 604,800 blocks);
   - fail-closed: a missing or undecodable well-known value rejects the block, and blocks are
     never imported without executing them, so warp and fast sync are not supported.
 - **Keys**: the validator key comes from an encrypted file (`--pq-key-file` +
@@ -51,8 +56,9 @@ target/release/ac-node --dev --tmp
 # Prometheus metrics on 127.0.0.1:9615-9618.
 scripts/run-local-testnet.sh
 # Same, but check after 40 s that every node reached height 20 and finalized height 15, that
-# alice exports acbft_finalized_number, that emission epoch 0 minted the treasury floor and that
-# the PoA council has three members; then stop.
+# alice exports acbft_finalized_number, that emission epoch 0 minted the treasury floor, that
+# the PoA council has three members and that the switch progress shows PoA with the local
+# switch parameters; then stop.
 scripts/run-local-testnet.sh --check
 
 # AC-BFT metrics of alice.

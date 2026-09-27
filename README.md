@@ -16,7 +16,7 @@ Primary language: Rust. Development method: spec-driven development (SDD) with [
 
 Documentation language policy: every project document has an English version (primary, at the canonical path) and a Simplified Chinese version (`*.zh-CN.md`), each linking to the other at the top.
 
-Status: M0 (workspace, CI and the `ac-crypto` post-quantum library, [crates/ac-crypto](crates/ac-crypto/README.md)) and M1 (post-quantum chain, [node](node/README.md)) complete; M2 (AC-BFT finality, double-signing evidence, commit–reveal randomness) complete; M3 economics (scheduled emission, dual treasury, 80/20 fee distribution, PoA multisig, node-enforced supply invariants) complete, PoS next. Specs in `openspec/specs/`.
+Status: M0 (workspace, CI and the `ac-crypto` post-quantum library, [crates/ac-crypto](crates/ac-crypto/README.md)) and M1 (post-quantum chain, [node](node/README.md)) complete; M2 (AC-BFT finality, double-signing evidence, commit–reveal randomness) complete; M3 economics (scheduled emission, dual treasury, 80/20 fee distribution, PoA multisig, node-enforced supply invariants) complete; M3 PoS (staking, Phragmén elections, rewards by work, slashing, and the node-enforced one-way PoA → PoS switch) implemented, awaiting archive. Specs in `openspec/specs/`.
 
 ## Local development
 
@@ -29,7 +29,7 @@ SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets --all-features -- -D wa
 cargo test --workspace --all-features
 for c in ac-crypto ac-primitives ac-invariants pallet-pq-accounts pallet-aura-pq \
   pallet-validator-set pallet-ac-offences pallet-randomness-cr pallet-emission \
-  pallet-treasury-dual pallet-poa-admin; do
+  pallet-treasury-dual pallet-poa-admin pallet-staking-pos; do
   cargo build -p $c --no-default-features --target wasm32-unknown-unknown
 done
 cargo install --locked cargo-deny cargo-audit   # once
@@ -55,6 +55,10 @@ curl -s -H 'Content-Type: application/json' http://127.0.0.1:9944 \
 # PoaCouncil::Members (well-known key): SCALE list of the admin accounts
 curl -s -H 'Content-Type: application/json' http://127.0.0.1:9944 \
   -d '{"id":1,"jsonrpc":"2.0","method":"state_getStorage","params":["0x0a7e2b603d0e3b9627cde4d35083b551ba7fb8745735dc3be2a2c61a72c39e78"]}'
+# PoA -> PoS switch progress (SCALE TransitionProgress: phase, switch block, start of the
+# qualified run, active stake, stake needed, qualified candidates, parameters, height)
+curl -s -H 'Content-Type: application/json' http://127.0.0.1:9944 \
+  -d '{"id":1,"jsonrpc":"2.0","method":"state_call","params":["StakingApi_transition","0x"]}'
 # Finality latency on 4, 7 and 10 local authorities (release build, >= 4 cores)
 scripts/measure-finality.sh
 ```

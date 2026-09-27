@@ -198,14 +198,14 @@ pub struct AccountId([u8; 32]);
   - Rounds, not heights: the leader of round `r` (member `r mod n`) proposes its best block; members prepare-vote under a locking rule, commit-vote on a prepare certificate (`q = ⌊2W/3⌋ + 1`) and enter the next round at once; a commit certificate finalizes the target and its ancestors. Timeouts start at two slots and back off ×1.5 up to 30 s; nodes that fall behind catch up from the rounds that members worth more than `W − q` have reached.
   - Messages are versioned and signed with ML-DSA-65 under `agentcoin/bft-vote/v1`, bound to the genesis hash and set id, and flooded over `/<genesis>/acbft/1`. Votes are persisted before they are sent.
   - Authority sets change only at epoch boundaries (`ScheduledChange` digest, engine `acbf`); the change block is finalized by the old set. A finality proof (versioned set of commit votes) is stored for every change block and at least every 64 blocks, and verified on import and sync.
-  - Offences: seal double signing (two headers in one slot) and vote double signing (two messages of one kind in one round and set) are reported automatically through an unsigned, authorized extrinsic. M2 records each kind at most once per offender and set, removes the offender from the next epoch's set on its first record (never emptying it) and punishes only once — slashing will follow the most severe recorded kind, never adding up; no stake is slashed yet — slashing plugs into a reserved `SlashHandler` with PoS.
+  - Offences: seal double signing (two headers in one slot) and vote double signing (two messages of one kind in one round and set) are reported automatically through an unsigned, authorized extrinsic. M2 records each kind at most once per offender and set, removes the offender from the next epoch's set on its first record (never emptying it) and punishes only once — slashing will follow the most severe recorded kind, never adding up; no stake is slashed yet — slashing plugs into a reserved `SlashHandler` with PoS. From M3 PoS, `pallet-staking-pos` slashes the offender's self-stake (vote 100%, seal 10%) and burns it.
   - Measured on one 4-core machine (release build, localhost): see the `m2-finality` design, "测量结果"; P95 finality latency is well under 3 s for 4, 7 and 10 validators.
 
 ### 4.2 On-chain randomness (for audit sampling)
 
 - `pallet-randomness-cr`: each epoch validators commit `H(secret)` and reveal `secret` in the next epoch. Randomness = `BLAKE3(all revealed values)`. Validators that do not reveal lose emission.
 - Known weakness: the last revealer can withhold and thereby bias the result by 1 bit. Acceptable for audit sampling. The full version adds a hash-based VDF.
-- **As implemented in M2**: block authors put `note_randomness` (commit of epoch `e`, reveal of epoch `e − 1`) into their blocks as a mandatory inherent; secrets are derived from the validator seed, genesis and epoch, so they survive restarts. `R(e) = derive_key("agentcoin 2026-09 randomness v1", u64_le(e) ‖ reveals sorted by account ID)` is published at the first block of epoch `e + 2` and is recomputable from the published reveals. Missed reveals are counted per validator (the emission penalty comes with `pallet-emission`). The runtime exposes `RandomnessApi` and FRAME's `Randomness`.
+- **As implemented in M2**: block authors put `note_randomness` (commit of epoch `e`, reveal of epoch `e − 1`) into their blocks as a mandatory inherent; secrets are derived from the validator seed, genesis and epoch, so they survive restarts. `R(e) = derive_key("agentcoin 2026-09 randomness v1", u64_le(e) ‖ reveals sorted by account ID)` is published at the first block of epoch `e + 2` and is recomputable from the published reveals. Missed reveals are counted per validator (the emission penalty comes with `pallet-emission`). The runtime exposes `RandomnessApi` and FRAME's `Randomness`. From M3 PoS, an epoch with a missed reveal earns its validator no reward points, and three in a row pause it from elections.
 
 ### 4.3 Automatic PoA → PoS switch (D19)
 
@@ -222,6 +222,13 @@ the PoA validator list comes from genesis config + multisig add/remove
 
 - The switch logic is written both in the runtime and in the **node invariant checker** (§6), so no runtime upgrade can bypass it.
 - MVP election in the PoS phase: top K by stake (a simple stand-in for NPoS); **[reserved]** the `ValidatorElection` trait takes `(stake, workscore)` as input and is replaced by work-weighted election in the full version.
+- **As implemented in M3 (`m3-pos`)**:
+  - Conditions (revising D19): all active stake (self-stake plus nominations, excluding unbonding) ≥ 10% of the **total issuance**; at least 21 candidates whose active self-stake is ≥ 0.1% of the issuance and that are not paused; height ≥ 63,115,200 (two years after launch). Every validator-epoch boundary is a checkpoint; `ValidatorSet::QualifiedSince` records the first passing checkpoint of an uninterrupted run, and the boundary at which the run has lasted 604,800 blocks (seven days) switches to PoS for good. The multisig can add and remove PoA authorities until then and loses that power at the switch; all PoA authorities leave. During the seven days every epoch publishes a preview election.
+  - Staking (`pallet-staking-pos`): candidates register an ML-DSA-65 validator key with a proof of possession (`agentcoin/validator-pop/v1`) and a commission of 5–100% (increases after 7 days, decreases at the next epoch); nominators name 1–16 candidates with at least 0.001% of the issuance; at most 500 candidates and 750 nominators, full lists evict their smallest entry. Self-stake unbonds in 28 days; nominations through a network-wide queue in 2–28 days (after Polkadot RFC-0097).
+  - Election: sequential Phragmén with balancing (`sp-npos-elections`) in the last block of each epoch, `K` = 100 on live chains (a parameter; storage bound 1,000, issue I-004); AC-BFT weight `max(1, backing / 10^12)`. The worst case fits one block (issue I-005).
+  - Rewards (R1): the security budget is shared by blocks authored, not by stake; each validator's share pays its commission, the rest goes pro rata to its backing, paid automatically from a reward pot. An epoch with a missed randomness reveal earns no points; three in a row pause the validator.
+  - Slashing (U3): only the validator's self-stake, bonded and unbonding — vote double signing 100%, seal double signing 10%, the most severe kind per set, burned through `Emission`. Nominators are never slashed; going offline costs no principal.
+  - The node recomputes every checkpoint from well-known keys (§6), so no runtime upgrade can switch early, delay the switch or go back.
 
 ---
 
@@ -234,7 +241,8 @@ the PoA validator list comes from genesis config + multisig add/remove
 | `pallet-treasury-dual` | α | Community grants + holder treasury; linear vesting of the 5% floor |
 | ~~`pallet-fee-burn`~~ | α | Merged into `pallet-emission`, which records every burn (m3-economics) |
 | `pallet-poa-admin` + `pallet-collective` | α | PoA multisig: ML-DSA members with a threshold act as Root (D41) |
-| `pallet-validator-set` | α | PoA / PoS state machine, session keys, slashing |
+| `pallet-validator-set` | α | Epochs, PoA roster, the one-way PoA → PoS state machine, installing elected sets |
+| `pallet-staking-pos` | α | Candidates, nominations, unbonding queue, commission, Phragmén election, rewards by work, slashing (m3-pos) |
 | `pallet-randomness-cr` | α | Commit–reveal randomness |
 | `pallet-model-registry` | α | Model registration, lineage declarations |
 | `pallet-providers` | α | Provider registration, tiers, stake, prices, heartbeats |
@@ -431,7 +439,7 @@ fn check_block(params: &GenesisParams, n: u64, pre: Ledger, post: Ledger) -> Res
 - `Ledger` is read from published well-known keys: `Balances::TotalIssuance` and `Emission::TotalBurned` (SCALE `u128`). Minting is measured as the change of issuance + burned, so burning never hides minting, and a runtime that inflates the burned counter only makes the checks stricter. A missing or undecodable key rejects the block (fail-closed).
 - `InvariantBlockImport` sits between the AC-BFT block import and the client: blocks authored locally, received or synced all pass through it. For other nodes' blocks it executes the block on the parent state and hands the storage changes on, so each block is executed once. Blocks that would be imported without execution are rejected, so warp and fast sync are not supported.
 - At start-up the node checks the chain spec's genesis: a valid `Emission::EpochLength`, issuance within the cap, and for live chains zero issuance, no balances and at least one PoA admin member (`PoaCouncil::Members`).
-- The PoA → PoS switch conditions (constitution 4) join these checks with `m3-pos`.
+- The PoA → PoS switch (constitution 4, `m3-pos`): on every block the node reads `ValidatorSet::{Phase, QualifiedSince, PoaAuthorities}` before and after. At each PoA epoch boundary it recomputes the checkpoint from the parent state (active stake summed over `StakingPos::Ledger`, qualified candidates from `StakingPos::Candidates`, the issuance and the height) with the runtime's own `transition_step`, and rejects a block whose phase or `QualifiedSince` differ: no early switch, no delayed switch, no way back, no PoA roster in PoS, and no change of the switch state outside boundaries. At start-up a live chain's `ValidatorSet::TransitionParams` must equal the constitution values (10%, 21, 63,115,200, 604,800).
 - Changing these rules = releasing a new node client = a **hard fork**.
 - "Protocol neutrality" (constitution 2) belongs to layer 2; the client adds an auxiliary check that the runtime contains no storage prefixes named `Blacklist`, `Blocklist`, `GeoFence`, etc. (only a helper; the main safeguard is layer-2 review).
 
@@ -482,6 +490,13 @@ fn check_block(params: &GenesisParams, n: u64, pre: Ledger, post: Ledger) -> Res
 | Transaction fees | Weight + length based; of every fee and tip 20% (rounded down) to the block author, the rest burned; a share below the existential deposit of a new author account is burned | Guardrail |
 | Existential deposit | 0.001 ATC | Runtime constant |
 | PoA administration | Multisig of ML-DSA accounts with a threshold; 7-day motions | Genesis, then the multisig itself |
+| PoA → PoS switch | 10% of the issuance staked, 21 qualified candidates, height ≥ 63,115,200, held for 604,800 blocks | Constitution layer 1 |
+| Active set size `K` | 100 (storage bound 1,000) | PoA administration; guardrail (M8) |
+| Minimum self-stake / nomination | 0.1% / 0.001% of the total issuance | Runtime |
+| Candidates / nominators | at most 500 / 750 | Genesis |
+| Unbonding | self-stake 28 days; nominations 2–28 days (queue) | Genesis |
+| Commission | 5%–100%; increases after 7 days | Genesis |
+| Slashing | vote double signing 100%, seal double signing 10% of self-stake; burned | Runtime |
 | Block time | 1s | Runtime constant |
 | Challenge period | 2 epochs | Guardrail |
 

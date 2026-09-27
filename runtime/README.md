@@ -2,7 +2,8 @@
 
 # ac-runtime
 
-The AgentCoin WASM runtime (M3: post-quantum chain with scheduled emission).
+The AgentCoin WASM runtime (M3: post-quantum chain with scheduled emission and nominated proof of
+stake).
 
 | Index | Pallet | Notes |
 |---|---|---|
@@ -12,13 +13,14 @@ The AgentCoin WASM runtime (M3: post-quantum chain with scheduled emission).
 | 3 | `Balances` | ATC, 18 decimals, existential deposit 0.001 ATC; the pallet name is a published well-known key (constitution layer 1) |
 | 4 | `TransactionPayment` | weight + length fees; of every fee and tip 20% (rounded down) goes to the block author, the rest is burned through `Emission` |
 | 5 | `PqAccounts` | public-key registry, `rotate_key` |
-| 6 | `ValidatorSet` | epoch-based authority set |
+| 6 | `ValidatorSet` | epoch-based authority set, PoA roster and the one-way PoA → PoS switch; name published (`Phase`, `QualifiedSince`, `PoaAuthorities`, `TransitionParams`, `EpochLength`) |
 | 7 | `Offences` | double-signing reports |
 | 8 | `RandomnessCr` | commit–reveal randomness |
 | 9 | `Emission` | scheduled emission and the burn ledger; name published (`Emission::TotalBurned`, `Emission::EpochLength`) |
 | 10 | `TreasuryDual` | community grants, the locked holder treasury, the vesting floor |
 | 11 | `PoaCouncil` | `pallet-collective` instance of the PoA multisig; name published (`PoaCouncil::Members`) |
 | 12 | `PoaAdmin` | threshold origin, `dispatch_as_root`, members and threshold |
+| 13 | `StakingPos` | candidates, nominations, unbonding queue, elections, rewards, slashing; name published (`Ledger`, `Candidates`) |
 
 Transactions are v5 `General` extrinsics whose first extension is `PqAuthorize` (D36); the legacy
 `Signed` form cannot be decoded. The `transaction` module builds signed transactions for wallets
@@ -28,7 +30,15 @@ and tests: `authorized_extensions`, `implicit_from` (chain facts → implicit da
 Genesis presets `development` (authority alice) and `local_testnet` (alice, bob, charlie, dave)
 endow the public development accounts alice, bob, charlie and dave; no other preset may allocate
 ATC. Their emission epochs are 10 and 20 blocks, their PoA administration alice (threshold 1) and
-alice, bob, charlie (threshold 2), with 20-block motions.
+alice, bob, charlie (threshold 2), with 20-block motions. Their switch parameters let a test
+chain reach PoS within a minute or two: development — one qualified candidate, conditions from
+height 20 held for 20 blocks, `K` = 5; local — three candidates, height 40, 40 blocks, `K` = 10;
+both with 10% of the issuance staked, and unbonding and commission delays of tens of blocks.
+Live chains use the constitution values (10%, 21, 63,115,200 and 604,800 blocks) and `K` = 100.
+
+The security budget of emission goes to `StakingPos` (paid only in PoS), and double signing is
+slashed through it. Runtime APIs: `StakingApi` (stake, candidates, latest election, switch
+progress) besides the M1–M3 ones. `spec_version` 3, `transaction_version` 3.
 
 The administration origin is a `PoaCouncil` motion approved by at least the threshold of members
 (`PoaAdmin::dispatch_as_root` runs calls as Root, e.g. `System::set_code`). The holder treasury
