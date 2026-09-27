@@ -81,7 +81,9 @@ impl pallet_balances::Config for Runtime {
     type ReserveIdentifier = [u8; 8];
     type Balance = Balance;
     type RuntimeEvent = RuntimeEvent;
-    type DustRemoval = ();
+    // Dust of reaped accounts is burned through `Emission`, so it counts in `TotalBurned` and
+    // Δissuance = minted − burned holds exactly (chain/native-token "总量守恒").
+    type DustRemoval = Emission;
     type ExistentialDeposit = ConstU128<EXISTENTIAL_DEPOSIT>;
     type AccountStore = frame_system::Pallet<Runtime>;
     type WeightInfo = pallet_balances::weights::SubstrateWeight<Runtime>;

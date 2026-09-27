@@ -200,6 +200,7 @@ name = "ac-runtime"
 version = "0.1.0"
 dependencies = [
  "ac-crypto",
+ "ac-invariants",
  "ac-primitives",
  "frame-benchmarking",
  "frame-executive",

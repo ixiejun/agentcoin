@@ -160,3 +160,27 @@ fn settlement_through_the_executive() {
         assert_eq!(TreasuryDual::floor_spendable(), 0);
     });
 }
+
+// Dust of a reaped account is burned and counted, so Δissuance = minted − burned stays exact.
+#[test]
+fn dust_is_counted_as_burned() {
+    use sp_runtime::traits::Dispatchable;
+    dev_authored().execute_with(|| {
+        let bob = Signer::dev("bob");
+        let fresh = Signer::fresh(9, SigAlg::MlDsa44);
+        assert_eq!(
+            apply(signed(&bob, transfer(&fresh.account, ATC))),
+            Ok(Ok(()))
+        );
+        let (issuance0, burned0) = (issuance(), Emission::total_burned());
+        // Dispatched directly (no fee): leaves half an existential deposit, which is dust.
+        let dust = EXISTENTIAL_DEPOSIT / 2;
+        transfer(&bob.account, ATC - dust)
+            .dispatch(ac_runtime::RuntimeOrigin::signed(fresh.account.clone()))
+            .unwrap();
+        assert!(!exists(&fresh.account));
+        assert_eq!(issuance0 - issuance(), dust);
+        assert_eq!(Emission::total_burned() - burned0, dust);
+        assert_eq!(sum_of_balances(), issuance());
+    });
+}

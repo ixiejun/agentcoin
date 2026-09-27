@@ -46,6 +46,7 @@ sp-transaction-pool = { workspace = true }
 sp-version = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
+ac-invariants = { workspace = true, features = ["std"] }
 ac-crypto = { workspace = true, features = ["scale", "serde", "std", "deterministic"] }
 proptest = { workspace = true, features = ["std"] }
 hex = { workspace = true, features = ["std"] }

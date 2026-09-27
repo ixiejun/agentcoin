@@ -44,8 +44,8 @@ existential deposit of a new account) also returns to the reserve.
 
 ## Burns
 
-Every burn in the runtime (80% of transaction fees and tips today; slashing and inference fees
-later) goes through this pallet's `OnUnbalanced` implementation: the credit is dropped, which
+Every burn in the runtime (today 80% of transaction fees and tips, and the dust of reaped
+accounts; later slashing and inference fees) goes through this pallet's `OnUnbalanced` implementation: the credit is dropped, which
 reduces the total issuance, and its amount is added to `TotalBurned`.
 
 ## Well-known storage keys

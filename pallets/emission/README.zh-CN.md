@@ -29,7 +29,7 @@ reserve' = reserve + S − total
 
 ## 销毁
 
-runtime 中所有销毁（目前是交易手续费和小费的 80%；之后还有罚没和推理费）都经过本模块的 `OnUnbalanced` 实现：丢弃 `Credit` 使总发行量减少，同时把金额累加到 `TotalBurned`。
+runtime 中所有销毁（目前是交易手续费和小费的 80% 以及被回收账户的尘埃；之后还有罚没和推理费）都经过本模块的 `OnUnbalanced` 实现：丢弃 `Credit` 使总发行量减少，同时把金额累加到 `TotalBurned`。
 
 ## 固定存储键
 
