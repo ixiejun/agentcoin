@@ -19,11 +19,13 @@ use super::{
     RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, TreasuryDual, VERSION,
     ValidatorSet,
 };
+use crate::holder_lock::HolderTreasuryLock;
 use ac_primitives::Blake3Hasher;
 use ac_primitives::emission::{FLOOR_BATCH_BLOCKS, FLOOR_VESTING_BLOCKS, PoaPhase};
+use frame_support::traits::EitherOfDiverse;
 use frame_support::traits::fungible::{Balanced, Credit};
 use frame_support::traits::{Imbalance, OnUnbalanced};
-use frame_system::EnsureRoot;
+use frame_system::{EnsureNever, EnsureRoot};
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
@@ -56,6 +58,9 @@ impl frame_system::Config for Runtime {
     type Version = Version;
     type AccountData = pallet_balances::AccountData<Balance>;
     type MaxConsumers = ConstU32<16>;
+    /// The holder treasury is locked (decision D42); Root bypasses this filter, so
+    /// `PoaAdmin::dispatch_as_root` applies it again.
+    type BaseCallFilter = HolderTreasuryLock;
 }
 
 impl pallet_timestamp::Config for Runtime {
@@ -198,9 +203,51 @@ parameter_types! {
 impl pallet_treasury_dual::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
-    type AdminOrigin = EnsureRoot<AccountId>;
+    type AdminOrigin = TreasuryAdminOrigin;
     type BatchBlocks = FloorBatchBlocks;
     type VestingBlocks = FloorVestingBlocks;
     type MaxBatches = MaxFloorBatches;
     type WeightInfo = pallet_treasury_dual::weights::SubstrateWeight<Runtime>;
+}
+
+/// The chain's administration during PoA: a PoA-council motion approved by at least the
+/// threshold of members (decision D41).
+pub type AdminOrigin = pallet_poa_admin::EnsureCouncilThreshold<Runtime>;
+
+/// Treasury spends: the administration, directly or through `PoaAdmin::dispatch_as_root`.
+pub type TreasuryAdminOrigin = EitherOfDiverse<EnsureRoot<AccountId>, AdminOrigin>;
+
+parameter_types! {
+    // Half a block: a motion can never exhaust a block on its own.
+    pub MaxProposalWeight: Weight = Perbill::from_percent(50) * RuntimeBlockWeights::get().max_block;
+}
+
+/// Maximum number of PoA council members.
+pub const MAX_COUNCIL_MEMBERS: u32 = 16;
+
+impl pallet_collective::Config<pallet_collective::Instance1> for Runtime {
+    type RuntimeOrigin = RuntimeOrigin;
+    type Proposal = RuntimeCall;
+    type RuntimeEvent = RuntimeEvent;
+    /// Genesis parameter of `PoaAdmin`: 7 days on live chains, 20 blocks on development chains.
+    type MotionDuration = pallet_poa_admin::MotionDurationOf<Runtime>;
+    type MaxProposals = ConstU32<32>;
+    type MaxMembers = ConstU32<MAX_COUNCIL_MEMBERS>;
+    /// No prime member is ever set, so a member who does not vote counts as a no.
+    type DefaultVote = pallet_collective::PrimeDefaultVote;
+    type WeightInfo = pallet_collective::weights::SubstrateWeight<Runtime>;
+    /// Members change only through `PoaAdmin::set_members`, which keeps the threshold valid.
+    type SetMembersOrigin = EnsureNever<()>;
+    type MaxProposalWeight = MaxProposalWeight;
+    type DisapproveOrigin = AdminOrigin;
+    type KillOrigin = AdminOrigin;
+    type Consideration = ();
+}
+
+impl pallet_poa_admin::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeCall = RuntimeCall;
+    type AdminOrigin = AdminOrigin;
+    type RootCallFilter = HolderTreasuryLock;
+    type WeightInfo = pallet_poa_admin::weights::SubstrateWeight<Runtime>;
 }

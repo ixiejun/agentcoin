@@ -19,7 +19,22 @@ fn pallet_indices_are_fixed() {
     assert_eq!(<Offences as PalletInfoAccess>::index(), 7);
     assert_eq!(<RandomnessCr as PalletInfoAccess>::index(), 8);
     assert_eq!(<ac_runtime::PqAccounts as PalletInfoAccess>::index(), 5);
+    // m3-economics (design D9).
+    assert_eq!(<ac_runtime::Emission as PalletInfoAccess>::index(), 9);
+    assert_eq!(<ac_runtime::TreasuryDual as PalletInfoAccess>::index(), 10);
+    assert_eq!(<ac_runtime::PoaCouncil as PalletInfoAccess>::index(), 11);
+    assert_eq!(<ac_runtime::PoaAdmin as PalletInfoAccess>::index(), 12);
+    // The published names the node reads storage keys under.
+    assert_eq!(
+        <ac_runtime::Emission as PalletInfoAccess>::name(),
+        "Emission"
+    );
+    assert_eq!(
+        <ac_runtime::PoaCouncil as PalletInfoAccess>::name(),
+        "PoaCouncil"
+    );
     assert_eq!(VERSION.transaction_version, 2);
+    assert_eq!(VERSION.spec_version, 2);
 }
 
 // The M2 runtime APIs are declared by the runtime.
@@ -35,6 +50,12 @@ fn runtime_apis_are_declared() {
     ));
     assert!(has(
         <dyn ac_primitives::randomness::RandomnessApi<ac_runtime::Block>>::ID
+    ));
+    assert!(has(
+        <dyn ac_primitives::emission::EmissionApi<ac_runtime::Block>>::ID
+    ));
+    assert!(has(
+        <dyn ac_primitives::emission::TreasuryApi<ac_runtime::Block, ac_runtime::AccountId>>::ID
     ));
 }
 

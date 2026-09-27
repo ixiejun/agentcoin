@@ -14,7 +14,9 @@ ac-crypto = { workspace = true, features = ["scale", "serde"] }
 ac-primitives = { workspace = true }
 pallet-aura-pq = { workspace = true }
 pallet-balances = { workspace = true }
+pallet-collective = { workspace = true }
 pallet-emission = { workspace = true }
+pallet-poa-admin = { workspace = true }
 pallet-treasury-dual = { workspace = true }
 pallet-pq-accounts = { workspace = true }
 pallet-ac-offences = { workspace = true }
@@ -62,7 +64,9 @@ std = [
     "ac-primitives/std",
     "pallet-aura-pq/std",
     "pallet-balances/std",
+    "pallet-collective/std",
     "pallet-emission/std",
+    "pallet-poa-admin/std",
     "pallet-treasury-dual/std",
     "pallet-pq-accounts/std",
     "pallet-ac-offences/std",
@@ -99,7 +103,9 @@ runtime-benchmarks = [
     "frame-system-benchmarking/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
     "pallet-balances/runtime-benchmarks",
+    "pallet-collective/runtime-benchmarks",
     "pallet-emission/runtime-benchmarks",
+    "pallet-poa-admin/runtime-benchmarks",
     "pallet-treasury-dual/runtime-benchmarks",
     "pallet-pq-accounts/runtime-benchmarks",
     "pallet-ac-offences/runtime-benchmarks",

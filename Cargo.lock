@@ -211,7 +211,9 @@ dependencies = [
  "pallet-ac-offences",
  "pallet-aura-pq",
  "pallet-balances",
+ "pallet-collective",
  "pallet-emission",
+ "pallet-poa-admin",
  "pallet-pq-accounts",
  "pallet-randomness-cr",
  "pallet-timestamp",
@@ -6124,6 +6126,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-collective"
+version = "49.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44791fda194e57dea0c1194032bde0187858b0c03795161f6f48e8f3868b08b5"
+dependencies = [
+ "docify",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-emission"
 version = "0.1.0"
 dependencies = [
@@ -6136,6 +6156,20 @@ dependencies = [
  "parity-scale-codec",
  "scale-info",
  "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
+name = "pallet-poa-admin"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "pallet-collective",
+ "parity-scale-codec",
+ "scale-info",
  "sp-io",
  "sp-runtime",
 ]

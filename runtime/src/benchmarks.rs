@@ -7,4 +7,5 @@ frame_benchmarking::define_benchmarks!(
     [pallet_randomness_cr, RandomnessCr]
     [pallet_emission, Emission]
     [pallet_treasury_dual, TreasuryDual]
+    [pallet_poa_admin, PoaAdmin]
 );

@@ -30,6 +30,7 @@ mod benchmarks;
 mod apis;
 mod configs;
 pub mod genesis_config_presets;
+pub mod holder_lock;
 pub mod transaction;
 
 // The runtime macros expand to code that names `Vec` unqualified.
@@ -55,7 +56,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     impl_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     authoring_version: 1,
-    // 2: emission, treasury and fee distribution (m3-economics).
+    // 2: emission, treasury, fee distribution and the PoA multisig (m3-economics).
     spec_version: 2,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
@@ -211,4 +212,12 @@ mod runtime {
 
     #[runtime::pallet_index(10)]
     pub type TreasuryDual = pallet_treasury_dual;
+
+    // Name published: the node reads the well-known `PoaCouncil::Members` key at start-up. Its
+    // genesis (members) must be built before `PoaAdmin`'s (threshold), so it comes first.
+    #[runtime::pallet_index(11)]
+    pub type PoaCouncil = pallet_collective<Instance1>;
+
+    #[runtime::pallet_index(12)]
+    pub type PoaAdmin = pallet_poa_admin;
 }

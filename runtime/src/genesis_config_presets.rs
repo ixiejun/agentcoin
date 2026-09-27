@@ -19,6 +19,9 @@ pub const DEV_ACCOUNTS: [&str; 4] = ["alice", "bob", "charlie", "dave"];
 /// Endowment of each development account.
 pub const DEV_ENDOWMENT: u128 = 1_000_000 * ATC;
 
+/// Motion duration of the development presets, in blocks.
+pub const DEV_MOTION_DURATION: u32 = 20;
+
 /// Entropy of the public development wallet: the BIP-39 test mnemonic
 /// `abandon abandon … abandon art` (24 words). Development and local chains endow its first
 /// ML-DSA-44 key so that `ac-wallet import` works out of the box. Never use it for real funds.
@@ -58,7 +61,16 @@ pub fn dev_account(name: &str) -> Result<AccountId, ac_crypto::Error> {
     )?))
 }
 
-fn testnet_genesis(authorities: &[&str], epoch_length: u64) -> Result<Value, ac_crypto::Error> {
+fn testnet_genesis(
+    authorities: &[&str],
+    epoch_length: u64,
+    admins: &[&str],
+    threshold: u32,
+) -> Result<Value, ac_crypto::Error> {
+    let admins = admins
+        .iter()
+        .map(|name| dev_account(name))
+        .collect::<Result<Vec<_>, _>>()?;
     let authorities = authorities
         .iter()
         .map(|name| dev_public_key(name, SigAlg::MlDsa65))
@@ -78,6 +90,12 @@ fn testnet_genesis(authorities: &[&str], epoch_length: u64) -> Result<Value, ac_
         treasury_dual: pallet_treasury_dual::GenesisConfig {
             community_share: pallet_treasury_dual::DEFAULT_COMMUNITY_SHARE
         },
+        poa_council: pallet_collective::GenesisConfig { members: admins },
+        // Short motions so tests can let them expire.
+        poa_admin: pallet_poa_admin::GenesisConfig {
+            threshold,
+            motion_duration: DEV_MOTION_DURATION
+        },
     }))
 }
 
@@ -85,10 +103,15 @@ fn testnet_genesis(authorities: &[&str], epoch_length: u64) -> Result<Value, ac_
 pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
     let patch = match id.as_ref() {
         // Short epochs so tests see authority-set changes and randomness quickly.
-        sp_genesis_builder::DEV_RUNTIME_PRESET => testnet_genesis(&["alice"], 10),
+        sp_genesis_builder::DEV_RUNTIME_PRESET => testnet_genesis(&["alice"], 10, &["alice"], 1),
         sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET => {
             // Four authorities tolerate one faulty member (n ≥ 3f + 1).
-            testnet_genesis(&["alice", "bob", "charlie", "dave"], 20)
+            testnet_genesis(
+                &["alice", "bob", "charlie", "dave"],
+                20,
+                &["alice", "bob", "charlie"],
+                2,
+            )
         }
         _ => return None,
     };

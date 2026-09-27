@@ -84,3 +84,39 @@ fn local_testnet_has_four_ordered_authorities() {
 fn unknown_preset_is_none() {
     assert!(ac_runtime::genesis_config_presets::get_preset(&"mainnet".into()).is_none());
 }
+
+// node/chain-spec Scenario "开发链的经济参数" (runtime part): emission epochs of at most 20
+// blocks dividing the four-year period, the PoA administration (dev: alice / 1; local: alice,
+// bob, charlie / 2) and the 40% community share.
+#[test]
+fn development_economics() {
+    let check = |preset: &str, length: u64, admins: &[&str], threshold: u32| {
+        preset_ext(preset).execute_with(|| {
+            let l = pallet_emission::EpochLength::<ac_runtime::Runtime>::get().unwrap();
+            assert_eq!(l, length);
+            assert!(l <= 20 && ac_primitives::emission::BLOCKS_PER_PERIOD.is_multiple_of(l));
+            let mut expected: Vec<_> = admins.iter().map(|n| dev_account(n).unwrap()).collect();
+            expected.sort();
+            assert_eq!(
+                pallet_collective::Members::<ac_runtime::Runtime, pallet_collective::Instance1>::get(),
+                expected
+            );
+            assert_eq!(
+                pallet_poa_admin::Threshold::<ac_runtime::Runtime>::get(),
+                threshold
+            );
+            assert_eq!(
+                pallet_treasury_dual::CommunityShare::<ac_runtime::Runtime>::get(),
+                4_000
+            );
+            assert_eq!(ac_runtime::Emission::total_burned(), 0);
+        });
+    };
+    check(sp_genesis_builder::DEV_RUNTIME_PRESET, 10, &["alice"], 1);
+    check(
+        sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET,
+        20,
+        &["alice", "bob", "charlie"],
+        2,
+    );
+}

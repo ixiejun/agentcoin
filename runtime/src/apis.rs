@@ -287,7 +287,7 @@ impl_runtime_apis! {
         ) {
             use frame_benchmarking::BenchmarkList;
             use frame_support::traits::StorageInfoTrait;
-            use crate::{AllPalletsWithSystem, Offences, PqAccounts, RandomnessCr, ValidatorSet};
+            use crate::{AllPalletsWithSystem, Offences, PoaAdmin, PqAccounts, RandomnessCr, ValidatorSet};
 
             let mut list = Vec::<BenchmarkList>::new();
             list_benchmarks!(list, extra);
@@ -299,7 +299,7 @@ impl_runtime_apis! {
         ) -> Result<Vec<frame_benchmarking::BenchmarkBatch>, alloc::string::String> {
             use frame_benchmarking::BenchmarkBatch;
             use frame_support::traits::WhitelistedStorageKeys;
-            use crate::{AllPalletsWithSystem, Offences, PqAccounts, RandomnessCr, ValidatorSet};
+            use crate::{AllPalletsWithSystem, Offences, PoaAdmin, PqAccounts, RandomnessCr, ValidatorSet};
 
             let whitelist = AllPalletsWithSystem::whitelisted_storage_keys();
             let mut batches = Vec::<BenchmarkBatch>::new();
