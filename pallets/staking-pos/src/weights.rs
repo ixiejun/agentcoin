@@ -38,6 +38,16 @@ pub trait WeightInfo {
     fn chill() -> Weight;
     /// Benchmarked weight of `validate`.
     fn validate() -> Weight;
+    /// Benchmarked weight of `elect`.
+    fn elect(c: u32, n: u32, s: u32) -> Weight;
+    /// Benchmarked weight of `transition_inputs`.
+    fn transition_inputs(c: u32, n: u32) -> Weight;
+    /// Benchmarked weight of `close_epoch`.
+    fn close_epoch(p: u32, m: u32) -> Weight;
+    /// Benchmarked weight of `note_author`.
+    fn note_author() -> Weight;
+    /// Benchmarked weight of `pay_rewards`.
+    fn pay_rewards(n: u32) -> Weight;
 }
 
 /// Weights measured on the reference machine, with the runtime's database weights.
@@ -217,6 +227,21 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
             .saturating_add(T::DbWeight::get().reads(2_u64))
             .saturating_add(T::DbWeight::get().writes(1_u64))
     }
+    fn elect(_c: u32, _n: u32, _s: u32) -> Weight {
+        Weight::zero()
+    }
+    fn transition_inputs(_c: u32, _n: u32) -> Weight {
+        Weight::zero()
+    }
+    fn close_epoch(_p: u32, _m: u32) -> Weight {
+        Weight::zero()
+    }
+    fn note_author() -> Weight {
+        Weight::zero()
+    }
+    fn pay_rewards(_n: u32) -> Weight {
+        Weight::zero()
+    }
 }
 
 /// Same weights with RocksDB database weights, for tests and mocks.
@@ -286,5 +311,20 @@ impl WeightInfo for () {
         Weight::from_parts(30_075_000, 6108)
             .saturating_add(RocksDbWeight::get().reads(2_u64))
             .saturating_add(RocksDbWeight::get().writes(1_u64))
+    }
+    fn elect(_c: u32, _n: u32, _s: u32) -> Weight {
+        Weight::zero()
+    }
+    fn transition_inputs(_c: u32, _n: u32) -> Weight {
+        Weight::zero()
+    }
+    fn close_epoch(_p: u32, _m: u32) -> Weight {
+        Weight::zero()
+    }
+    fn note_author() -> Weight {
+        Weight::zero()
+    }
+    fn pay_rewards(_n: u32) -> Weight {
+        Weight::zero()
     }
 }

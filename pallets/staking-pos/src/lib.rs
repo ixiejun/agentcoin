@@ -53,6 +53,8 @@ use scale_info::TypeInfo;
 /// Balance type of the pallet: ATC in smallest units.
 pub type Balance = u128;
 
+const LOG_TARGET: &str = "runtime::staking-pos";
+
 /// Part of a ledger that is unbonding.
 #[derive(
     Clone,
@@ -195,32 +197,85 @@ impl Default for StakingParams {
     }
 }
 
+/// Bound on one validator's backers: itself plus every nominator.
+pub struct MaxBackers<T>(core::marker::PhantomData<T>);
+
+impl<T: pallet::Config> Get<u32> for MaxBackers<T> {
+    fn get() -> u32 {
+        T::MaxNominators::get().saturating_add(1)
+    }
+}
+
+/// One winner of the latest election, as stored.
+#[derive(
+    Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo,
+)]
+pub struct Winner<A> {
+    /// Candidate account.
+    pub who: A,
+    /// Its validator key at election time.
+    pub key: ac_crypto::PqPublicKey,
+    /// Total backing.
+    pub backing: Balance,
+}
+
+/// The latest election, as stored.
+#[derive(
+    Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo,
+)]
+#[scale_info(skip_type_params(S))]
+pub struct ElectionRecord<A, S: Get<u32>> {
+    /// Block whose execution ran it.
+    pub block: u64,
+    /// Preview during the switch buffer.
+    pub preview: bool,
+    /// Winners in set order.
+    pub winners: BoundedVec<Winner<A>, S>,
+}
+
 // FRAME's `pallet` macro expands to code (genesis defaults, storage metadata) that uses
 // `expect` / `unreachable!` on our spans; hand-written code here uses neither except the
 // documented genesis check.
 #[allow(clippy::expect_used, clippy::unreachable)]
 #[frame_support::pallet]
 pub mod pallet {
-    use super::{Balance, StakingLedger, StakingParams, WeightInfo};
-    use ac_crypto::{PqPublicKey, PqSignature, SigAlg};
-    use ac_primitives::epoch::epoch_start;
-    use ac_primitives::staking::{
-        AccountStake, CandidateInfo, CandidateRecord, MAX_COMMISSION_BPS, MAX_NOMINATIONS,
-        MIN_COMMISSION_BPS, UnbondingParams, VALIDATOR_POP_CONTEXT, min_nomination, min_self_bond,
-        pop_statement, unbonding_unlock, validator_key_id,
+    use super::{
+        Balance, ElectionRecord, LOG_TARGET, MaxBackers, StakingLedger, StakingParams, WeightInfo,
+        Winner,
     };
-    use ac_primitives::validator_set::ValidatorSetInterface;
+    use ac_crypto::{PqPublicKey, PqSignature, SigAlg};
+    use ac_primitives::emission::{Phase, SecurityBudget};
+    use ac_primitives::epoch::epoch_start;
+    use ac_primitives::epoch::is_boundary;
+    use ac_primitives::offences::OffenceKind;
+    use ac_primitives::staking::{
+        AccountStake, CandidateInfo, CandidateRecord, ChainPhase, ElectedValidator, ElectionInfo,
+        MAX_COMMISSION_BPS, MAX_NOMINATIONS, MIN_COMMISSION_BPS, UnbondingParams,
+        VALIDATOR_POP_CONTEXT, min_nomination, min_self_bond, pop_statement, split_by_points,
+        split_reward, unbonding_unlock, validator_key_id,
+    };
+    use ac_primitives::validator_set::{
+        CurrentAuthor, RevealTracker, SlashHandler, StakingInterface, ValidatorSetInterface,
+    };
+    use alloc::collections::BTreeMap;
     use alloc::vec::Vec;
     use frame_support::Identity;
     use frame_support::pallet_prelude::{
         BoundedVec, BuildGenesisConfig, ConstU32, CountedStorageMap, DispatchResult,
-        DispatchResultWithPostInfo, Get, IsType, OptionQuery, StorageMap, StorageValue, ValueQuery,
-        ensure,
+        DispatchResultWithPostInfo, Get, Hooks, IsType, OptionQuery, StorageMap, StorageValue,
+        ValueQuery, Weight, ensure,
     };
-    use frame_support::traits::fungible::{Inspect, InspectHold, Mutate, MutateHold};
-    use frame_support::traits::tokens::Precision;
+    use frame_support::traits::fungible::{
+        Balanced, BalancedHold, Credit, Inspect, InspectHold, Mutate, MutateHold,
+    };
+    use frame_support::traits::tokens::{Precision, Preservation};
+    use frame_support::traits::{Imbalance, OnUnbalanced};
+    use frame_support::{PalletId, Twox64Concat};
     use frame_system::pallet_prelude::{BlockNumberFor, OriginFor, ensure_signed};
+    use sp_npos_elections::{BalancingConfig, seq_phragmen};
+    use sp_runtime::Perbill;
     use sp_runtime::SaturatedConversion;
+    use sp_runtime::traits::AccountIdConversion;
     use sp_runtime::traits::Zero;
 
     /// Nominated candidates of one nominator.
@@ -229,6 +284,24 @@ pub mod pallet {
 
     /// Ledger type of the runtime.
     pub type LedgerOf<T> = StakingLedger<<T as Config>::MaxUnlocking>;
+
+    /// Seed of the reward pot account (`"modl" ‖ "ac/stkrw"`, zero-padded, keyless).
+    pub const REWARD_POT: PalletId = PalletId(*b"ac/stkrw");
+
+    /// Consecutive missed reveals that chill a validator.
+    pub const MAX_MISSED_REVEALS: u32 = 3;
+
+    /// Slashing denominator (basis points of the self-stake).
+    const SLASH_BPS_FULL: u32 = 10_000;
+
+    /// Share of the self-stake slashed for an offence (spec consensus/offences): vote double
+    /// signing 100%, block-seal double signing 10%.
+    fn slash_bps(kind: OffenceKind) -> u32 {
+        match kind {
+            OffenceKind::BftEquivocation => SLASH_BPS_FULL,
+            OffenceKind::AuraEquivocation => 1_000,
+        }
+    }
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
@@ -243,10 +316,22 @@ pub mod pallet {
         /// The native currency; stake is held with [`HoldReason::Staking`].
         type Currency: Inspect<Self::AccountId, Balance = Balance>
             + Mutate<Self::AccountId>
+            + Balanced<Self::AccountId>
             + InspectHold<Self::AccountId, Reason = Self::RuntimeHoldReason>
-            + MutateHold<Self::AccountId, Reason = Self::RuntimeHoldReason>;
-        /// Validator epochs (commission decreases take effect at the next boundary).
+            + MutateHold<Self::AccountId, Reason = Self::RuntimeHoldReason>
+            + BalancedHold<Self::AccountId, Reason = Self::RuntimeHoldReason>;
+        /// Validator epochs and phase (commission decreases take effect at the next boundary).
         type Epochs: ValidatorSetInterface;
+        /// Author of the block being executed: one work point per block in PoS.
+        type Author: CurrentAuthor;
+        /// Missed randomness reveals: the epoch's points are zeroed, three in a row chill.
+        type Reveals: RevealTracker;
+        /// Where slashed stake goes; the runtime burns it through `Emission` so it counts in
+        /// `Emission::TotalBurned`.
+        type Slash: OnUnbalanced<Credit<Self::AccountId, Self::Currency>>;
+        /// Reward payouts processed per block.
+        #[pallet::constant]
+        type PayoutsPerBlock: Get<u32>;
         /// Upper bound of the genesis parameter `max_candidates` (weights assume it).
         #[pallet::constant]
         type MaxCandidates: Get<u32>;
@@ -256,6 +341,9 @@ pub mod pallet {
         /// Unbonding chunks per ledger; further parts merge into the latest chunk.
         #[pallet::constant]
         type MaxUnlocking: Get<u32>;
+        /// Most validators one election can return (the storage bound of `K`, design D5).
+        #[pallet::constant]
+        type MaxWinners: Get<u32>;
         /// Weights.
         type WeightInfo: WeightInfo;
     }
@@ -297,6 +385,48 @@ pub mod pallet {
     /// Sum of all ledgers' `active` amounts.
     #[pallet::storage]
     pub type TotalActive<T: Config> = StorageValue<_, Balance, ValueQuery>;
+
+    /// The latest election (or preview during the switch buffer).
+    #[pallet::storage]
+    pub type LastElection<T: Config> =
+        StorageValue<_, ElectionRecord<T::AccountId, T::MaxWinners>, OptionQuery>;
+
+    /// Backing composition of every validator elected in the latest election (itself and
+    /// its nominators, with amounts). Entries of validators no longer elected are kept until
+    /// their pending rewards are paid.
+    #[pallet::storage]
+    pub type Exposures<T: Config> = StorageMap<
+        _,
+        Identity,
+        T::AccountId,
+        BoundedVec<(T::AccountId, Balance), MaxBackers<T>>,
+        OptionQuery,
+    >;
+
+    /// Work points of the current validator epoch, by validator key identifier (PoS only).
+    #[pallet::storage]
+    pub type EpochPoints<T: Config> = StorageMap<_, Identity, [u8; 32], u32, ValueQuery>;
+
+    /// Work points accumulated since the last emission settlement, by validator account.
+    #[pallet::storage]
+    pub type PendingPoints<T: Config> = StorageMap<_, Identity, T::AccountId, u64, ValueQuery>;
+
+    /// Consecutive epochs with a missed reveal, by validator key identifier.
+    #[pallet::storage]
+    pub type MissStreak<T: Config> = StorageMap<_, Identity, [u8; 32], u32, ValueQuery>;
+
+    /// Reward payouts waiting to be transferred from the reward pot, by queue position.
+    #[pallet::storage]
+    pub type Payouts<T: Config> =
+        StorageMap<_, Twox64Concat, u64, (T::AccountId, Balance), OptionQuery>;
+
+    /// Next queue position to pay.
+    #[pallet::storage]
+    pub type PayoutHead<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+    /// Next free queue position.
+    #[pallet::storage]
+    pub type PayoutTail<T: Config> = StorageValue<_, u64, ValueQuery>;
 
     /// End of the network-wide nomination unbonding queue (a block height).
     #[pallet::storage]
@@ -418,6 +548,27 @@ pub mod pallet {
             /// Candidate.
             who: T::AccountId,
         },
+        /// A validator's self-stake was slashed and burned.
+        Slashed {
+            /// Validator account.
+            who: T::AccountId,
+            /// Amount burned.
+            amount: Balance,
+        },
+        /// The security budget of a settlement was allotted to validators and stakers.
+        RewardsAllotted {
+            /// Total queued for payment.
+            amount: Balance,
+            /// Payouts queued.
+            payouts: u32,
+        },
+        /// A reward was paid.
+        Rewarded {
+            /// Staker.
+            who: T::AccountId,
+            /// Amount.
+            amount: Balance,
+        },
     }
 
     #[pallet::error]
@@ -453,6 +604,34 @@ pub mod pallet {
         NotChilled,
         /// The account is neither a candidate nor a nominator.
         NotStaking,
+    }
+
+    #[pallet::hooks]
+    impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+        fn on_initialize(_n: BlockNumberFor<T>) -> Weight {
+            let now = Self::now();
+            let pos = T::Epochs::phase() == ChainPhase::Pos;
+            let mut weight = T::DbWeight::get().reads(2);
+            if pos && is_boundary(now, T::Epochs::epoch_length()) {
+                let (points, missed) = Self::close_epoch_points(T::Reveals::missed_now());
+                weight = weight
+                    .saturating_add(T::DbWeight::get().reads(1))
+                    .saturating_add(T::WeightInfo::close_epoch(points, missed));
+            }
+            if pos {
+                if let Some(key) = T::Author::current_author() {
+                    Self::note_author(&key);
+                }
+                weight = weight
+                    .saturating_add(T::DbWeight::get().reads(1))
+                    .saturating_add(T::WeightInfo::note_author());
+            }
+            let paid = Self::pay_rewards(T::PayoutsPerBlock::get());
+            if paid > 0 {
+                weight = weight.saturating_add(T::WeightInfo::pay_rewards(paid));
+            }
+            weight
+        }
     }
 
     #[pallet::call]
@@ -944,6 +1123,342 @@ pub mod pallet {
             (min_self_bond(issuance), min_nomination(issuance))
         }
 
+        /// Qualified candidates now: registered, not chilled, self-stake at the minimum.
+        pub fn qualified_candidates() -> u32 {
+            let min = min_self_bond(T::Currency::total_issuance());
+            let count = Candidates::<T>::iter()
+                .filter(|(who, c)| !c.chilled && Self::active(who) >= min)
+                .count();
+            u32::try_from(count).unwrap_or(u32::MAX)
+        }
+
+        /// Runs a sequential Phragmén election with balancing for `seats` validators over the
+        /// qualified candidates and the nominators at the minimum (spec consensus/npos-election),
+        /// records it as the latest election and the winners' exposures, and returns the winners
+        /// in set order with their keys and backings.
+        ///
+        /// Stakes enter the algorithm scaled so that each fits its `u64` vote weight; the
+        /// resulting shares are applied to the exact stakes, so every backing is exactly the
+        /// validator's self-stake plus the nomination amounts assigned to it.
+        pub fn elect(seats: u32, preview: bool) -> Vec<(PqPublicKey, Balance)> {
+            let issuance = T::Currency::total_issuance();
+            let (min_self, min_nom) = (min_self_bond(issuance), min_nomination(issuance));
+            let mut stakes: BTreeMap<T::AccountId, Balance> = BTreeMap::new();
+            let mut keys: BTreeMap<T::AccountId, PqPublicKey> = BTreeMap::new();
+            for (who, record) in Candidates::<T>::iter() {
+                let active = Self::active(&who);
+                if !record.chilled && active >= min_self {
+                    stakes.insert(who.clone(), active);
+                    keys.insert(who, record.key);
+                }
+            }
+            let mut voters: Vec<(T::AccountId, Balance, Vec<T::AccountId>)> = keys
+                .keys()
+                .map(|c| {
+                    (
+                        c.clone(),
+                        stakes.get(c).copied().unwrap_or(0),
+                        alloc::vec![c.clone()],
+                    )
+                })
+                .collect();
+            for (who, targets) in Nominators::<T>::iter() {
+                let active = Self::active(&who);
+                let targets: Vec<T::AccountId> = targets
+                    .into_iter()
+                    .filter(|t| keys.contains_key(t))
+                    .collect();
+                if active >= min_nom && !targets.is_empty() {
+                    stakes.insert(who.clone(), active);
+                    voters.push((who, active, targets));
+                }
+            }
+            let total = voters
+                .iter()
+                .fold(0u128, |a, (_, s, _)| a.saturating_add(*s));
+            // Largest divisor needed so that no scaled stake exceeds u64::MAX.
+            let scale = total
+                .checked_div(u128::from(u64::MAX))
+                .unwrap_or(0)
+                .saturating_add(1);
+            let scaled = voters
+                .into_iter()
+                .map(|(who, stake, targets)| {
+                    let weight =
+                        u64::try_from(stake.checked_div(scale).unwrap_or(0)).unwrap_or(u64::MAX);
+                    (who, weight, targets)
+                })
+                .collect();
+            let candidates: Vec<T::AccountId> = keys.keys().cloned().collect();
+            let seats = usize::try_from(seats.min(T::MaxWinners::get())).unwrap_or(0);
+            let balancing = BalancingConfig {
+                iterations: 10,
+                tolerance: 0,
+            };
+            let result = match seq_phragmen::<T::AccountId, Perbill>(
+                seats,
+                candidates,
+                scaled,
+                Some(balancing),
+            ) {
+                Ok(result) => result,
+                Err(e) => {
+                    log::error!(target: LOG_TARGET, "election failed: {e:?}");
+                    return Vec::new();
+                }
+            };
+            // Exact amounts per (winner, backer).
+            let mut exposures: BTreeMap<T::AccountId, Vec<(T::AccountId, Balance)>> =
+                BTreeMap::new();
+            for assignment in result.assignments {
+                let stake = stakes.get(&assignment.who).copied().unwrap_or(0);
+                let mut rest = stake;
+                let parts: Vec<(T::AccountId, Balance)> = assignment
+                    .distribution
+                    .into_iter()
+                    .map(|(target, ratio)| {
+                        let part = ratio.mul_floor(stake).min(rest);
+                        rest = rest.saturating_sub(part);
+                        (target, part)
+                    })
+                    .collect();
+                for (index, (target, mut part)) in parts.into_iter().enumerate() {
+                    if index == 0 {
+                        // The rounding remainder stays with the voter's first choice.
+                        part = part.saturating_add(rest);
+                    }
+                    exposures
+                        .entry(target)
+                        .or_default()
+                        .push((assignment.who.clone(), part));
+                }
+            }
+            let mut winners = Vec::new();
+            let mut elected = Vec::new();
+            for (who, _) in result.winners {
+                let Some(key) = keys.get(&who).cloned() else {
+                    continue;
+                };
+                let exposure = exposures.remove(&who).unwrap_or_default();
+                let backing = exposure
+                    .iter()
+                    .fold(0u128, |a, (_, v)| a.saturating_add(*v));
+                Exposures::<T>::insert(
+                    &who,
+                    BoundedVec::<_, MaxBackers<T>>::truncate_from(exposure),
+                );
+                elected.push((key.clone(), backing));
+                winners.push(Winner { who, key, backing });
+            }
+            LastElection::<T>::put(ElectionRecord {
+                block: Self::now(),
+                preview,
+                winners: BoundedVec::truncate_from(winners),
+            });
+            elected
+        }
+
+        /// The latest election with exposures, for queries.
+        pub fn last_election() -> Option<ElectionInfo<T::AccountId>> {
+            let record = LastElection::<T>::get()?;
+            let elected = record
+                .winners
+                .into_iter()
+                .map(|w| {
+                    let exposure = Exposures::<T>::get(&w.who)
+                        .map(BoundedVec::into_inner)
+                        .unwrap_or_default();
+                    ElectedValidator::new(w.who, w.key, w.backing, exposure)
+                })
+                .collect();
+            Some(ElectionInfo::new(record.block, record.preview, elected))
+        }
+
+        /// Account of the reward pot: receives the minted security budget, pays the queue.
+        pub fn reward_pot() -> T::AccountId {
+            REWARD_POT.into_account_truncating()
+        }
+
+        /// One work point for `key`, the author of the block being executed.
+        pub(crate) fn note_author(key: &PqPublicKey) {
+            EpochPoints::<T>::mutate(validator_key_id(key), |p| *p = p.saturating_add(1));
+        }
+
+        /// Closes the work points of the epoch that just ended (design D8): validators that
+        /// missed their reveal in it keep none; the rest move to their accounts' pending
+        /// points. Three missed epochs in a row chill the validator. Returns the number of
+        /// validators with points and of missed reveals.
+        pub(crate) fn close_epoch_points(missed: Vec<[u8; 32]>) -> (u32, u32) {
+            let bound = T::MaxWinners::get().saturating_mul(2);
+            let points: Vec<([u8; 32], u32)> = EpochPoints::<T>::drain()
+                .take(usize::try_from(bound).unwrap_or(usize::MAX))
+                .collect();
+            for (key_id, earned) in &points {
+                if missed.contains(key_id) {
+                    continue;
+                }
+                MissStreak::<T>::remove(key_id);
+                if let Some(owner) = KeyOwner::<T>::get(key_id) {
+                    PendingPoints::<T>::mutate(&owner, |p| {
+                        *p = p.saturating_add(u64::from(*earned))
+                    });
+                }
+            }
+            for key_id in &missed {
+                let streak = MissStreak::<T>::mutate(key_id, |s| {
+                    *s = s.saturating_add(1);
+                    *s
+                });
+                if streak >= MAX_MISSED_REVEALS
+                    && let Some(owner) = KeyOwner::<T>::get(key_id)
+                {
+                    Self::set_chilled(&owner);
+                }
+            }
+            (
+                u32::try_from(points.len()).unwrap_or(u32::MAX),
+                u32::try_from(missed.len()).unwrap_or(u32::MAX),
+            )
+        }
+
+        /// Queues a payout.
+        fn queue_payout(who: T::AccountId, amount: Balance) {
+            if amount == 0 {
+                return;
+            }
+            let tail = PayoutTail::<T>::get();
+            Payouts::<T>::insert(tail, (who, amount));
+            PayoutTail::<T>::put(tail.saturating_add(1));
+        }
+
+        /// Pays up to `limit` queued rewards from the pot; returns how many were processed. A
+        /// payout the pot cannot make (the recipient would stay below the existential deposit)
+        /// is dropped and its amount stays in the pot.
+        pub(crate) fn pay_rewards(limit: u32) -> u32 {
+            let pot = Self::reward_pot();
+            let mut head = PayoutHead::<T>::get();
+            let tail = PayoutTail::<T>::get();
+            let mut done = 0u32;
+            while head < tail && done < limit {
+                if let Some((who, amount)) = Payouts::<T>::take(head)
+                    && T::Currency::transfer(&pot, &who, amount, Preservation::Expendable).is_ok()
+                {
+                    Self::deposit_event(Event::Rewarded { who, amount });
+                }
+                head = head.saturating_add(1);
+                done = done.saturating_add(1);
+            }
+            PayoutHead::<T>::put(head);
+            done
+        }
+
+        /// Splits the security budget of a settlement (design D8, rule R1): by pending work
+        /// points between validators, then commission and pro rata to the backing each
+        /// validator had in its latest election. Queues the payouts and returns the total
+        /// allotted; the rest is never minted.
+        fn allot_rewards(amount: Balance) -> Balance {
+            let points: Vec<(T::AccountId, u64)> = PendingPoints::<T>::drain().collect();
+            let now = Self::now();
+            let mut allotted = 0u128;
+            let mut queued = 0u32;
+            for (validator, share) in split_by_points(amount, &points) {
+                // A validator that retired keeps its whole share.
+                let commission = Candidates::<T>::get(&validator)
+                    .map_or(MAX_COMMISSION_BPS, |c| c.commission_at(now));
+                let exposure = Exposures::<T>::get(&validator)
+                    .map(BoundedVec::into_inner)
+                    .filter(|e| !e.is_empty())
+                    .unwrap_or_else(|| alloc::vec![(validator.clone(), 1)]);
+                let split = split_reward(share, commission, &exposure);
+                let mut own = split.commission;
+                for (who, part) in split.shares {
+                    if who == validator {
+                        own = own.saturating_add(part);
+                    } else {
+                        allotted = allotted.saturating_add(part);
+                        queued = queued.saturating_add(u32::from(part > 0));
+                        Self::queue_payout(who, part);
+                    }
+                }
+                allotted = allotted.saturating_add(own);
+                queued = queued.saturating_add(u32::from(own > 0));
+                Self::queue_payout(validator, own);
+            }
+            // Exposures of validators no longer elected are not needed any more.
+            let elected: Vec<T::AccountId> = LastElection::<T>::get()
+                .map(|r| r.winners.into_iter().map(|w| w.who).collect())
+                .unwrap_or_default();
+            let stale: Vec<T::AccountId> = Exposures::<T>::iter_keys()
+                .filter(|v| !elected.contains(v))
+                .collect();
+            for v in stale {
+                Exposures::<T>::remove(v);
+            }
+            if allotted > 0 {
+                Self::deposit_event(Event::RewardsAllotted {
+                    amount: allotted,
+                    payouts: queued,
+                });
+            }
+            allotted
+        }
+
+        /// Slashes the self-stake of the owner of `offender` (design D9): the most severe of
+        /// `kind` and `prior` counts, and only what the earlier records did not already take.
+        /// The base is the whole self-stake, bonded and unbonding. Returns the amount burned.
+        fn slash(offender: &PqPublicKey, kind: OffenceKind, prior: &[OffenceKind]) -> Balance {
+            let Some(who) = KeyOwner::<T>::get(validator_key_id(offender)) else {
+                return 0;
+            };
+            // A key owner that has since become a nominator holds no self-stake any more.
+            if Nominators::<T>::contains_key(&who) {
+                return 0;
+            }
+            let before = prior.iter().map(|k| slash_bps(*k)).max().unwrap_or(0);
+            let after = before.max(slash_bps(kind));
+            let Some(mut ledger) = Ledger::<T>::get(&who) else {
+                return 0;
+            };
+            if after <= before {
+                Self::set_chilled(&who);
+                return 0;
+            }
+            // What is left is (1 − before) of the original; take (after − before) of the
+            // original, i.e. that share of what is left.
+            let remaining_share = u128::from(SLASH_BPS_FULL.saturating_sub(before));
+            let target = ledger
+                .total()
+                .saturating_mul(u128::from(after.saturating_sub(before)))
+                .checked_div(remaining_share)
+                .unwrap_or(0)
+                .min(ledger.total());
+            let from_active = target.min(ledger.active);
+            ledger.active = ledger.active.saturating_sub(from_active);
+            let mut rest = target.saturating_sub(from_active);
+            ledger.unlocking.sort_by_key(|c| c.unlock_at);
+            for chunk in ledger.unlocking.iter_mut() {
+                let take = rest.min(chunk.value);
+                chunk.value = chunk.value.saturating_sub(take);
+                rest = rest.saturating_sub(take);
+            }
+            ledger.unlocking.retain(|c| c.value > 0);
+            TotalActive::<T>::mutate(|t| *t = t.saturating_sub(from_active));
+            let (credit, _) = T::Currency::slash(&HoldReason::Staking.into(), &who, target);
+            let burned = credit.peek();
+            T::Slash::on_unbalanced(credit);
+            if ledger.is_empty() {
+                Ledger::<T>::remove(&who);
+            } else {
+                Ledger::<T>::insert(&who, ledger);
+            }
+            Self::set_chilled(&who);
+            Self::deposit_event(Event::Slashed {
+                who,
+                amount: burned,
+            });
+            burned
+        }
+
         /// Pauses `who` from elections if it is a candidate.
         pub fn set_chilled(who: &T::AccountId) {
             Candidates::<T>::mutate(who, |record| {
@@ -954,6 +1469,57 @@ pub mod pallet {
                     Self::deposit_event(Event::Chilled { who: who.clone() });
                 }
             });
+        }
+    }
+
+    impl<T: Config> StakingInterface for Pallet<T> {
+        /// Sums every ledger's active amount, exactly as the node does, rather than trusting
+        /// [`TotalActive`]: a mismatch would make the node reject the block.
+        fn total_active() -> u128 {
+            Ledger::<T>::iter_values().fold(0u128, |acc, l| acc.saturating_add(l.active))
+        }
+
+        fn total_issuance() -> u128 {
+            T::Currency::total_issuance()
+        }
+
+        fn qualified_candidates() -> u32 {
+            Self::qualified_candidates()
+        }
+
+        fn elect(seats: u32, preview: bool) -> Vec<(PqPublicKey, Balance)> {
+            Self::elect(seats, preview)
+        }
+
+        fn inputs_weight() -> Weight {
+            T::WeightInfo::transition_inputs(T::MaxCandidates::get(), T::MaxNominators::get())
+        }
+
+        fn election_weight(seats: u32) -> Weight {
+            T::WeightInfo::elect(T::MaxCandidates::get(), T::MaxNominators::get(), seats)
+        }
+    }
+
+    impl<T: Config> SecurityBudget<T::AccountId> for Pallet<T> {
+        fn phase() -> Phase {
+            T::Epochs::phase().into()
+        }
+
+        fn recipients(amount: u128) -> Vec<(T::AccountId, u128)> {
+            if T::Epochs::phase() != ChainPhase::Pos {
+                return Vec::new();
+            }
+            let allotted = Self::allot_rewards(amount);
+            if allotted == 0 {
+                return Vec::new();
+            }
+            alloc::vec![(Self::reward_pot(), allotted)]
+        }
+    }
+
+    impl<T: Config> SlashHandler for Pallet<T> {
+        fn on_offence(offender: &PqPublicKey, kind: OffenceKind, prior: &[OffenceKind]) -> u128 {
+            Self::slash(offender, kind, prior)
         }
     }
 }

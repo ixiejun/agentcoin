@@ -16,7 +16,7 @@ use frame_support::traits::Hooks;
 use sp_runtime::{BuildStorage, Digest};
 
 use crate::mock::{AuraPq, RuntimeEvent, RuntimeGenesisConfig, System, Test, ValidatorSet};
-use crate::{CurrentSetId, Event, PendingRemovals};
+use crate::{CurrentSetId, Event, PendingRemovals, SwitchParams};
 
 const NAMES: [&str; 4] = ["alice", "bob", "charlie", "dave"];
 
@@ -31,7 +31,44 @@ fn keys(n: usize) -> Vec<PqPublicKey> {
     NAMES[..n].iter().map(|n| key(n)).collect()
 }
 
+/// Switch parameters of the tests: 10% of the issuance, 3 candidates, height 40, 20 blocks.
+fn switch_params() -> SwitchParams {
+    SwitchParams {
+        stake_bps: 1_000,
+        min_candidates: 3,
+        min_height: 40,
+        sustain_blocks: 20,
+    }
+}
+
+/// M2-era set-up: `K` = 1 and one qualified candidate suffices, but nothing is staked.
 fn ext(authorities: Vec<PqPublicKey>, epoch_length: u64) -> sp_io::TestExternalities {
+    ext_params(
+        authorities,
+        epoch_length,
+        1,
+        SwitchParams {
+            min_candidates: 1,
+            ..switch_params()
+        },
+    )
+}
+
+fn ext_with(
+    authorities: Vec<PqPublicKey>,
+    epoch_length: u64,
+    validator_count: u32,
+) -> sp_io::TestExternalities {
+    ext_params(authorities, epoch_length, validator_count, switch_params())
+}
+
+fn ext_params(
+    authorities: Vec<PqPublicKey>,
+    epoch_length: u64,
+    validator_count: u32,
+    transition: SwitchParams,
+) -> sp_io::TestExternalities {
+    crate::mock::reset_staking();
     let config = RuntimeGenesisConfig {
         aura_pq: pallet_aura_pq::GenesisConfig {
             authorities,
@@ -39,6 +76,8 @@ fn ext(authorities: Vec<PqPublicKey>, epoch_length: u64) -> sp_io::TestExternali
         },
         validator_set: crate::GenesisConfig {
             epoch_length,
+            transition,
+            validator_count,
             ..Default::default()
         },
         ..Default::default()
@@ -63,6 +102,7 @@ fn block(n: u64) {
     System::initialize(&n, &Default::default(), &digest);
     AuraPq::on_initialize(n);
     ValidatorSet::on_initialize(n);
+    ValidatorSet::on_finalize(n);
 }
 
 fn change_digest() -> Option<ac_primitives::ac_bft::ScheduledChange> {
@@ -234,5 +274,268 @@ fn hooks_never_panic() {
     ext(Vec::new(), 0).execute_with(|| {
         run_to(10);
         assert_eq!(ValidatorSet::authority_set(), (0, Vec::new()));
+    });
+}
+
+// ---- m3-pos: PoA roster, switch to PoS, PoS sets ----
+
+use crate::mock::{RuntimeOrigin, elections, set_elected, set_stake};
+use crate::{Error, Phase, PoaAuthorities, QualifiedSince, SwitchedAt, ValidatorCount};
+use ac_primitives::staking::ChainPhase;
+use frame_support::{assert_noop, assert_ok};
+
+fn extra(name: &str) -> PqPublicKey {
+    key(name)
+}
+
+/// Qualified: 10% staked, 3 candidates.
+fn qualify() {
+    set_stake(100, 1_000, 3);
+}
+
+fn has_event(e: Event<Test>) -> bool {
+    System::events()
+        .iter()
+        .any(|r| r.event == RuntimeEvent::ValidatorSet(e.clone()))
+}
+
+// Scenario "多签增加授权节点".
+#[test]
+fn admin_adds_poa_authority_at_next_boundary() {
+    ext_with(keys(3), 8, 3).execute_with(|| {
+        run_to(2);
+        let new = extra("eve");
+        assert_ok!(ValidatorSet::add_poa_authority(
+            RuntimeOrigin::root(),
+            new.clone()
+        ));
+        assert!(PoaAuthorities::<Test>::get().contains(&new));
+        // Not yet in the set.
+        assert!(!ValidatorSet::authority_set().1.iter().any(|a| a.key == new));
+        run_to(9);
+        let change = change_digest().unwrap();
+        assert_eq!(change.set_id, 1);
+        assert!(
+            change
+                .authorities
+                .iter()
+                .any(|a| a.key == new && a.weight == 1)
+        );
+        assert_eq!(AuraPq::authorities().len(), 4);
+    });
+}
+
+// Scenario "不能移空" and other rejected roster changes.
+#[test]
+fn roster_changes_are_checked() {
+    ext_with(keys(1), 6, 3).execute_with(|| {
+        run_to(1);
+        assert_noop!(
+            ValidatorSet::remove_poa_authority(RuntimeOrigin::root(), key("alice")),
+            Error::<Test>::WouldEmpty
+        );
+        assert_noop!(
+            ValidatorSet::add_poa_authority(RuntimeOrigin::root(), key("alice")),
+            Error::<Test>::AlreadyAuthority
+        );
+        assert_noop!(
+            ValidatorSet::add_poa_authority(RuntimeOrigin::signed(1), key("bob")),
+            sp_runtime::DispatchError::BadOrigin
+        );
+        let small = SigningKey::from_seed(SigAlg::MlDsa44, &dev_seed("bob").unwrap())
+            .unwrap()
+            .public_key()
+            .unwrap();
+        assert_noop!(
+            ValidatorSet::add_poa_authority(RuntimeOrigin::root(), small),
+            Error::<Test>::NotMlDsa65
+        );
+        // An epoch of 6 blocks fits 3 authorities, not 4.
+        assert_ok!(ValidatorSet::add_poa_authority(
+            RuntimeOrigin::root(),
+            key("bob")
+        ));
+        assert_ok!(ValidatorSet::add_poa_authority(
+            RuntimeOrigin::root(),
+            key("charlie")
+        ));
+        assert_noop!(
+            ValidatorSet::add_poa_authority(RuntimeOrigin::root(), key("dave")),
+            Error::<Test>::TooMany
+        );
+        assert_ok!(ValidatorSet::remove_poa_authority(
+            RuntimeOrigin::root(),
+            key("alice")
+        ));
+        assert_noop!(
+            ValidatorSet::remove_poa_authority(RuntimeOrigin::root(), key("alice")),
+            Error::<Test>::NotAuthority
+        );
+    });
+}
+
+// Scenario "集合规模超过纪元长度一半".
+#[test]
+fn validator_count_is_bounded_by_half_the_epoch() {
+    ext_with(keys(4), 20, 3).execute_with(|| {
+        assert_noop!(
+            ValidatorSet::set_validator_count(RuntimeOrigin::root(), 11),
+            Error::<Test>::BadValidatorCount
+        );
+        // Below the switch's candidate count.
+        assert_noop!(
+            ValidatorSet::set_validator_count(RuntimeOrigin::root(), 2),
+            Error::<Test>::BadValidatorCount
+        );
+        assert_ok!(ValidatorSet::set_validator_count(RuntimeOrigin::root(), 10));
+        assert_eq!(ValidatorCount::<Test>::get(), 10);
+    });
+}
+
+#[test]
+#[should_panic(expected = "validator count")]
+fn genesis_count_below_the_switch_candidates_fails() {
+    let _ = ext_with(keys(4), 20, 2);
+}
+
+// Scenarios "质押不足", "时间未到": checkpoints fail, nothing is recorded.
+#[test]
+fn checkpoints_before_the_conditions_hold() {
+    ext_with(keys(4), 10, 3).execute_with(|| {
+        qualify();
+        // Height below 40.
+        run_to(31);
+        assert_eq!(QualifiedSince::<Test>::get(), None);
+        assert!(has_event(Event::TransitionCheckpoint {
+            qualified: false,
+            since: None
+        }));
+        // 9% staked at height 41.
+        set_stake(90, 1_000, 30);
+        run_to(41);
+        assert_eq!(QualifiedSince::<Test>::get(), None);
+        assert_eq!(Phase::<Test>::get(), ChainPhase::Poa);
+    });
+}
+
+// Scenarios "中途跌破重新计时", "连续保持后切换", "预演不影响 PoA", "切换后质押下降".
+#[test]
+fn sustained_conditions_switch_to_pos_for_good() {
+    ext_with(keys(4), 10, 3).execute_with(|| {
+        let elected: Vec<(PqPublicKey, u128)> = vec![
+            (key("eve"), 3_000_000_000_000_000_000_000_000),
+            (key("ferdie"), 1_000_000_000_000_000_000_000_000),
+            (key("grace"), 1_000_000_000_000_000_000_000_000),
+        ];
+        set_elected(elected.clone());
+        qualify();
+        run_to(41);
+        assert_eq!(QualifiedSince::<Test>::get(), Some(41));
+        // Buffer: the last block of the epoch runs a preview; the PoA set stays.
+        run_to(50);
+        assert_eq!(elections(), vec![(3, true)]);
+        run_to(51);
+        assert_eq!(Phase::<Test>::get(), ChainPhase::Poa);
+        assert_eq!(ValidatorSet::authority_set().1.len(), 4);
+        // Drops below the threshold at block 61: the run restarts.
+        set_stake(90, 1_000, 3);
+        run_to(61);
+        assert_eq!(QualifiedSince::<Test>::get(), None);
+        qualify();
+        run_to(71);
+        assert_eq!(QualifiedSince::<Test>::get(), Some(71));
+        run_to(81);
+        assert_eq!(Phase::<Test>::get(), ChainPhase::Poa);
+        // 71 + 20 = 91: switch.
+        run_to(91);
+        assert_eq!(Phase::<Test>::get(), ChainPhase::Pos);
+        assert_eq!(SwitchedAt::<Test>::get(), Some(91));
+        assert!(PoaAuthorities::<Test>::get().is_empty());
+        assert!(has_event(Event::SwitchedToPos { block: 91 }));
+        // The new set is exactly the elected validators, weighted by backing (3 : 1 : 1).
+        let change = change_digest().unwrap();
+        let set: Vec<(PqPublicKey, u64)> = change
+            .authorities
+            .iter()
+            .map(|a| (a.key.clone(), a.weight))
+            .collect();
+        assert_eq!(set.len(), 3);
+        assert_eq!(set[0].0, key("eve"));
+        assert_eq!(set[0].1, 3 * set[1].1);
+        assert_eq!(set[1].1, set[2].1);
+        assert_eq!(
+            AuraPq::authorities(),
+            vec![key("eve"), key("ferdie"), key("grace")]
+        );
+        // Stake falls to 5%: still PoS, no checkpoints any more.
+        set_stake(50, 1_000, 0);
+        run_to(121);
+        assert_eq!(Phase::<Test>::get(), ChainPhase::Pos);
+        // Roster changes are refused in PoS (spec "PoS 阶段增删被拒绝").
+        assert_noop!(
+            ValidatorSet::add_poa_authority(RuntimeOrigin::root(), key("alice")),
+            Error::<Test>::NotPoa
+        );
+        assert_noop!(
+            ValidatorSet::remove_poa_authority(RuntimeOrigin::root(), key("eve")),
+            Error::<Test>::NotPoa
+        );
+    });
+}
+
+// Scenarios "选举结果变化", "无变更无摘要", "PoS 阶段的权重".
+#[test]
+fn pos_boundaries_install_elections() {
+    ext_with(keys(4), 10, 3).execute_with(|| {
+        set_elected(vec![
+            (key("eve"), 2_000_000_000_000_000_000),
+            (key("ferdie"), 2_000_000_000_000_000_000),
+            (key("grace"), 1_000_000_000_000_000_000),
+        ]);
+        qualify();
+        run_to(61);
+        assert_eq!(Phase::<Test>::get(), ChainPhase::Pos);
+        let id = CurrentSetId::<Test>::get();
+        // Same election: no digest, same id; the election ran in the last block (non-preview).
+        run_to(71);
+        assert!(change_digest().is_none());
+        assert_eq!(CurrentSetId::<Test>::get(), id);
+        assert_eq!(elections().last(), Some(&(3, false)));
+        // Different weights: a new set.
+        set_elected(vec![
+            (key("eve"), 2_000_000_000_000_000_000),
+            (key("ferdie"), 4_000_000_000_000_000_000),
+            (key("grace"), 1_000_000_000_000_000_000),
+        ]);
+        run_to(81);
+        let change = change_digest().unwrap();
+        assert_eq!(change.set_id, id + 1);
+        let weights: Vec<u64> = change.authorities.iter().map(|a| a.weight).collect();
+        assert_eq!(weights, vec![2_000_000, 4_000_000, 1_000_000]);
+        // A disabled validator is left out even if elected.
+        assert!(ValidatorSet::disable(&key("grace")));
+        run_to(91);
+        let change = change_digest().unwrap();
+        assert_eq!(change.authorities.len(), 2);
+        assert!(has_event(Event::AuthorityDisabled { key: key("grace") }));
+    });
+}
+
+// Scenario "查询切换进度".
+#[test]
+fn transition_progress_query() {
+    ext_with(keys(4), 10, 3).execute_with(|| {
+        set_stake(80, 1_000, 2);
+        run_to(41);
+        let p = ValidatorSet::transition_progress();
+        assert_eq!(p.phase, ChainPhase::Poa);
+        assert_eq!(p.total_active, 80);
+        assert_eq!(p.stake_needed, 100);
+        assert_eq!(p.qualified_candidates, 2);
+        assert_eq!(p.params.min_candidates, 3);
+        assert_eq!(p.params.min_height, 40);
+        assert_eq!(p.height, 41);
+        assert_eq!(p.qualified_since, None);
+        assert_eq!(p.switched_at, None);
     });
 }

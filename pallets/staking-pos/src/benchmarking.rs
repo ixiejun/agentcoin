@@ -13,6 +13,7 @@ use ac_crypto::sig::{SecretSeed, SigningKey};
 use ac_crypto::{PqPublicKey, PqSignature, SigAlg};
 use ac_primitives::staking::{CandidateRecord, VALIDATOR_POP_CONTEXT, pop_statement};
 // The `benchmarks` macro expands to code naming `Call` and `impl_test_function` unqualified.
+use ac_primitives::validator_set::StakingInterface;
 use frame_benchmarking::impl_test_function;
 use frame_benchmarking::v2::{account, benchmarks};
 use frame_support::traits::Get;
@@ -22,8 +23,9 @@ use frame_system::pallet_prelude::BlockNumberFor;
 use sp_runtime::traits::Zero;
 
 use crate::{
-    Balance, Call, Candidates, Config, HoldReason, Ledger, Nominators, Pallet, Params,
-    StakingLedger, Targets, TotalActive, UnlockChunk,
+    Balance, Call, Candidates, Config, EpochPoints, HoldReason, KeyOwner, Ledger, MissStreak,
+    Nominators, Pallet, Params, PayoutHead, PayoutTail, Payouts, StakingLedger, Targets,
+    TotalActive, UnlockChunk,
 };
 
 fn signing_key(seed: u8) -> SigningKey {
@@ -101,12 +103,70 @@ fn nominators<T: Config>(count: u32, target: &T::AccountId) {
     }
 }
 
+/// Writes `c` qualified candidates and `n` nominators with 16 distinct targets each directly to
+/// storage, as the election reads them.
+fn electorate<T: Config>(c: u32, n: u32) {
+    let key = signing_key(200).public_key().unwrap();
+    let (min_self, min_nom) = Pallet::<T>::minimums();
+    let mut total = 0u128;
+    for i in 0..c {
+        let who: T::AccountId = account("candidate", i, 0);
+        let active = min_self.saturating_add(Balance::from(i).saturating_mul(7));
+        Ledger::<T>::insert(
+            &who,
+            StakingLedger::<T::MaxUnlocking> {
+                active,
+                ..Default::default()
+            },
+        );
+        total = total.saturating_add(active);
+        Candidates::<T>::insert(
+            &who,
+            CandidateRecord {
+                key: key.clone(),
+                commission_bps: 1_000,
+                pending_commission: None,
+                chilled: false,
+            },
+        );
+    }
+    for j in 0..n {
+        let who: T::AccountId = account("nominator", j, 0);
+        let active = min_nom.saturating_add(Balance::from(j).saturating_mul(13));
+        Ledger::<T>::insert(
+            &who,
+            StakingLedger::<T::MaxUnlocking> {
+                active,
+                ..Default::default()
+            },
+        );
+        total = total.saturating_add(active);
+        let mut targets: Vec<u32> = (0..16u32)
+            .map(|k| {
+                j.wrapping_mul(31)
+                    .wrapping_add(k.wrapping_mul(17))
+                    .checked_rem(c.max(1))
+                    .unwrap_or(0)
+            })
+            .collect();
+        targets.sort_unstable();
+        targets.dedup();
+        let targets: Vec<T::AccountId> = targets
+            .into_iter()
+            .map(|t| account("candidate", t, 0))
+            .collect();
+        Nominators::<T>::insert(&who, Targets::<T>::truncate_from(targets));
+    }
+    TotalActive::<T>::put(total);
+}
+
 #[benchmarks]
 mod benchmarks {
     use super::{
-        Balance, Call, Candidates, Config, Get, Inspect, Ledger, Nominators, Pallet, Params,
-        RawOrigin, UnlockChunk, Vec, candidates, funded, impl_test_function, key_and_proof,
-        nominators, stake,
+        Balance, Call, CandidateRecord, Candidates, Config, EpochPoints, Get, Inspect, KeyOwner,
+        Ledger, MissStreak, Mutate, Nominators, Pallet, Params, PayoutHead, PayoutTail, Payouts,
+        RawOrigin, StakingInterface, UnlockChunk, Vec, account, candidates, funded,
+        impl_test_function, key_and_proof, nominators, signing_key, stake,
     };
 
     /// Registration into a full list of `c` candidates: scans them and evicts the smallest.
@@ -279,6 +339,118 @@ mod benchmarks {
         _(RawOrigin::Signed(who.clone()));
 
         assert!(Candidates::<T>::get(&who).is_some_and(|c| !c.chilled));
+    }
+
+    /// One election over `c` candidates and `n` nominators (16 targets each) for `s` seats.
+    #[benchmark]
+    fn elect(
+        c: Linear<1, { T::MaxCandidates::get() }>,
+        n: Linear<0, { T::MaxNominators::get() }>,
+        s: Linear<1, 200>,
+    ) {
+        super::electorate::<T>(c, n);
+        let elected;
+
+        #[block]
+        {
+            elected = Pallet::<T>::elect(s, false);
+        }
+
+        assert_eq!(elected.len(), usize::try_from(s.min(c)).unwrap());
+    }
+
+    /// Reading the switch inputs at a PoA checkpoint: a pass over all ledgers and candidates.
+    #[benchmark]
+    fn transition_inputs(
+        c: Linear<1, { T::MaxCandidates::get() }>,
+        n: Linear<0, { T::MaxNominators::get() }>,
+    ) {
+        super::electorate::<T>(c, n);
+        let (active, qualified);
+
+        #[block]
+        {
+            active = <Pallet<T> as StakingInterface>::total_active();
+            qualified = Pallet::<T>::qualified_candidates();
+        }
+
+        assert!(active > 0);
+        assert_eq!(qualified, c);
+    }
+
+    /// Closes an epoch with `p` validators holding points and `m` missed reveals that chill
+    /// their validators (third miss in a row).
+    #[benchmark]
+    fn close_epoch(p: Linear<0, 1_000>, m: Linear<0, 1_000>) {
+        let key = signing_key(200).public_key().unwrap();
+        let mut missed = Vec::new();
+        for i in 0..p.max(m) {
+            let who: T::AccountId = account("validator", i, 0);
+            let mut id = [0u8; 32];
+            id[..4].copy_from_slice(&i.to_le_bytes());
+            KeyOwner::<T>::insert(id, &who);
+            Candidates::<T>::insert(
+                &who,
+                CandidateRecord {
+                    key: key.clone(),
+                    commission_bps: 1_000,
+                    pending_commission: None,
+                    chilled: false,
+                },
+            );
+            if i < p {
+                EpochPoints::<T>::insert(id, 600);
+            }
+            if i < m {
+                MissStreak::<T>::insert(id, 2);
+                missed.push(id);
+            }
+        }
+
+        #[block]
+        {
+            Pallet::<T>::close_epoch_points(missed);
+        }
+
+        assert_eq!(EpochPoints::<T>::iter().count(), 0);
+    }
+
+    #[benchmark]
+    fn note_author() {
+        let key = signing_key(200).public_key().unwrap();
+
+        #[block]
+        {
+            Pallet::<T>::note_author(&key);
+        }
+
+        assert_eq!(EpochPoints::<T>::iter().count(), 1);
+    }
+
+    /// Pays `n` queued rewards to new accounts from a funded pot.
+    #[benchmark]
+    fn pay_rewards(n: Linear<0, { T::PayoutsPerBlock::get() }>) {
+        let amount = T::Currency::minimum_balance().saturating_mul(10);
+        let pot = Pallet::<T>::reward_pot();
+        T::Currency::mint_into(
+            &pot,
+            amount
+                .saturating_mul(Balance::from(n))
+                .saturating_add(T::Currency::minimum_balance()),
+        )
+        .unwrap();
+        for i in 0..n {
+            let who: T::AccountId = account("staker", i, 0);
+            Payouts::<T>::insert(u64::from(i), (who, amount));
+        }
+        PayoutTail::<T>::put(u64::from(n));
+
+        #[block]
+        {
+            Pallet::<T>::pay_rewards(n);
+        }
+
+        assert_eq!(PayoutHead::<T>::get(), u64::from(n));
     }
 
     impl_benchmark_test_suite!(Pallet, crate::mock::ext(), crate::mock::Test);

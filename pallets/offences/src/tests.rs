@@ -50,10 +50,7 @@ fn ext() -> sp_io::TestExternalities {
             authorities: NAMES.iter().map(|n| key(n)).collect(),
             ..Default::default()
         },
-        validator_set: pallet_validator_set::GenesisConfig {
-            epoch_length: 8,
-            ..Default::default()
-        },
+        validator_set: pallet_validator_set::GenesisConfig::poa(8),
         ..Default::default()
     };
     let mut ext: sp_io::TestExternalities = config.build_storage().unwrap().into();

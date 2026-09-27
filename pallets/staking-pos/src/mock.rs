@@ -6,9 +6,12 @@ use ac_crypto::sig::SigningKey;
 use ac_crypto::{PqPublicKey, PqSignature, SigAlg};
 use ac_primitives::ac_bft::{Authority, SetId};
 use ac_primitives::epoch::{EpochIndex, epoch_of};
+use ac_primitives::staking::ChainPhase;
 use ac_primitives::staking::{VALIDATOR_POP_CONTEXT, pop_statement};
-use ac_primitives::validator_set::ValidatorSetInterface;
+use ac_primitives::validator_set::{CurrentAuthor, RevealTracker, ValidatorSetInterface};
 use frame_support::traits::ConstU32;
+use frame_support::traits::fungible::Credit;
+use frame_support::traits::{Imbalance, OnUnbalanced};
 use frame_support::{derive_impl, parameter_types};
 use sp_runtime::BuildStorage;
 
@@ -64,6 +67,37 @@ impl pallet_balances::Config for Test {
 /// Epoch length of the mock.
 pub const EPOCH: u64 = 10;
 
+std::thread_local! {
+    /// Phase reported by the mock validator set.
+    pub static PHASE: core::cell::RefCell<ChainPhase> = const { core::cell::RefCell::new(ChainPhase::Poa) };
+    /// Author of the current block.
+    pub static AUTHOR: core::cell::RefCell<Option<PqPublicKey>> = const { core::cell::RefCell::new(None) };
+    /// Key identifiers reported as missed reveals in the current block.
+    pub static MISSED: core::cell::RefCell<Vec<[u8; 32]>> = const { core::cell::RefCell::new(Vec::new()) };
+    /// Total burned through the slash sink.
+    pub static BURNED: core::cell::RefCell<u128> = const { core::cell::RefCell::new(0) };
+}
+
+/// Sets the phase of the mock validator set.
+pub fn set_phase(phase: ChainPhase) {
+    PHASE.with(|p| *p.borrow_mut() = phase);
+}
+
+/// Sets the author of the next blocks.
+pub fn set_author(key: Option<PqPublicKey>) {
+    AUTHOR.with(|a| *a.borrow_mut() = key);
+}
+
+/// Sets the missed reveals reported in the current block.
+pub fn set_missed(missed: Vec<[u8; 32]>) {
+    MISSED.with(|m| *m.borrow_mut() = missed);
+}
+
+/// Total burned through slashing.
+pub fn burned() -> u128 {
+    BURNED.with(|b| *b.borrow())
+}
+
 /// Epochs of the mock: fixed length, no authority set.
 pub struct TestEpochs;
 impl ValidatorSetInterface for TestEpochs {
@@ -85,6 +119,36 @@ impl ValidatorSetInterface for TestEpochs {
     fn epoch_length() -> u64 {
         EPOCH
     }
+    fn phase() -> ChainPhase {
+        PHASE.with(|p| *p.borrow())
+    }
+}
+
+/// Author of the mock.
+pub struct TestAuthor;
+impl CurrentAuthor for TestAuthor {
+    fn current_author() -> Option<PqPublicKey> {
+        AUTHOR.with(|a| a.borrow().clone())
+    }
+    fn current_slot() -> u64 {
+        0
+    }
+}
+
+/// Missed reveals of the mock.
+pub struct TestReveals;
+impl RevealTracker for TestReveals {
+    fn missed_now() -> Vec<[u8; 32]> {
+        MISSED.with(|m| m.borrow().clone())
+    }
+}
+
+/// Burns slashed credit and records the amount.
+pub struct TestBurn;
+impl OnUnbalanced<Credit<u64, Balances>> for TestBurn {
+    fn on_nonzero_unbalanced(amount: Credit<u64, Balances>) {
+        BURNED.with(|b| *b.borrow_mut() += amount.peek());
+    }
 }
 
 impl pallet_staking_pos::Config for Test {
@@ -92,9 +156,14 @@ impl pallet_staking_pos::Config for Test {
     type RuntimeHoldReason = RuntimeHoldReason;
     type Currency = Balances;
     type Epochs = TestEpochs;
+    type Author = TestAuthor;
+    type Reveals = TestReveals;
+    type Slash = TestBurn;
+    type PayoutsPerBlock = ConstU32<2>;
     type MaxCandidates = ConstU32<500>;
     type MaxNominators = ConstU32<2_000>;
     type MaxUnlocking = ConstU32<4>;
+    type MaxWinners = ConstU32<1_000>;
     type WeightInfo = ();
 }
 
@@ -147,6 +216,10 @@ pub fn ext() -> sp_io::TestExternalities {
 
 /// Externalities with `params`.
 pub fn ext_with(params: StakingParams) -> sp_io::TestExternalities {
+    set_phase(ChainPhase::Poa);
+    set_author(None);
+    set_missed(Vec::new());
+    BURNED.with(|b| *b.borrow_mut() = 0);
     let storage = RuntimeGenesisConfig {
         system: Default::default(),
         balances: pallet_balances::GenesisConfig {

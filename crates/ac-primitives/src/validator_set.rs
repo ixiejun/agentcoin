@@ -71,6 +71,64 @@ pub trait ValidatorSetInterface {
     fn current_epoch() -> EpochIndex;
     /// Epoch length in blocks.
     fn epoch_length() -> u64;
+    /// Validator phase. Only the validator-set pallet knows it; the default is the PoA phase
+    /// that M2 chains and test mocks are in.
+    fn phase() -> crate::staking::ChainPhase {
+        crate::staking::ChainPhase::Poa
+    }
+}
+
+/// Validators that missed their randomness reveal (spec chain/randomness "未揭示计数").
+pub trait RevealTracker {
+    /// Key identifiers (`ac_primitives::staking::validator_key_id`) of the validators whose
+    /// commitment of the epoch before last was not revealed during the epoch that just ended,
+    /// if that conclusion happened in the block being executed; empty otherwise.
+    fn missed_now() -> Vec<[u8; 32]>;
+}
+
+/// No randomness pallet: nobody misses.
+impl RevealTracker for () {
+    fn missed_now() -> Vec<[u8; 32]> {
+        Vec::new()
+    }
+}
+
+/// The staking ledger as seen by the validator set (design D1, D5, D6 of `m3-pos`).
+pub trait StakingInterface {
+    /// All active stake, summed over the ledger exactly as the node sums it.
+    fn total_active() -> u128;
+    /// Total issuance.
+    fn total_issuance() -> u128;
+    /// Qualified candidates: self-stake at the minimum and not chilled.
+    fn qualified_candidates() -> u32;
+    /// Runs and records an election for `seats` validators; returns the winners in set order
+    /// with their keys and backings. `preview` marks a buffer-period preview.
+    fn elect(seats: u32, preview: bool) -> Vec<(PqPublicKey, u128)>;
+    /// Worst-case weight of reading the switch inputs (a pass over the ledger).
+    fn inputs_weight() -> sp_runtime::Weight {
+        sp_runtime::Weight::zero()
+    }
+    /// Worst-case weight of one election for `seats` validators.
+    fn election_weight(_seats: u32) -> sp_runtime::Weight {
+        sp_runtime::Weight::zero()
+    }
+}
+
+/// No staking (M2 chains and mocks): nothing is staked and nobody can be elected, so the
+/// switch conditions are never met.
+impl StakingInterface for () {
+    fn total_active() -> u128 {
+        0
+    }
+    fn total_issuance() -> u128 {
+        0
+    }
+    fn qualified_candidates() -> u32 {
+        0
+    }
+    fn elect(_seats: u32, _preview: bool) -> Vec<(PqPublicKey, u128)> {
+        Vec::new()
+    }
 }
 
 sp_api::decl_runtime_apis! {

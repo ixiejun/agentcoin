@@ -51,10 +51,7 @@ fn ext() -> sp_io::TestExternalities {
             authorities: NAMES.iter().map(|n| key(n)).collect(),
             ..Default::default()
         },
-        validator_set: pallet_validator_set::GenesisConfig {
-            epoch_length: EPOCH,
-            ..Default::default()
-        },
+        validator_set: pallet_validator_set::GenesisConfig::poa(EPOCH),
         ..Default::default()
     }
     .build_storage()
@@ -208,6 +205,11 @@ fn offline_validator_misses_its_reveal() {
         );
         assert_eq!(MissedReveals::<Test>::get(account("dave")), 1);
         assert_eq!(MissedReveals::<Test>::get(account("alice")), 0);
+        // Staking learns about the miss in the concluding block only (m3-pos design D8).
+        use ac_primitives::validator_set::RevealTracker;
+        assert_eq!(RandomnessCr::missed_now(), vec![account("dave")]);
+        block(2 * EPOCH + 2, &[]);
+        assert!(RandomnessCr::missed_now().is_empty());
     });
 }
 

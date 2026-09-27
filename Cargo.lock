@@ -6247,6 +6247,7 @@ dependencies = [
  "serde",
  "sp-core",
  "sp-io",
+ "sp-npos-elections",
  "sp-runtime",
 ]
 
@@ -9664,6 +9665,20 @@ dependencies = [
  "scale-info",
  "sp-api",
  "sp-application-crypto",
+]
+
+[[package]]
+name = "sp-npos-elections"
+version = "43.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fd312abd39fb4802b010866d46eff6db41f817c7d3be444e0657ce3d052d311"
+dependencies = [
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-arithmetic",
+ "sp-core",
+ "sp-runtime",
 ]
 
 [[package]]

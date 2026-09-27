@@ -18,6 +18,12 @@ pub trait WeightInfo {
     fn epoch_boundary_with_change(n: u32) -> Weight;
     /// Benchmarked weight of `epoch_boundary_without_change`.
     fn epoch_boundary_without_change(n: u32) -> Weight;
+    /// Benchmarked weight of `add_poa_authority`.
+    fn add_poa_authority() -> Weight;
+    /// Benchmarked weight of `remove_poa_authority`.
+    fn remove_poa_authority() -> Weight;
+    /// Benchmarked weight of `set_validator_count`.
+    fn set_validator_count() -> Weight;
 }
 
 /// Weights measured on the reference machine, with the runtime's database weights.
@@ -55,6 +61,15 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
             .saturating_add(T::DbWeight::get().reads(4_u64))
             .saturating_add(T::DbWeight::get().writes(2_u64))
     }
+    fn add_poa_authority() -> Weight {
+        Weight::zero()
+    }
+    fn remove_poa_authority() -> Weight {
+        Weight::zero()
+    }
+    fn set_validator_count() -> Weight {
+        Weight::zero()
+    }
 }
 
 /// Same weights with RocksDB database weights, for tests and mocks.
@@ -70,5 +85,14 @@ impl WeightInfo for () {
             .saturating_add(Weight::from_parts(1_974_499, 0).saturating_mul(n.into()))
             .saturating_add(RocksDbWeight::get().reads(4_u64))
             .saturating_add(RocksDbWeight::get().writes(2_u64))
+    }
+    fn add_poa_authority() -> Weight {
+        Weight::zero()
+    }
+    fn remove_poa_authority() -> Weight {
+        Weight::zero()
+    }
+    fn set_validator_count() -> Weight {
+        Weight::zero()
     }
 }

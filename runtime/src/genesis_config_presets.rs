@@ -13,6 +13,7 @@ use serde_json::Value;
 use sp_genesis_builder::PresetId;
 
 use crate::{ATC, AccountId, BalancesConfig, RuntimeGenesisConfig};
+use ac_primitives::staking::TransitionParams;
 use pallet_staking_pos::StakingParams;
 
 /// Development account names, in endowment order.
@@ -83,6 +84,23 @@ pub const LOCAL_STAKING: StakingParams = StakingParams {
     commission_delay: 20,
 };
 
+/// Switch parameters of the development preset: one qualified candidate, the conditions
+/// holding from block 20 for 20 blocks, so a single node switches within a minute.
+pub const DEV_TRANSITION: TransitionParams = TransitionParams {
+    stake_bps: 1_000,
+    min_candidates: 1,
+    min_height: 20,
+    sustain_blocks: 20,
+};
+
+/// Switch parameters of the local-testnet preset: three candidates, 40 + 40 blocks.
+pub const LOCAL_TRANSITION: TransitionParams = TransitionParams {
+    stake_bps: 1_000,
+    min_candidates: 3,
+    min_height: 40,
+    sustain_blocks: 40,
+};
+
 /// Parameters of one test preset.
 struct Preset<'a> {
     authorities: &'a [&'a str],
@@ -90,6 +108,8 @@ struct Preset<'a> {
     admins: &'a [&'a str],
     threshold: u32,
     staking: StakingParams,
+    transition: TransitionParams,
+    validator_count: u32,
 }
 
 fn testnet_genesis(preset: &Preset<'_>) -> Result<Value, ac_crypto::Error> {
@@ -99,6 +119,8 @@ fn testnet_genesis(preset: &Preset<'_>) -> Result<Value, ac_crypto::Error> {
         admins,
         threshold,
         staking,
+        transition,
+        validator_count,
     } = *preset;
     let admins = admins
         .iter()
@@ -116,7 +138,11 @@ fn testnet_genesis(preset: &Preset<'_>) -> Result<Value, ac_crypto::Error> {
     Ok(build_struct_json_patch!(RuntimeGenesisConfig {
         balances: BalancesConfig { balances },
         aura_pq: pallet_aura_pq::GenesisConfig { authorities },
-        validator_set: pallet_validator_set::GenesisConfig { epoch_length },
+        validator_set: pallet_validator_set::GenesisConfig {
+            epoch_length,
+            transition,
+            validator_count
+        },
         // Emission epochs as short as the validator epochs, so tests see settlements quickly;
         // both lengths divide the four-year period.
         emission: pallet_emission::GenesisConfig { epoch_length },
@@ -143,6 +169,8 @@ pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
             admins: &["alice"],
             threshold: 1,
             staking: DEV_STAKING,
+            transition: DEV_TRANSITION,
+            validator_count: 5,
         }),
         sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET => {
             // Four authorities tolerate one faulty member (n ≥ 3f + 1).
@@ -152,6 +180,8 @@ pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
                 admins: &["alice", "bob", "charlie"],
                 threshold: 2,
                 staking: LOCAL_STAKING,
+                transition: LOCAL_TRANSITION,
+                validator_count: 10,
             })
         }
         _ => return None,

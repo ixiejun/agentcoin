@@ -48,6 +48,8 @@ impl pallet_aura_pq::Config for Test {
 
 impl pallet_validator_set::Config for Test {
     type RuntimeEvent = RuntimeEvent;
+    type Staking = ();
+    type AdminOrigin = frame_system::EnsureRoot<u64>;
     type BlockAuthorities = AuraPq;
     type MaxAuthorities = ConstU32<10>;
     type HistoryEpochs = ConstU32<2>;

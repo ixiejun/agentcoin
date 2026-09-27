@@ -57,8 +57,8 @@ pub mod pallet {
     use alloc::vec::Vec;
     use frame_support::pallet_prelude::ProvideInherent;
     use frame_support::pallet_prelude::{
-        DispatchClass, DispatchResult, Get, Hooks, IsType, OptionQuery, StorageDoubleMap,
-        StorageMap, StorageValue, ValueQuery, Weight,
+        BoundedVec, DispatchClass, DispatchResult, Get, Hooks, IsType, OptionQuery,
+        StorageDoubleMap, StorageMap, StorageValue, ValueQuery, Weight,
     };
     use frame_support::{Blake2_128Concat, Twox64Concat};
     use frame_system::pallet_prelude::{BlockNumberFor, OriginFor};
@@ -129,6 +129,12 @@ pub mod pallet {
     /// Whether this block already carried `note_randomness`.
     #[pallet::storage]
     pub type Noted<T: Config> = StorageValue<_, bool, ValueQuery>;
+
+    /// Validators that missed their reveal in the latest conclusion, with the block that
+    /// concluded (read by staking to zero their work points, design D8 of `m3-pos`).
+    #[pallet::storage]
+    pub type LastMissed<T: Config> =
+        StorageValue<_, (u64, BoundedVec<AccountBytes, T::MaxAuthorities>), OptionQuery>;
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -244,11 +250,18 @@ pub mod pallet {
         pub(crate) fn conclude(epoch: EpochIndex, now: BlockNumberFor<T>) -> u32 {
             let max = T::MaxAuthorities::get();
             let reveals: Vec<(AccountBytes, [u8; 32])> = Reveals::<T>::iter_prefix(epoch).collect();
+            let mut missed = Vec::new();
             for (who, _) in Commits::<T>::iter_prefix(epoch) {
                 if !reveals.iter().any(|(r, _)| *r == who) {
                     MissedReveals::<T>::mutate(who, |n| *n = n.saturating_add(1));
+                    missed.push(who);
                 }
             }
+            // At most one commitment per authority, so the list fits the bound.
+            LastMissed::<T>::put((
+                now.saturated_into::<u64>(),
+                BoundedVec::truncate_from(missed),
+            ));
             if let Ok(Some(value)) = epoch_randomness(epoch, &reveals) {
                 Randomness::<T>::insert(epoch, (value, now));
                 Latest::<T>::put((epoch, value));
@@ -288,6 +301,16 @@ pub mod pallet {
     /// FRAME randomness for other pallets (audit sampling in M6). Before the first published
     /// value it returns the zero hash and block 0; callers that need a real value use
     /// [`Pallet::random`], which returns `None` then.
+    impl<T: Config> ac_primitives::validator_set::RevealTracker for Pallet<T> {
+        fn missed_now() -> Vec<[u8; 32]> {
+            let now: u64 = frame_system::Pallet::<T>::block_number().saturated_into();
+            match LastMissed::<T>::get() {
+                Some((at, missed)) if at == now => missed.into_inner(),
+                _ => Vec::new(),
+            }
+        }
+    }
+
     impl<T: Config> frame_support::traits::Randomness<H256, BlockNumberFor<T>> for Pallet<T> {
         fn random(subject: &[u8]) -> (H256, BlockNumberFor<T>) {
             let Some((epoch, r)) = Latest::<T>::get() else {

@@ -59,6 +59,8 @@ impl pallet_aura_pq::Config for Test {
 
 impl pallet_validator_set::Config for Test {
     type RuntimeEvent = RuntimeEvent;
+    type Staking = ();
+    type AdminOrigin = frame_system::EnsureRoot<u64>;
     type BlockAuthorities = AuraPq;
     type MaxAuthorities = ConstU32<10>;
     type HistoryEpochs = ConstU32<2>;
@@ -94,10 +96,7 @@ pub fn new_bench_ext() -> sp_io::TestExternalities {
             authorities,
             ..Default::default()
         },
-        validator_set: pallet_validator_set::GenesisConfig {
-            epoch_length: 8,
-            ..Default::default()
-        },
+        validator_set: pallet_validator_set::GenesisConfig::poa(8),
         ..Default::default()
     }
     .build_storage()

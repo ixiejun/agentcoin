@@ -483,6 +483,119 @@ impl<A> ElectionInput<A> {
     }
 }
 
+/// Backing per unit of AC-BFT voting weight: 10^12 smallest units (10^-6 ATC). The whole
+/// supply (2.1 × 10^25 units) maps to about 2.1 × 10^13 weight units, far inside `u64`.
+pub const BACKING_PER_WEIGHT: u128 = 1_000_000_000_000;
+
+/// AC-BFT voting weight of a validator with `backing` (spec consensus/npos-election
+/// "按支撑额的投票权重"): `max(1, backing / 10^12)`, so every member has a vote and ratios
+/// are kept to within one unit.
+#[must_use]
+pub fn backing_to_weight(backing: u128) -> u64 {
+    let units = backing.checked_div(BACKING_PER_WEIGHT).unwrap_or(0);
+    u64::try_from(units).unwrap_or(u64::MAX).max(1)
+}
+
+/// One validator chosen by an election.
+#[non_exhaustive]
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
+pub struct ElectedValidator<A> {
+    /// Candidate account.
+    pub who: A,
+    /// Its validator key.
+    pub key: PqPublicKey,
+    /// Total backing: self-stake plus the nominations assigned to it.
+    pub backing: u128,
+    /// Composition of the backing: the validator itself and each nominator, with amounts.
+    pub exposure: Vec<(A, u128)>,
+}
+
+impl<A> ElectedValidator<A> {
+    /// An elected validator.
+    #[must_use]
+    pub fn new(who: A, key: PqPublicKey, backing: u128, exposure: Vec<(A, u128)>) -> Self {
+        Self {
+            who,
+            key,
+            backing,
+            exposure,
+        }
+    }
+}
+
+/// The latest election as reported to clients.
+#[non_exhaustive]
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
+pub struct ElectionInfo<A> {
+    /// Block whose execution ran the election.
+    pub block: u64,
+    /// Whether it was a preview during the switch buffer (does not change the PoA set).
+    pub preview: bool,
+    /// Elected validators, in set order.
+    pub elected: Vec<ElectedValidator<A>>,
+}
+
+impl<A> ElectionInfo<A> {
+    /// Election information.
+    #[must_use]
+    pub fn new(block: u64, preview: bool, elected: Vec<ElectedValidator<A>>) -> Self {
+        Self {
+            block,
+            preview,
+            elected,
+        }
+    }
+}
+
+/// Progress of the PoA → PoS switch (spec consensus/pos-transition "阶段可查询").
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Encode, Decode, TypeInfo)]
+pub struct TransitionProgress {
+    /// Current phase.
+    pub phase: ChainPhase,
+    /// Block of the switch, once it happened.
+    pub switched_at: Option<u64>,
+    /// Start of the current qualified run, if any.
+    pub qualified_since: Option<u64>,
+    /// All active stake now.
+    pub total_active: u128,
+    /// Active stake needed now: the threshold share of the total issuance.
+    pub stake_needed: u128,
+    /// Qualified candidates now.
+    pub qualified_candidates: u32,
+    /// The switch parameters.
+    pub params: TransitionParams,
+    /// Current height.
+    pub height: u64,
+}
+
+impl TransitionProgress {
+    /// Progress report from its parts; `stake_needed` is derived from `issuance`.
+    #[must_use]
+    pub fn new(
+        phase: ChainPhase,
+        runs: (Option<u64>, Option<u64>),
+        inputs: &TransitionInputs,
+        params: TransitionParams,
+    ) -> Self {
+        let stake_needed = pro_rata(
+            inputs.issuance,
+            u128::from(params.stake_bps),
+            u128::from(BPS),
+        );
+        Self {
+            phase,
+            switched_at: runs.0,
+            qualified_since: runs.1,
+            total_active: inputs.total_active,
+            stake_needed,
+            qualified_candidates: inputs.qualified_candidates,
+            params,
+            height: inputs.height,
+        }
+    }
+}
+
 /// Stake of one account (spec consensus/staking "质押查询与守恒").
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Encode, Decode, TypeInfo)]
@@ -557,6 +670,10 @@ sp_api::decl_runtime_apis! {
         fn total_active() -> u128;
         /// Current minimum self-stake and minimum nomination.
         fn minimums() -> (u128, u128);
+        /// The latest election or preview, with each validator's backing and its composition.
+        fn last_election() -> Option<ElectionInfo<AccountId>>;
+        /// Phase, switch conditions and their current values.
+        fn transition() -> TransitionProgress;
     }
 }
 
@@ -742,6 +859,18 @@ mod tests {
         assert!(none.shares.is_empty());
     }
 
+    // Scenario "权重与支撑额成比例".
+    #[test]
+    fn weights_follow_backing() {
+        let three = backing_to_weight(3_000_000 * UNITS);
+        let one = backing_to_weight(1_000_000 * UNITS);
+        assert_eq!(three, 3 * one);
+        assert_eq!(backing_to_weight(0), 1);
+        assert_eq!(backing_to_weight(BACKING_PER_WEIGHT - 1), 1);
+        assert_eq!(backing_to_weight(CAP), 21_000_000_000_000);
+        assert_eq!(backing_to_weight(u128::MAX), u64::MAX);
+    }
+
     #[test]
     fn pro_rata_does_not_overflow() {
         assert_eq!(pro_rata(CAP, CAP, CAP), CAP);
@@ -764,6 +893,15 @@ mod tests {
                 prop_assert_eq!(s.qualified_since, Some(prev.unwrap_or(height)));
                 prop_assert!(stake * 10 >= issuance && cands >= 21 && height >= 63_115_200);
             }
+        }
+
+        #[test]
+        fn weight_ratio_error_is_at_most_one_unit(a in 0u128..CAP, b in 1u128..CAP) {
+            let (wa, wb) = (backing_to_weight(a), backing_to_weight(b));
+            // |wa/wb − a/b| ≤ 1 unit: wa·b and a·wb/… compared through the exact quotient.
+            let exact = a / BACKING_PER_WEIGHT;
+            prop_assert!(u128::from(wa) <= exact.max(1) && u128::from(wa) + 1 > exact);
+            prop_assert!(wb >= 1);
         }
 
         #[test]

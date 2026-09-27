@@ -14,9 +14,10 @@ use frame_support::BoundedVec;
 use frame_support::traits::Get;
 
 use crate::{
-    Authorities, Config, CurrentSetId, HistoricalSet, OldestSet, Pallet, PendingRemovals,
-    SetHistory,
+    Authorities, Call, Config, CurrentSetId, EpochLength, HistoricalSet, OldestSet, Pallet,
+    PendingRemovals, PoaAuthorities, SetHistory, TransitionParams, ValidatorCount,
 };
+use frame_support::traits::EnsureOrigin;
 
 fn key(i: u32) -> PqPublicKey {
     let mut seed = [0u8; 32];
@@ -32,6 +33,7 @@ fn key(i: u32) -> PqPublicKey {
 fn setup<T: Config>(n: u32) -> u64 {
     let keys: Vec<PqPublicKey> = (0..n).map(key).collect();
     T::BlockAuthorities::set_authorities(keys.clone()).unwrap();
+    PoaAuthorities::<T>::put(BoundedVec::truncate_from(keys.clone()));
     let set: BoundedVec<Authority, T::MaxAuthorities> =
         BoundedVec::try_from(keys.into_iter().map(Authority::poa).collect::<Vec<_>>()).unwrap();
     Authorities::<T>::put(set.clone());
@@ -56,7 +58,10 @@ fn setup<T: Config>(n: u32) -> u64 {
 
 #[benchmarks]
 mod benchmarks {
-    use super::{Config, Get, Pallet, PendingRemovals, Vec, key, setup};
+    use super::{
+        Call, Config, EnsureOrigin, EpochLength, Get, Pallet, PendingRemovals, PoaAuthorities,
+        TransitionParams, ValidatorCount, Vec, key, setup,
+    };
     // The macro expands to code naming `impl_test_function` unqualified.
     use frame_benchmarking::impl_test_function;
     use frame_benchmarking::v2::BenchmarkError;
@@ -73,7 +78,7 @@ mod benchmarks {
         let changed;
         #[block]
         {
-            changed = Pallet::<T>::enact(epoch);
+            changed = Pallet::<T>::enact(epoch, 1).0;
         }
         assert!(changed);
         Ok(())
@@ -88,9 +93,59 @@ mod benchmarks {
         let changed;
         #[block]
         {
-            changed = Pallet::<T>::enact(epoch);
+            changed = Pallet::<T>::enact(epoch, 1).0;
         }
         assert!(!changed);
+        Ok(())
+    }
+
+    /// Adds a key to a roster one short of the maximum.
+    #[benchmark]
+    fn add_poa_authority() -> Result<(), BenchmarkError> {
+        let max = T::MaxAuthorities::get();
+        let roster: Vec<_> = (0..max.saturating_sub(1)).map(key).collect();
+        PoaAuthorities::<T>::put(frame_support::BoundedVec::truncate_from(roster));
+        EpochLength::<T>::put(u64::from(max).saturating_mul(2));
+        let origin =
+            T::AdminOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+        let new = key(max);
+
+        #[extrinsic_call]
+        _(origin as T::RuntimeOrigin, new.clone());
+
+        assert!(PoaAuthorities::<T>::get().contains(&new));
+        Ok(())
+    }
+
+    /// Removes the last key of a full roster.
+    #[benchmark]
+    fn remove_poa_authority() -> Result<(), BenchmarkError> {
+        let max = T::MaxAuthorities::get();
+        let roster: Vec<_> = (0..max).map(key).collect();
+        PoaAuthorities::<T>::put(frame_support::BoundedVec::truncate_from(roster));
+        let origin =
+            T::AdminOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+        let gone = key(max.saturating_sub(1));
+
+        #[extrinsic_call]
+        _(origin as T::RuntimeOrigin, gone.clone());
+
+        assert!(!PoaAuthorities::<T>::get().contains(&gone));
+        Ok(())
+    }
+
+    #[benchmark]
+    fn set_validator_count() -> Result<(), BenchmarkError> {
+        EpochLength::<T>::put(u64::from(T::MaxAuthorities::get()).saturating_mul(2));
+        TransitionParams::<T>::mutate(|p| p.min_candidates = 1);
+        let origin =
+            T::AdminOrigin::try_successful_origin().map_err(|_| BenchmarkError::Weightless)?;
+        let count = T::MaxAuthorities::get();
+
+        #[extrinsic_call]
+        _(origin as T::RuntimeOrigin, count);
+
+        assert_eq!(ValidatorCount::<T>::get(), count);
         Ok(())
     }
 

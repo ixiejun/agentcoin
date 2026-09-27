@@ -15,9 +15,9 @@ use sp_runtime::{Perbill, traits::IdentityLookup, traits::One};
 // `derive_impl` expands to associated types that name these items.
 use super::{
     AccountId, AuraPq, Balance, Balances, Block, BlockNumber, EXISTENTIAL_DEPOSIT, Emission, Hash,
-    MILLISECS_PER_BLOCK, Nonce, PalletInfo, Runtime, RuntimeCall, RuntimeEvent,
-    RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, TreasuryDual, VERSION,
-    ValidatorSet,
+    MILLISECS_PER_BLOCK, Nonce, PalletInfo, RandomnessCr, Runtime, RuntimeCall, RuntimeEvent,
+    RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, StakingPos, TreasuryDual,
+    VERSION, ValidatorSet,
 };
 use crate::holder_lock::HolderTreasuryLock;
 use ac_primitives::Blake3Hasher;
@@ -156,6 +156,9 @@ impl pallet_pq_accounts::Config for Runtime {
 impl pallet_validator_set::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type BlockAuthorities = AuraPq;
+    type Staking = StakingPos;
+    /// The PoA administration manages the roster until the switch (design D7 of `m3-pos`).
+    type AdminOrigin = TreasuryAdminOrigin;
     type MaxAuthorities = ConstU32<{ ac_primitives::aura_pq::MAX_AUTHORITIES }>;
     /// Sets of the last eight epochs stay available for double-signing evidence.
     type HistoryEpochs = ConstU32<8>;
@@ -259,10 +262,18 @@ impl pallet_staking_pos::Config for Runtime {
     type RuntimeHoldReason = RuntimeHoldReason;
     type Currency = Balances;
     type Epochs = ValidatorSet;
+    type Author = AuraPq;
+    type Reveals = RandomnessCr;
+    /// Slashed stake is burned and counted in `Emission::TotalBurned`.
+    type Slash = Emission;
+    /// A full live-chain queue (about 32,000 payouts) drains in about 125 blocks.
+    type PayoutsPerBlock = ConstU32<256>;
     /// Live-chain caps (design D10 of `m3-pos`); presets may set smaller ones.
     type MaxCandidates = ConstU32<500>;
     type MaxNominators = ConstU32<2_000>;
     /// Unbonding requests per account before they merge into the latest one.
     type MaxUnlocking = ConstU32<32>;
+    /// Storage bound of the active-set size K (I-004: K is a parameter, never hard-coded).
+    type MaxWinners = ConstU32<1_000>;
     type WeightInfo = pallet_staking_pos::weights::SubstrateWeight<Runtime>;
 }
