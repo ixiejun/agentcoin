@@ -14,8 +14,11 @@ mod common;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use common::{NodeOpts, free_port, start_node_with, temp_dir, wait_for_finalized, wait_for_height};
+use common::{
+    NodeOpts, free_port, start_node_with, state_call, temp_dir, wait_for_finalized, wait_for_height,
+};
 use jsonrpsee::{core::client::ClientT, rpc_params};
+use parity_scale_codec::Decode;
 
 const START: Duration = Duration::from_secs(120);
 
@@ -74,4 +77,40 @@ async fn network_blocks_are_executed_once() {
             executed.get(&n)
         );
     }
+}
+
+// Task 3.2, Scenario "正常排放": with the checks enabled, a dev chain (10-block emission epochs)
+// crosses at least three settlements; every block is accepted and finalized, and the emission
+// matches the runtime's own view.
+#[tokio::test(flavor = "multi_thread")]
+async fn normal_emission_is_accepted() {
+    let dir = temp_dir("normal-emission");
+    let log = dir.join("node.log");
+    let node = start_node_with(
+        &["--dev"],
+        &NodeOpts {
+            log: Some(&log),
+            ..NodeOpts::default()
+        },
+    );
+    // Blocks 11, 21 and 31 settle epochs 0, 1 and 2.
+    wait_for_height(&node, 32, START).await;
+    wait_for_finalized(&node, 32, START).await;
+    let epoch =
+        u64::decode(&mut &state_call(&node, "EmissionApi_current_epoch", &[], None).await[..])
+            .unwrap();
+    assert!(epoch >= 3, "current epoch {epoch}");
+    let minted =
+        u128::decode(&mut &state_call(&node, "EmissionApi_total_minted", &[], None).await[..])
+            .unwrap();
+    let scheduled = u128::decode(
+        &mut &state_call(&node, "EmissionApi_scheduled", &0u64.to_le_bytes(), None).await[..],
+    )
+    .unwrap();
+    // PoA without work: each settled epoch mints its 5% floor.
+    assert!(minted >= 3 * (scheduled * 5 / 100), "minted {minted}");
+    drop(node);
+    let text = std::fs::read_to_string(&log).unwrap();
+    assert!(!text.contains("rejecting block"), "a block was rejected");
+    assert!(!text.contains("constitution invariant violated"));
 }

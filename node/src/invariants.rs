@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use ac_invariants::{GenesisParams, Ledger, Violation, check_block, read_ledger};
+use ac_invariants::{GenesisParams, Ledger, Violation, check_block, check_genesis, read_ledger};
 use ac_runtime::opaque::Block;
 use sc_client_api::{Backend as _, StorageProvider};
 use sc_consensus::{
@@ -26,6 +26,28 @@ use crate::service::{FullBackend, FullClient};
 /// Log target of the invariant checks.
 pub const LOG_TARGET: &str = "ac-invariants";
 
+/// Constitution layer 1 at start-up (spec node/invariants "启动时校验创世参数", node/chain-spec
+/// "正式链创世零发行"): builds the chain spec's genesis state and checks it with
+/// [`ac_invariants::check_genesis`] — a valid emission epoch length and an issuance within the
+/// cap for every chain; for a live chain also zero issuance, no balances and at least one PoA
+/// admin member. Returns the parameters of the per-block checks.
+///
+/// # Errors
+///
+/// The genesis cannot be built or breaks a rule; the node must not start.
+pub fn genesis_params(spec: &dyn sc_service::ChainSpec) -> Result<GenesisParams, String> {
+    let storage = spec.as_storage_builder().build_storage()?;
+    let live = spec.chain_type() == sc_chain_spec::ChainType::Live;
+    check_genesis(
+        storage
+            .top
+            .iter()
+            .map(|(k, v)| (k.as_slice(), v.as_slice())),
+        live,
+    )
+    .map_err(|e| format!("invalid chain spec genesis: {e}"))
+}
+
 type Hash = <Block as BlockT>::Hash;
 
 /// Block import that enforces the node invariants before handing blocks to the client.
@@ -33,16 +55,12 @@ type Hash = <Block as BlockT>::Hash;
 pub struct InvariantBlockImport {
     client: Arc<FullClient>,
     backend: Arc<FullBackend>,
-    params: Option<GenesisParams>,
+    params: GenesisParams,
 }
 
 impl InvariantBlockImport {
-    /// Wraps `client`; `params` enables the checks (`None` only executes and passes blocks on).
-    pub fn new(
-        client: Arc<FullClient>,
-        backend: Arc<FullBackend>,
-        params: Option<GenesisParams>,
-    ) -> Self {
+    /// Wraps `client`, checking every block against `params` (from [`genesis_params`]).
+    pub fn new(client: Arc<FullClient>, backend: Arc<FullBackend>, params: GenesisParams) -> Self {
         Self {
             client,
             backend,
@@ -170,9 +188,7 @@ impl BlockImport<Block> for InvariantBlockImport {
             }
         };
         if let Some(changes) = changes {
-            if let Some(genesis) = &self.params
-                && let Err(violation) = self.check(genesis, number, parent, &changes)
-            {
+            if let Err(violation) = self.check(&self.params, number, parent, &changes) {
                 log::error!(
                     target: LOG_TARGET,
                     "rejecting block #{number} ({:?}): {violation}",

@@ -214,3 +214,32 @@ mod base64_like {
         out
     }
 }
+
+// node/invariants Scenario "链规格缺少纪元长度": a chain spec without an emission epoch length
+// is refused at start-up, live or not.
+#[test]
+fn chain_spec_without_epoch_length_is_refused() {
+    let mut spec = export_spec("dev");
+    patch(&mut spec)["emission"]["epochLength"] = serde_json::json!(0);
+    let path = write_spec(&spec, "no-epoch-length");
+    let (ok, output) = run_to_exit(
+        &["--chain", path.to_str().unwrap(), "--dev-key", "alice"],
+        START,
+    );
+    assert!(!ok);
+    assert!(output.contains("emission epoch length"), "{output}");
+}
+
+// node/chain-spec: a live chain spec without PoA admin members is refused.
+#[test]
+fn live_chain_without_admin_members_is_refused() {
+    let mut spec = export_spec("dev");
+    spec["chainType"] = "Live".into();
+    patch(&mut spec)["balances"]["balances"] = serde_json::json!([]);
+    patch(&mut spec)["poaCouncil"]["members"] = serde_json::json!([]);
+    patch(&mut spec)["poaAdmin"]["threshold"] = serde_json::json!(0);
+    let path = write_spec(&spec, "live-no-admins");
+    let (ok, output) = run_to_exit(&["--chain", path.to_str().unwrap()], START);
+    assert!(!ok);
+    assert!(output.contains("PoA admin member"), "{output}");
+}

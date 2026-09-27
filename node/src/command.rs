@@ -6,12 +6,11 @@ use sc_service::PartialComponents;
 use ac_crypto::keystore::{EncryptedSecret, SecretKind};
 use ac_crypto::sig::{SecretSeed, SigningKey};
 use ac_primitives::aura_pq::AUTHORITY_ALG;
-use sc_chain_spec::ChainType;
 
 use crate::{
     chain_spec,
     cli::{Cli, PqKeyCmd, Subcommand},
-    genesis_guard, keys, service,
+    invariants, keys, service,
 };
 
 /// Runs `pq-key` subcommands.
@@ -61,13 +60,9 @@ fn hex_encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Constitution layer 1 at start-up: a live chain's genesis must have zero issuance.
+/// Constitution layer 1 at start-up, before anything else happens (spec node/invariants).
 fn check_genesis(spec: &dyn sc_service::ChainSpec) -> Result<(), String> {
-    if spec.chain_type() != ChainType::Live {
-        return Ok(());
-    }
-    let storage = spec.as_storage_builder().build_storage()?;
-    genesis_guard::check_zero_issuance(&storage).map_err(|e| e.to_string())
+    invariants::genesis_params(spec).map(|_| ())
 }
 
 impl SubstrateCli for Cli {

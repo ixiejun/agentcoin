@@ -334,8 +334,11 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
     );
 
     let tracker: SharedTracker = Arc::new(Mutex::new(load_tracker(&client)?));
-    // The invariant checks are enabled once the runtime publishes the burned counter (tasks 3.2).
-    let invariants = InvariantBlockImport::new(client.clone(), backend.clone(), None);
+    // Constitution layer 1: every block, authored here or imported, passes the invariant
+    // checks against the genesis parameters of the chain spec.
+    let genesis = crate::invariants::genesis_params(config.chain_spec.as_ref())
+        .map_err(sc_service::Error::Other)?;
+    let invariants = InvariantBlockImport::new(client.clone(), backend.clone(), genesis);
     let block_import = AcBftBlockImport::new(invariants, client.clone(), tracker.clone());
     let reporter = Arc::new(PoolReporter {
         client: client.clone(),
