@@ -229,7 +229,8 @@ PoA 阶段：验证者安全预算不发放，计入滚存储备；PoA 验证者
 | `pallet-pq-accounts` | α | 公钥注册、换钥、`PqAuthorize` 交易授权 |
 | `pallet-emission` | α | 计划排放、滚存储备、四份分配、按 epoch 结算 |
 | `pallet-treasury-dual` | α | 社区赠款 + 持币人金库；5% 保底线性归属 |
-| `pallet-fee-burn` | α | 交易费和推理费按比例销毁 |
+| ~~`pallet-fee-burn`~~ | α | 已合并到 `pallet-emission`，由其记录所有销毁（m3-economics） |
+| `pallet-poa-admin` + `pallet-collective` | α | PoA 多签：ML-DSA 成员按门限以 Root 身份执行（D41） |
 | `pallet-validator-set` | α | PoA / PoS 状态机、会话密钥、罚没 |
 | `pallet-randomness-cr` | α | 承诺-揭示随机数 |
 | `pallet-model-registry` | α | 模型登记、血统声明 |
@@ -251,37 +252,40 @@ PoA 阶段：验证者安全预算不发放，计入滚存储备；PoA 验证者
 ### 5.1 `pallet-emission`
 
 ```rust
-// 常量（创世写死，同时也是节点不变式的输入）
-const CAP: u128            = 21_000_000 * 10u128.pow(18);
-const ERA_YEARS: u32       = 4;
-const EPOCH: BlockNumber   = 3_600;                 // 1s 出块时约 1 小时
-const EPOCHS_PER_HALVING: u64 = 4 * 365 * 24 + 24;  // 约 4 年（35,064 个 epoch）
-const FIRST_HALVING_TOTAL: u128 = CAP / 2;          // 第一个 4 年期共 1050 万
+// 常量（已发布；同时也是节点不变式的输入）
+const UNITS: u128             = 10u128.pow(18);
+const CAP: u128               = 21_000_000 * UNITS;
+const FIRST_PERIOD_TOTAL: u128 = 10_500_000 * UNITS;
+const BLOCKS_PER_PERIOD: u64  = 126_230_400;        // 4 × 365.25 天，1 秒出块
+// 排放纪元长度 L：创世参数，必须整除 BLOCKS_PER_PERIOD
+EpochLength: u64                                    // 正式链 3,600；开发链不超过 20
 
-fn scheduled(epoch: u64) -> u128 {                  // 本 epoch 的计划额
-    let n = epoch / EPOCHS_PER_HALVING;             // 第几次减半
-    (FIRST_HALVING_TOTAL >> n) / EPOCHS_PER_HALVING as u128
+fn scheduled(e: u64) -> u128 {                      // S(e)
+    let n = e * L / BLOCKS_PER_PERIOD;              // 已减半次数；减半只发生在纪元边界
+    (FIRST_PERIOD_TOTAL >> n) * L as u128 / BLOCKS_PER_PERIOD as u128
 }
 
-// 存储
-Minted: u128                      // 已铸造总量
-Reserve: u128                     // 滚存储备（计划额中未排出的部分）
-EpochWork: { market_fee_usd, market_units, public_units }
+// 存储（TotalBurned 是已发布的固定存储键）
+Reserve, TotalMinted, TotalBurned, LastSettled
 
-// 每个 epoch 结束时（on_initialize 钩子）：
-S  = scheduled(e)
-avail = S + min(Reserve, S)               // 储备每 epoch 最多动用 1 倍计划额
-security = 0.10 * S （PoA 阶段 → 计入 Reserve）
-market   = min(0.50 * avail, k * 已验证付费(ATC 计))
-public   = min(0.20 * avail, 已验证的公共任务预算消耗)
-treasury = max(0.05 * S, (0.20 / 0.70) * (market + public))  // 与工作排放成比例（满载时恰为 20%），不低于保底
-minted_now = min(security + market + public + treasury, avail)   // 超出时按比例缩减
-Reserve  += S - (minted_now - 从储备动用的部分)
-assert!(Minted + minted_now <= CAP)       // runtime 层检查（节点层会再检查一次）
+// 纪元 e = 第 e·L+1 ..= (e+1)·L 块，在第 (e+1)·L+1 块的 on_initialize 中结算：
+S        = scheduled(e)
+avail    = S + min(Reserve, S)
+security = S * 10%                                  // PoA：不发放，留在储备中（D19）
+market   = min(avail * 50%, verified_market_work)
+public   = min(avail * 20%, verified_public_work)
+prop     = (market + public) * 20 / 70
+treasury = max(prop, S * 5%)                        // 取大，不相加（红线 5）
+total    = security + market + public + treasury   // 超过 avail 时按比例缩减（向下取整）
+drawn    = max(0, total - S)
+Reserve  = Reserve - drawn + max(0, S - total)
 ```
 
-- **说明**：`treasury` 与实际的工作排放成比例，需求满载时恰好是 10/50/20/20 中的 20%，需求不足时按比例缩小（研究 04 §2），但不低于保底 `0.05 × S`。保底部分（即比例部分不足保底时补足的那一段）进入归属锁定账户，线性释放 2 年，只能用于审计和冷启动。
-- `k`（排放倍数）和销毁比例 `b` 受护栏约束：`0 ≤ k − b ≤ 0.5`（§研究 03 §1.5）。
+- 全部运算为 `u128` 向下取整；余数留在储备，因此 `Reserve' + total = Reserve + S`，不会凭空创造。同一个函数（`ac_primitives::emission::settle`）在 runtime、节点不变式和经济模拟（`tests/sim`，两个四年期）中运行。
+- **国库**：`treasury` 与实际的工作排放成比例，需求满载时恰好是 10/50/20/20 中的 20%，需求不足时按比例缩小（研究 04 §2），但不低于保底 `5% × S`。比例份额 40% 进入社区资助、60% 进入持币人国库（创世参数 `community_share`，取整余数归持币人国库）；持币人国库在链上持币人投票（M8，D42）之前没有任何出口。保底差额进入保底账户，按 30 天分批，每批从批次结束起 2 年线性解锁，只能用于审计和冷启动。
+- M5 之前没有已核验工作量，PoA 阶段不发放安全预算，所以每个纪元只铸造 5% 的保底。
+- **销毁**（原独立的 `pallet-fee-burn`，现已合并到本模块）：所有销毁——交易手续费和小费的 80%、被回收账户的尘埃，以及之后的罚没和推理费——都经 `Emission` 丢弃 `Credit` 并累加到 `TotalBurned`。
+- `k`（排放倍数）和销毁比例 `b` 受护栏约束：`0 ≤ k − b ≤ 0.5`（研究 03 §1.5）。
 
 ### 5.2 `pallet-credits`：统一额度接口（D20）
 
@@ -404,21 +408,27 @@ Guardrail { param: ParamId, min, max, max_step_per_change, min_interval }
 
 ## 6. 节点不变式检查器（宪法第 1 层，D30）
 
-写在节点客户端（native 代码）里，**不在 runtime 里**，因此任何 runtime 升级都无法修改它。
+写在节点客户端（native 代码，crate `ac-invariants`）里，**不在 runtime 里**，因此任何 runtime 升级都无法修改它。
 
 ```rust
-// ac-node/src/invariants.rs —— 每个区块导入时，在执行后调用
-fn check_block(pre: &State, post: &State, header: &Header) -> Result<(), Reject> {
-    let issued = read_well_known(post, TOTAL_ISSUANCE_KEY)?;   // 键不存在或格式错误 → 拒绝（fail-closed）
-    ensure!(issued <= CAP);                                     // 宪法 1：2100 万
-    let minted = issued - read_well_known(pre, TOTAL_ISSUANCE_KEY)? + burned_in_block(post)?;
-    ensure!(minted <= max_mint_allowed(header.number, pre));    // 宪法 3：无预挖、不超出排放曲线
-    ensure!(poa_switch_respected(pre, post, header));           // 宪法 4：PoA → PoS
+// ac-invariants（纯函数），由 ac-node 的 InvariantBlockImport 对每个区块调用
+fn check_block(params: &GenesisParams, n: u64, pre: Ledger, post: Ledger) -> Result<(), Violation> {
+    ensure!(post.issuance <= CAP);                              // 宪法 1：2100 万
+    let minted = (post.issuance + post.burned) - (pre.issuance + pre.burned);
+    match settled_epoch(n) {
+        None => ensure!(minted == 0),                           // 只有结算区块可以铸币
+        Some(e) => ensure!(minted <= 2 * scheduled(e)),
+    }
+    let since_genesis = post.issuance + post.burned - params.genesis_issuance;
+    ensure!(since_genesis <= cumulative_scheduled(settled_epochs(n)));
     Ok(())
 }
 ```
 
-- 创世时，`TOTAL_ISSUANCE_KEY` 等“约定存储键”写入节点代码。如果 runtime 升级后读不到这些键，节点会**拒绝**该区块（fail-closed）。
+- `Ledger` 从已发布的固定存储键读取：`Balances::TotalIssuance` 与 `Emission::TotalBurned`（SCALE `u128`）。铸币量按“发行量 + 已销毁量”的变化计算，因此销毁无法掩盖铸币，runtime 虚增销毁计数只会让检查更严。键缺失或无法解码时拒绝区块（fail-closed）。
+- `InvariantBlockImport` 位于 AC-BFT 区块导入与客户端之间：本节点产出、从网络接收或同步而来的区块都经过它。对其他节点的区块，它在父状态上执行区块并把存储变化交给客户端，因此每个区块只执行一次。不经执行就导入的区块会被拒绝，所以不支持 warp 同步和快速同步。
+- 节点启动时检查链规格的创世：合法的 `Emission::EpochLength`、发行量不超过上限；正式链还要求零发行、无余额分配，且至少一名 PoA 管理成员（`PoaCouncil::Members`）。
+- PoA → PoS 切换条件（宪法 4）随 `m3-pos` 加入这些检查。
 - 修改这些规则 = 发布新的节点客户端 = **硬分叉**。
 - “协议中立”（宪法 2）属于第 2 层，在客户端中另外检查：runtime 中不得出现名为 `Blacklist`、`Blocklist`、`GeoFence` 等的存储前缀（这只是辅助检查，主要靠第 2 层审议）。
 
@@ -457,14 +467,18 @@ fn check_block(pre: &State, post: &State, header: &Header) -> Result<(), Reject>
 |---|---|---|
 | 总量 | 21,000,000 ATC（18 位小数） | 宪法第 1 层 |
 | 第一个 4 年期计划排放 | 10,500,000，之后每 4 年减半 | 宪法第 1 层 |
+| 排放纪元 | 正式链 3,600 块（创世参数，须整除 126,230,400 块） | 宪法第 1 层 |
 | 储备动用上限 | 每 epoch 1 倍计划额 | 护栏 [0.5, 2] |
 | 分配 | 10 / 50 / 20 / 20（安全 / 市场 / 公共 / 金库） | 护栏；金库 ≤ 20% |
-| 金库保底 | 5% 计划额，线性锁定 2 年 | 护栏 |
+| 金库保底 | 5% 计划额；按 30 天分批，每批从批次结束起 2 年线性解锁；仅用于审计和冷启动 | 护栏 |
+| 国库比例份额 | 社区资助 40% / 持币人国库 60%（M8 前锁定） | 护栏（M8） |
 | 推理费销毁比例 `b` | 20% | 护栏 [10%, 90%] |
 | 排放倍数 `k` | 0.5 | 护栏：`k − b ≤ 0.5` |
 | 网关费率上限 | 5% | 护栏 |
 | 训练者分润 | 5%（全量版启用） | 护栏 [0, 10%] |
-| 交易费 | 按权重计费，80% 销毁、20% 给出块者 | 护栏 |
+| 交易费 | 按权重 + 长度计费；每笔手续费和小费的 20%（向下取整）给出块者，其余销毁；份额不足新出块者账户存在性押金时一并销毁 | 护栏 |
+| 存在性押金 | 0.001 ATC | runtime 常量 |
+| PoA 管理权限 | ML-DSA 账户按门限多签；决议期限 7 天 | 创世设定，之后由多签自身变更 |
 | 出块时间 | 1s | runtime 常量 |
 | 挑战期 | 2 个 epoch | 护栏 |
 

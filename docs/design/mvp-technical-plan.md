@@ -232,7 +232,8 @@ the PoA validator list comes from genesis config + multisig add/remove
 | `pallet-pq-accounts` | α | Public-key registration, key rotation, `PqAuthorize` transaction authorization |
 | `pallet-emission` | α | Scheduled emission, rollover reserve, four-way split, per-epoch settlement |
 | `pallet-treasury-dual` | α | Community grants + holder treasury; linear vesting of the 5% floor |
-| `pallet-fee-burn` | α | Burns a share of transaction and inference fees |
+| ~~`pallet-fee-burn`~~ | α | Merged into `pallet-emission`, which records every burn (m3-economics) |
+| `pallet-poa-admin` + `pallet-collective` | α | PoA multisig: ML-DSA members with a threshold act as Root (D41) |
 | `pallet-validator-set` | α | PoA / PoS state machine, session keys, slashing |
 | `pallet-randomness-cr` | α | Commit–reveal randomness |
 | `pallet-model-registry` | α | Model registration, lineage declarations |
@@ -254,36 +255,39 @@ Details of the key modules follow.
 ### 5.1 `pallet-emission`
 
 ```rust
-// Constants (fixed at genesis; also inputs to the node invariants)
-const CAP: u128            = 21_000_000 * 10u128.pow(18);
-const ERA_YEARS: u32       = 4;
-const EPOCH: BlockNumber   = 3_600;                 // about 1 hour at 1s blocks
-const EPOCHS_PER_HALVING: u64 = 4 * 365 * 24 + 24;  // about 4 years (35,064 epochs)
-const FIRST_HALVING_TOTAL: u128 = CAP / 2;          // 10.5 million in the first 4-year period
+// Constants (published; also inputs to the node invariants)
+const UNITS: u128             = 10u128.pow(18);
+const CAP: u128               = 21_000_000 * UNITS;
+const FIRST_PERIOD_TOTAL: u128 = 10_500_000 * UNITS;
+const BLOCKS_PER_PERIOD: u64  = 126_230_400;        // 4 × 365.25 days of 1 s blocks
+// Emission epoch length L: genesis parameter, must divide BLOCKS_PER_PERIOD
+EpochLength: u64                                    // 3,600 on live chains; ≤ 20 on development chains
 
-fn scheduled(epoch: u64) -> u128 {                  // this epoch's scheduled amount
-    let n = epoch / EPOCHS_PER_HALVING;             // number of halvings so far
-    (FIRST_HALVING_TOTAL >> n) / EPOCHS_PER_HALVING as u128
+fn scheduled(e: u64) -> u128 {                      // S(e)
+    let n = e * L / BLOCKS_PER_PERIOD;              // halvings so far; they fall on epoch boundaries
+    (FIRST_PERIOD_TOTAL >> n) * L as u128 / BLOCKS_PER_PERIOD as u128
 }
 
-// Storage
-Minted: u128                      // total minted
-Reserve: u128                     // rollover reserve (scheduled amounts not emitted)
-EpochWork: { market_fee_usd, market_units, public_units }
+// Storage (TotalBurned is a published well-known key)
+Reserve, TotalMinted, TotalBurned, LastSettled
 
-// At the end of each epoch (on_initialize hook):
-S  = scheduled(e)
-avail = S + min(Reserve, S)               // the reserve can add at most 1× the scheduled amount per epoch
-security = 0.10 * S  (during PoA → goes to Reserve)
-market   = min(0.50 * avail, k * verified paid work (in ATC))
-public   = min(0.20 * avail, verified consumption of the public-job budget)
-treasury = max(0.05 * S, (0.20 / 0.70) * (market + public))  // proportional to work emission (exactly 20% at full load), never below the floor
-minted_now = min(security + market + public + treasury, avail)   // scaled down pro rata if exceeded
-Reserve  += S - (minted_now - portion drawn from the reserve)
-assert!(Minted + minted_now <= CAP)       // runtime check (the node checks again)
+// Epoch e = blocks e·L+1 ..= (e+1)·L, settled in on_initialize of block (e+1)·L+1:
+S        = scheduled(e)
+avail    = S + min(Reserve, S)
+security = S * 10%                                  // PoA: not paid, stays in the reserve (D19)
+market   = min(avail * 50%, verified_market_work)
+public   = min(avail * 20%, verified_public_work)
+prop     = (market + public) * 20 / 70
+treasury = max(prop, S * 5%)                        // the larger, never the sum (red line 5)
+total    = security + market + public + treasury   // scaled down pro rata (rounding down) if above avail
+drawn    = max(0, total - S)
+Reserve  = Reserve - drawn + max(0, S - total)
 ```
 
-- **Note**: `treasury` is proportional to actual work emission — exactly the 20% of 10/50/20/20 at full demand, scaled down when demand is low (research 04 §2) — but never below the `0.05 × S` floor. The floor portion (the top-up when the proportional share is below the floor) goes to a vesting account, releases linearly over 2 years, and may only fund audits and cold start.
+- All arithmetic is `u128` with rounding down; remainders stay in the reserve, so `Reserve' + total = Reserve + S` and nothing is created. The same function (`ac_primitives::emission::settle`) runs in the runtime, in the node invariants and in the economic simulation (`tests/sim`, two four-year periods).
+- **Treasury**: `treasury` is proportional to actual work emission — exactly the 20% of 10/50/20/20 at full demand, scaled down when demand is low (research 04 §2) — but never below the `5% × S` floor. The proportional share goes 40% to community grants and 60% to the holder treasury (genesis `community_share`, rounding remainder to the holder treasury); the holder treasury has no way out until on-chain holder voting (M8, D42). The floor top-up goes to a floor account in 30-day batches, each vesting linearly over 2 years from the end of its batch, spendable only for audits and cold start.
+- Before M5 no work is verified and during PoA the security budget is not paid, so each epoch mints only the 5% floor.
+- **Burns** (formerly the separate `pallet-fee-burn`, now merged into this pallet): every burn — 80% of transaction fees and tips, dust of reaped accounts, later slashing and inference fees — drops its credit through `Emission` and adds to `TotalBurned`.
 - `k` (emission multiplier) and the burn ratio `b` are guardrailed: `0 ≤ k − b ≤ 0.5` (research 03 §1.5).
 
 ### 5.2 `pallet-credits`: unified credit interface (D20)
@@ -407,21 +411,27 @@ Guardrail { param: ParamId, min, max, max_step_per_change, min_interval }
 
 ## 6. Node invariant checker (constitution layer 1, D30)
 
-Written in the node client (native code), **not in the runtime**, so no runtime upgrade can change it.
+Written in the node client (native code, crate `ac-invariants`), **not in the runtime**, so no runtime upgrade can change it.
 
 ```rust
-// ac-node/src/invariants.rs — called after execution on every block import
-fn check_block(pre: &State, post: &State, header: &Header) -> Result<(), Reject> {
-    let issued = read_well_known(post, TOTAL_ISSUANCE_KEY)?;   // missing key or bad format → reject (fail-closed)
-    ensure!(issued <= CAP);                                     // constitution 1: 21 million
-    let minted = issued - read_well_known(pre, TOTAL_ISSUANCE_KEY)? + burned_in_block(post)?;
-    ensure!(minted <= max_mint_allowed(header.number, pre));    // constitution 3: no premine, within the emission curve
-    ensure!(poa_switch_respected(pre, post, header));           // constitution 4: PoA → PoS
+// ac-invariants (pure functions), called by ac-node's InvariantBlockImport for every block
+fn check_block(params: &GenesisParams, n: u64, pre: Ledger, post: Ledger) -> Result<(), Violation> {
+    ensure!(post.issuance <= CAP);                              // constitution 1: 21 million
+    let minted = (post.issuance + post.burned) - (pre.issuance + pre.burned);
+    match settled_epoch(n) {
+        None => ensure!(minted == 0),                           // only settlement blocks mint
+        Some(e) => ensure!(minted <= 2 * scheduled(e)),
+    }
+    let since_genesis = post.issuance + post.burned - params.genesis_issuance;
+    ensure!(since_genesis <= cumulative_scheduled(settled_epochs(n)));
     Ok(())
 }
 ```
 
-- At genesis, "well-known storage keys" such as `TOTAL_ISSUANCE_KEY` are baked into the node code. If a runtime upgrade makes them unreadable, the node **rejects** the block (fail-closed).
+- `Ledger` is read from published well-known keys: `Balances::TotalIssuance` and `Emission::TotalBurned` (SCALE `u128`). Minting is measured as the change of issuance + burned, so burning never hides minting, and a runtime that inflates the burned counter only makes the checks stricter. A missing or undecodable key rejects the block (fail-closed).
+- `InvariantBlockImport` sits between the AC-BFT block import and the client: blocks authored locally, received or synced all pass through it. For other nodes' blocks it executes the block on the parent state and hands the storage changes on, so each block is executed once. Blocks that would be imported without execution are rejected, so warp and fast sync are not supported.
+- At start-up the node checks the chain spec's genesis: a valid `Emission::EpochLength`, issuance within the cap, and for live chains zero issuance, no balances and at least one PoA admin member (`PoaCouncil::Members`).
+- The PoA → PoS switch conditions (constitution 4) join these checks with `m3-pos`.
 - Changing these rules = releasing a new node client = a **hard fork**.
 - "Protocol neutrality" (constitution 2) belongs to layer 2; the client adds an auxiliary check that the runtime contains no storage prefixes named `Blacklist`, `Blocklist`, `GeoFence`, etc. (only a helper; the main safeguard is layer-2 review).
 
@@ -460,14 +470,18 @@ fn check_block(pre: &State, post: &State, header: &Header) -> Result<(), Reject>
 |---|---|---|
 | Total supply | 21,000,000 ATC (18 decimals) | Constitution layer 1 |
 | Scheduled emission in the first 4-year period | 10,500,000, halving every 4 years thereafter | Constitution layer 1 |
+| Emission epoch | 3,600 blocks on live chains (genesis parameter dividing 126,230,400 blocks) | Constitution layer 1 |
 | Reserve drawdown cap | 1× the scheduled amount per epoch | Guardrail [0.5, 2] |
 | Split | 10 / 50 / 20 / 20 (security / market / public / treasury) | Guardrail; treasury ≤ 20% |
-| Treasury floor | 5% of the scheduled amount, 2-year linear vesting | Guardrail |
+| Treasury floor | 5% of the scheduled amount; 30-day batches, each vesting linearly over 2 years from its end; audits and cold start only | Guardrail |
+| Treasury proportional share | 40% community grants / 60% holder treasury (locked until M8) | Guardrail (M8) |
 | Inference-fee burn ratio `b` | 20% | Guardrail [10%, 90%] |
 | Emission multiplier `k` | 0.5 | Guardrail: `k − b ≤ 0.5` |
 | Gateway fee cap | 5% | Guardrail |
 | Trainer royalty | 5% (enabled in the full version) | Guardrail [0, 10%] |
-| Transaction fees | Weight-based; 80% burned, 20% to the block author | Guardrail |
+| Transaction fees | Weight + length based; of every fee and tip 20% (rounded down) to the block author, the rest burned; a share below the existential deposit of a new author account is burned | Guardrail |
+| Existential deposit | 0.001 ATC | Runtime constant |
+| PoA administration | Multisig of ML-DSA accounts with a threshold; 7-day motions | Genesis, then the multisig itself |
 | Block time | 1s | Runtime constant |
 | Challenge period | 2 epochs | Guardrail |
 
