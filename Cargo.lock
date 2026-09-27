@@ -224,6 +224,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ac-sim"
+version = "0.1.0"
+dependencies = [
+ "ac-primitives",
+]
+
+[[package]]
 name = "ac-wallet"
 version = "0.1.0"
 dependencies = [

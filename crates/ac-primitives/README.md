@@ -20,6 +20,8 @@ Shared on-chain types for AgentCoin, used by the runtime, the node and clients.
 - `offences`: double-signing evidence (two blocks sealed in one slot, or two conflicting AC-BFT
   messages in one round) and `verify_evidence`, used by the runtime and the node alike.
 - `epoch`: epoch numbering (`epoch_of`, `is_boundary`) and the minimum epoch length.
+- `emission`: the ATC emission curve and epoch settlement (plan §5.1). The runtime, the node's
+  invariant checker and the economic simulation all use it, so they compute the same numbers.
 
 Byte-level regression vectors for the AC-BFT formats live in `tests/vectors/` (see `SOURCES.md`).
 
@@ -87,3 +89,30 @@ assert_eq!(verify_finality_proof(&genesis, 0, &set, &proof), Ok(target));
 # Ok::<(), ac_crypto::Error>(())
 ```
 
+## Emission schedule
+
+- The first four-year period (126,230,400 blocks at one block per second) emits
+  10,500,000 ATC; every later period emits half of the previous one, so the whole curve stays
+  below the 21,000,000 ATC cap (decisions D14, D15).
+- Emission is settled per *emission epoch* of `L` blocks, a genesis parameter that must divide
+  126,230,400 (live chains: 3,600). Epoch `e` is settled in block `(e + 1) × L + 1`; only these
+  blocks mint.
+- `settle` splits an epoch: security budget 10% of the scheduled amount `S` (paid only under
+  PoS), market work up to 50% and public work up to 20% of `S + min(reserve, S)`, and the
+  treasury `max(5% × S, 20/70 × work emission)` — the larger, never the sum. What is not
+  minted rolls over into the reserve; at most `S` is drawn from it per epoch. Integer shares in
+  basis points, rounded down.
+
+```rust
+use ac_primitives::emission::{EmissionSchedule, EpochInput, Phase, settle};
+
+let schedule = EmissionSchedule::new(3_600)?;
+let s = schedule.scheduled(0);
+// A PoA epoch without work mints only the 5% treasury floor; the rest rolls over.
+let out = settle(&EpochInput::new(s, 0, (0, 0), Phase::Poa));
+assert_eq!(out.total, s * 5 / 100);
+assert_eq!(out.reserve + out.total, s);
+// Block 3,601 settles epoch 0.
+assert_eq!(schedule.settled_epoch(3_601), Some(0));
+# Ok::<(), ac_primitives::emission::EmissionError>(())
+```

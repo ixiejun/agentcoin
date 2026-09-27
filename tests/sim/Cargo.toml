@@ -1,0 +1,16 @@
+[package]
+name = "ac-sim"
+description = "AgentCoin economic simulation: the emission curve and epoch settlement replayed over years"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+ac-primitives = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true

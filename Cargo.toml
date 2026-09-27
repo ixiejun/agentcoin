@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["clients/wallet-cli", "tests/e2e", "crates/ac-crypto", "crates/ac-primitives", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "runtime"]
+members = ["clients/wallet-cli", "tests/e2e", "tests/sim", "crates/ac-crypto", "crates/ac-primitives", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "runtime"]
 
 [workspace.package]
 version = "0.1.0"
