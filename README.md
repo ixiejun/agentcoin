@@ -7,6 +7,7 @@ A post-quantum, privacy-native, permissionless L1 that makes frontier large-mode
 - **Coding-agent / contributor guide: [AGENT.md](AGENT.md)** ([简体中文](AGENT.zh-CN.md))
 - Rust coding guidelines (local copy and index): [docs/rust-guidelines/INDEX.md](docs/rust-guidelines/INDEX.md) (upstream content is Chinese; see [SOURCE.md](docs/rust-guidelines/SOURCE.md))
 - Decision log: [docs/decisions.md](docs/decisions.md) ([简体中文](docs/decisions.zh-CN.md))
+- Issue log (open questions, deviations and their handling): [docs/issues.md](docs/issues.md) ([简体中文](docs/issues.zh-CN.md))
 - MVP technical plan: [docs/design/mvp-technical-plan.md](docs/design/mvp-technical-plan.md) ([简体中文](docs/design/mvp-technical-plan.zh-CN.md))
 - Full technical plan: [docs/design/full-technical-plan.md](docs/design/full-technical-plan.md) ([简体中文](docs/design/full-technical-plan.zh-CN.md))
 - Research and discussion record: [docs/research/](docs/research/) (each file has a `.zh-CN.md` Chinese version)

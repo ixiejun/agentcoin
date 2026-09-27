@@ -7,6 +7,7 @@
 - **编码智能体 / 贡献者守则：[AGENT.zh-CN.md](AGENT.zh-CN.md)（[English](AGENT.md)）**
 - Rust 编码规范（本地副本与索引）：[docs/rust-guidelines/INDEX.md](docs/rust-guidelines/INDEX.md)
 - 决策记录：[docs/decisions.zh-CN.md](docs/decisions.zh-CN.md)
+- 问题记录（待决问题、偏差及其处理）：[docs/issues.zh-CN.md](docs/issues.zh-CN.md)（[English](docs/issues.md)）
 - MVP 技术方案：[docs/design/mvp-technical-plan.zh-CN.md](docs/design/mvp-technical-plan.zh-CN.md)
 - 全量技术方案：[docs/design/full-technical-plan.zh-CN.md](docs/design/full-technical-plan.zh-CN.md)
 - 调研与讨论过程：[docs/research/](docs/research/)
