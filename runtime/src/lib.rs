@@ -236,4 +236,9 @@ mod runtime {
 
     #[runtime::pallet_index(12)]
     pub type PoaAdmin = pallet_poa_admin;
+
+    // Name published: the node reads the well-known `StakingPos::Ledger` and
+    // `StakingPos::Candidates` keys (red line 3).
+    #[runtime::pallet_index(13)]
+    pub type StakingPos = pallet_staking_pos;
 }

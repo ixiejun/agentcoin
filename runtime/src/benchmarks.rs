@@ -8,4 +8,5 @@ frame_benchmarking::define_benchmarks!(
     [pallet_emission, Emission]
     [pallet_treasury_dual, TreasuryDual]
     [pallet_poa_admin, PoaAdmin]
+    [pallet_staking_pos, StakingPos]
 );

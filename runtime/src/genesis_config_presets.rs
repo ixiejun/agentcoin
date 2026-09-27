@@ -13,6 +13,7 @@ use serde_json::Value;
 use sp_genesis_builder::PresetId;
 
 use crate::{ATC, AccountId, BalancesConfig, RuntimeGenesisConfig};
+use pallet_staking_pos::StakingParams;
 
 /// Development account names, in endowment order.
 pub const DEV_ACCOUNTS: [&str; 4] = ["alice", "bob", "charlie", "dave"];
@@ -61,12 +62,44 @@ pub fn dev_account(name: &str) -> Result<AccountId, ac_crypto::Error> {
     )?))
 }
 
-fn testnet_genesis(
-    authorities: &[&str],
+/// Staking parameters of the development preset (epochs of 10 blocks): everything unbonds
+/// within two epochs so tests see withdrawals quickly (design D10 of `m3-pos`).
+pub const DEV_STAKING: StakingParams = StakingParams {
+    max_candidates: 50,
+    max_nominators: 200,
+    self_unbond_blocks: 20,
+    nomination_unbond_min: 10,
+    nomination_unbond_max: 20,
+    commission_delay: 10,
+};
+
+/// Staking parameters of the local-testnet preset (epochs of 20 blocks).
+pub const LOCAL_STAKING: StakingParams = StakingParams {
+    max_candidates: 50,
+    max_nominators: 200,
+    self_unbond_blocks: 40,
+    nomination_unbond_min: 20,
+    nomination_unbond_max: 40,
+    commission_delay: 20,
+};
+
+/// Parameters of one test preset.
+struct Preset<'a> {
+    authorities: &'a [&'a str],
     epoch_length: u64,
-    admins: &[&str],
+    admins: &'a [&'a str],
     threshold: u32,
-) -> Result<Value, ac_crypto::Error> {
+    staking: StakingParams,
+}
+
+fn testnet_genesis(preset: &Preset<'_>) -> Result<Value, ac_crypto::Error> {
+    let Preset {
+        authorities,
+        epoch_length,
+        admins,
+        threshold,
+        staking,
+    } = *preset;
     let admins = admins
         .iter()
         .map(|name| dev_account(name))
@@ -96,6 +129,7 @@ fn testnet_genesis(
             threshold,
             motion_duration: DEV_MOTION_DURATION
         },
+        staking_pos: pallet_staking_pos::GenesisConfig { params: staking },
     }))
 }
 
@@ -103,15 +137,22 @@ fn testnet_genesis(
 pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
     let patch = match id.as_ref() {
         // Short epochs so tests see authority-set changes and randomness quickly.
-        sp_genesis_builder::DEV_RUNTIME_PRESET => testnet_genesis(&["alice"], 10, &["alice"], 1),
+        sp_genesis_builder::DEV_RUNTIME_PRESET => testnet_genesis(&Preset {
+            authorities: &["alice"],
+            epoch_length: 10,
+            admins: &["alice"],
+            threshold: 1,
+            staking: DEV_STAKING,
+        }),
         sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET => {
             // Four authorities tolerate one faulty member (n ≥ 3f + 1).
-            testnet_genesis(
-                &["alice", "bob", "charlie", "dave"],
-                20,
-                &["alice", "bob", "charlie"],
-                2,
-            )
+            testnet_genesis(&Preset {
+                authorities: &["alice", "bob", "charlie", "dave"],
+                epoch_length: 20,
+                admins: &["alice", "bob", "charlie"],
+                threshold: 2,
+                staking: LOCAL_STAKING,
+            })
         }
         _ => return None,
     };

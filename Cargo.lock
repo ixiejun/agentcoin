@@ -234,6 +234,7 @@ dependencies = [
  "pallet-poa-admin",
  "pallet-pq-accounts",
  "pallet-randomness-cr",
+ "pallet-staking-pos",
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",

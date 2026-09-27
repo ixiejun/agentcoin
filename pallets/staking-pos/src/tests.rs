@@ -528,3 +528,39 @@ fn inverted_unbonding_bounds_fail() {
     params.nomination_unbond_min = 30;
     let _ = crate::mock::ext_with(params);
 }
+
+// Task 2.7: calls are charged the benchmarked weights (worst case before refunds).
+#[test]
+fn calls_use_benchmarked_weights() {
+    use crate::WeightInfo;
+    use frame_support::dispatch::GetDispatchInfo;
+    ext().execute_with(|| {
+        let (key, proof) = key_and_proof(1, 1);
+        let call = crate::Call::<Test>::register_candidate {
+            key,
+            proof,
+            value: MIN_SELF,
+            commission_bps: 1_000,
+        };
+        let weight = call.get_dispatch_info().call_weight;
+        assert_eq!(weight, <() as WeightInfo>::register_candidate(500));
+        // Verifying an ML-DSA proof costs far more than the database accesses alone.
+        assert!(weight.ref_time() > 500_000_000);
+        let nominate = crate::Call::<Test>::nominate {
+            value: MIN_NOM,
+            targets: vec![1],
+        };
+        assert_eq!(
+            nominate.get_dispatch_info().call_weight,
+            <() as WeightInfo>::nominate(2_000)
+        );
+        for w in [
+            <() as WeightInfo>::bond_extra(),
+            <() as WeightInfo>::unbond(),
+            <() as WeightInfo>::withdraw_unbonded(),
+            <() as WeightInfo>::set_commission(),
+        ] {
+            assert!(w.ref_time() > 0 && w.proof_size() > 0);
+        }
+    });
+}

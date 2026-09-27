@@ -253,3 +253,16 @@ impl pallet_poa_admin::Config for Runtime {
     type RootCallFilter = HolderTreasuryLock;
     type WeightInfo = pallet_poa_admin::weights::SubstrateWeight<Runtime>;
 }
+
+impl pallet_staking_pos::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeHoldReason = RuntimeHoldReason;
+    type Currency = Balances;
+    type Epochs = ValidatorSet;
+    /// Live-chain caps (design D10 of `m3-pos`); presets may set smaller ones.
+    type MaxCandidates = ConstU32<500>;
+    type MaxNominators = ConstU32<2_000>;
+    /// Unbonding requests per account before they merge into the latest one.
+    type MaxUnlocking = ConstU32<32>;
+    type WeightInfo = pallet_staking_pos::weights::SubstrateWeight<Runtime>;
+}
