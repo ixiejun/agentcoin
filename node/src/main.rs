@@ -8,6 +8,7 @@ mod chain_spec;
 mod cli;
 mod command;
 mod genesis_guard;
+mod invariants;
 mod keys;
 mod rpc;
 mod service;

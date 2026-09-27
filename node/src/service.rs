@@ -29,6 +29,7 @@ use sp_blockchain::HeaderBackend;
 use sp_consensus_slots::SlotDuration;
 use sp_runtime::traits::Block as BlockT;
 
+use crate::invariants::InvariantBlockImport;
 use crate::keys::ValidatorKey;
 
 #[cfg(not(feature = "runtime-benchmarks"))]
@@ -41,10 +42,11 @@ type HostFunctions = (
 
 /// Full client type.
 pub type FullClient = sc_service::TFullClient<Block, RuntimeApi, WasmExecutor<HostFunctions>>;
-type FullBackend = sc_service::TFullBackend<Block>;
+/// Full backend type.
+pub type FullBackend = sc_service::TFullBackend<Block>;
 type FullSelectChain = sc_consensus::LongestChain<FullBackend, Block>;
 type FullPool = sc_transaction_pool::TransactionPoolHandle<Block, FullClient>;
-type FullBlockImport = AcBftBlockImport<Block, FullBackend, Arc<FullClient>, FullClient>;
+type FullBlockImport = AcBftBlockImport<Block, FullBackend, InvariantBlockImport, FullClient>;
 
 /// Node-specific parts built by [`new_partial`].
 pub struct Extra {
@@ -332,7 +334,9 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
     );
 
     let tracker: SharedTracker = Arc::new(Mutex::new(load_tracker(&client)?));
-    let block_import = AcBftBlockImport::new(client.clone(), client.clone(), tracker.clone());
+    // The invariant checks are enabled once the runtime publishes the burned counter (tasks 3.2).
+    let invariants = InvariantBlockImport::new(client.clone(), backend.clone(), None);
+    let block_import = AcBftBlockImport::new(invariants, client.clone(), tracker.clone());
     let reporter = Arc::new(PoolReporter {
         client: client.clone(),
         pool: transaction_pool.clone(),

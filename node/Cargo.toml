@@ -19,6 +19,7 @@ ac-consensus-aura-pq = { workspace = true }
 ac-consensus-bft = { workspace = true }
 async-trait = { workspace = true }
 ac-crypto = { workspace = true, features = ["std", "keystore", "getrandom"] }
+ac-invariants = { workspace = true, features = ["std"] }
 ac-primitives = { workspace = true, features = ["std"] }
 ac-runtime = { workspace = true, features = ["std"] }
 clap = { workspace = true }
@@ -44,6 +45,7 @@ sc-transaction-pool-api = { workspace = true }
 sp-api = { workspace = true, features = ["std"] }
 sp-block-builder = { workspace = true, features = ["std"] }
 sp-blockchain = { workspace = true }
+sp-consensus = { workspace = true }
 sp-consensus-slots = { workspace = true, features = ["std"] }
 sp-core = { workspace = true, features = ["std"] }
 sp-inherents = { workspace = true, features = ["std"] }
