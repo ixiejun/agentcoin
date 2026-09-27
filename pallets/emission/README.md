@@ -81,7 +81,11 @@ become bounded governable parameters:
 | `std` | yes | Native builds and tests. Disable it for the WASM runtime. |
 | `runtime-benchmarks` | no | Benchmark of the settlement hook. |
 | `try-runtime` | no | SDK try-runtime support. |
-| `test-overmint` | no | **Test only**: settlement mints twice the scheduled amount more, to show that the node rejects such a runtime. Never enabled in a real build. |
+
+A test-only fault — settlement minting twice the scheduled amount more, to show that the node
+rejects such a runtime — exists behind the compiler flag `--cfg ac_test_overmint`. Only
+`tests/overmint-runtime` sets it, through `RUSTFLAGS` of its own WASM build; it is not a cargo
+feature, so `--all-features` never enables it.
 
 ## Example
 

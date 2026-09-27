@@ -49,8 +49,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Runtime-usable crates build for wasm32 without std
         run: |
-          for crate in ac-crypto ac-primitives pallet-pq-accounts pallet-aura-pq \
-            pallet-validator-set pallet-ac-offences pallet-randomness-cr; do
+          for crate in ac-crypto ac-primitives ac-invariants pallet-pq-accounts pallet-aura-pq \
+            pallet-validator-set pallet-ac-offences pallet-randomness-cr pallet-emission \
+            pallet-treasury-dual pallet-poa-admin; do
             cargo build -p "$crate" --no-default-features --target wasm32-unknown-unknown
           done
 
@@ -94,6 +95,16 @@ jobs:
       - run: rustup show
       - run: scripts/check-license-boundary.sh
       - run: scripts/check-license-boundary.sh --self-test
+
+  overmint-flag:
+    # The test-only over-minting fault (`--cfg ac_test_overmint`) stays out of real builds
+    # (m3-economics 8.1).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - run: scripts/check-overmint-flag.sh
+      - run: scripts/check-overmint-flag.sh --self-test
 
   deny:
     runs-on: ubuntu-latest

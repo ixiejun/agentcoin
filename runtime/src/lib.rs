@@ -51,6 +51,7 @@ pub use pallet_timestamp::Call as TimestampCall;
 pub use sp_runtime::BuildStorage;
 
 /// Runtime version.
+#[cfg(not(ac_test_overmint))]
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: alloc::borrow::Cow::Borrowed("agentcoin"),
@@ -61,6 +62,21 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     // 2: `AuthorizeCall` joined the extension pipeline (m2-finality); encodings are unchanged.
+    transaction_version: 2,
+    system_version: 1,
+};
+
+/// Runtime version of the test-only over-minting build (`tests/overmint-runtime`, compiled with
+/// `--cfg ac_test_overmint`): one `spec_version` higher so that `set_code` accepts it.
+#[cfg(ac_test_overmint)]
+#[sp_version::runtime_version]
+pub const VERSION: RuntimeVersion = RuntimeVersion {
+    spec_name: alloc::borrow::Cow::Borrowed("agentcoin"),
+    impl_name: alloc::borrow::Cow::Borrowed("agentcoin"),
+    authoring_version: 1,
+    spec_version: 3,
+    impl_version: 1,
+    apis: apis::RUNTIME_API_VERSIONS,
     transaction_version: 2,
     system_version: 1,
 };

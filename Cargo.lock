@@ -124,6 +124,7 @@ dependencies = [
  "ac-consensus-bft",
  "ac-crypto",
  "ac-invariants",
+ "ac-overmint-runtime",
  "ac-primitives",
  "ac-runtime",
  "ac-wallet",
@@ -140,6 +141,8 @@ dependencies = [
  "jsonrpsee",
  "log",
  "pallet-balances",
+ "pallet-collective",
+ "pallet-poa-admin",
  "pallet-pq-accounts",
  "parity-scale-codec",
  "sc-basic-authorship",
@@ -170,6 +173,14 @@ dependencies = [
  "substrate-build-script-utils",
  "substrate-frame-rpc-system",
  "tokio",
+]
+
+[[package]]
+name = "ac-overmint-runtime"
+version = "0.1.0"
+dependencies = [
+ "ac-runtime",
+ "substrate-wasm-builder",
 ]
 
 [[package]]

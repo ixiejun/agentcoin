@@ -119,6 +119,8 @@ runtime-benchmarks = [
 
 [lints.rust]
 unsafe_code = "forbid"
+# Test-only over-minting build, set through RUSTFLAGS by tests/overmint-runtime only.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(ac_test_overmint)"] }
 missing_docs = "warn"
 
 [lints.clippy]

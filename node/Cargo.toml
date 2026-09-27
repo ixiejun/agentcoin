@@ -60,6 +60,10 @@ substrate-build-script-utils = { workspace = true }
 
 [dev-dependencies]
 ac-wallet = { workspace = true }
+# Test only: the over-minting runtime the node must reject (m3-economics 8.2).
+ac-overmint-runtime = { workspace = true, features = ["std"] }
+pallet-collective = { workspace = true, features = ["std"] }
+pallet-poa-admin = { workspace = true, features = ["std"] }
 pallet-pq-accounts = { workspace = true, features = ["std"] }
 frame-support = { workspace = true, features = ["std"] }
 ac-crypto = { workspace = true, features = ["std", "keystore"] }

@@ -43,10 +43,6 @@ runtime-benchmarks = [
     "frame-system/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",
 ]
-# Test-only: settlement mints the scheduled amount again to a fixed account, so that the node
-# invariants can be shown to reject an over-minting runtime (m3-economics 8.1). Never enabled
-# in a real runtime build; CI checks it.
-test-overmint = []
 try-runtime = [
     "frame-support/try-runtime",
     "frame-system/try-runtime",
@@ -55,6 +51,9 @@ try-runtime = [
 
 [lints.rust]
 unsafe_code = "forbid"
+# Test-only fault injection, set through RUSTFLAGS by tests/overmint-runtime only (never a cargo
+# feature, so `--all-features` cannot turn it on).
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(ac_test_overmint)"] }
 missing_docs = "warn"
 
 [lints.clippy]

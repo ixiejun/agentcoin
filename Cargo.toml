@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["clients/wallet-cli", "tests/e2e", "tests/sim", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "runtime"]
+members = ["clients/wallet-cli", "tests/e2e", "tests/sim", "tests/overmint-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "runtime"]
 
 [workspace.package]
 version = "0.1.0"
@@ -95,6 +95,7 @@ ac-primitives = { path = "crates/ac-primitives", version = "0.1", default-featur
 ac-invariants = { path = "crates/ac-invariants", version = "0.1", default-features = false }
 ac-wallet = { path = "clients/wallet-cli", version = "0.1", default-features = false }
 ac-runtime = { path = "runtime", version = "0.1", default-features = false }
+ac-overmint-runtime = { path = "tests/overmint-runtime", version = "0.1", default-features = false }
 ac-consensus-aura-pq = { path = "node/consensus/aura-pq", version = "0.1", default-features = false }
 ac-consensus-bft = { path = "node/consensus/ac-bft", version = "0.1", default-features = false }
 pallet-aura-pq = { path = "pallets/aura-pq", version = "0.1", default-features = false }

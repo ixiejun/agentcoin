@@ -1,0 +1,23 @@
+[package]
+name = "ac-overmint-runtime"
+description = "Test only: the AgentCoin runtime built with an over-minting fault, to show that the node rejects it"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+ac-runtime = { workspace = true }
+
+[build-dependencies]
+substrate-wasm-builder = { workspace = true, optional = true, default-features = true }
+
+[features]
+default = ["std"]
+std = ["ac-runtime/std", "substrate-wasm-builder"]
+
+[lints]
+workspace = true

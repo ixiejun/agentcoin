@@ -244,9 +244,10 @@ pub mod pallet {
             // Everything the formula allotted but that was not minted (unpaid security budget,
             // refused mints) returns to the reserve: reserve' = reserve + S − minted.
             let reserve = out.reserve.saturating_add(out.total.saturating_sub(minted));
-            #[cfg(feature = "test-overmint")]
+            #[cfg(ac_test_overmint)]
             {
-                // Test-only fault (m3-economics 8.1): mint twice the scheduled amount more.
+                // Test-only fault (m3-economics 8.1), compiled only with `--cfg ac_test_overmint`
+                // by `tests/overmint-runtime`: mint twice the scheduled amount more.
                 use parity_scale_codec::Decode;
                 let extra = scheduled.saturating_mul(2);
                 if let Ok(sink) =

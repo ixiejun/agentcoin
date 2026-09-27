@@ -61,7 +61,8 @@ M3 中以下参数是常量或创世参数；护栏模块（M8）上线后改为
 | `std` | 是 | 原生构建和测试。WASM runtime 需关闭。 |
 | `runtime-benchmarks` | 否 | 结算钩子的基准测试。 |
 | `try-runtime` | 否 | SDK 的 try-runtime 支持。 |
-| `test-overmint` | 否 | **仅测试**：结算时额外铸造两倍计划量，用来证明节点会拒绝这样的 runtime。真实构建中永不打开。 |
+
+仅用于测试的故障（结算时额外铸造两倍计划量，用来证明节点会拒绝这样的 runtime）放在编译器标志 `--cfg ac_test_overmint` 之后。只有 `tests/overmint-runtime` 在其自身的 WASM 构建中通过 `RUSTFLAGS` 设置它；它不是 cargo feature，所以 `--all-features` 永远不会打开它。
 
 ## 示例
 

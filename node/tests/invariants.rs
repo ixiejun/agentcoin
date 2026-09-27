@@ -114,3 +114,118 @@ async fn normal_emission_is_accepted() {
     assert!(!text.contains("rejecting block"), "a block was rejected");
     assert!(!text.contains("constitution invariant violated"));
 }
+
+/// Signs `call` as the development account alice and submits it; returns whether it succeeded.
+async fn submit_as_alice(client: &ac_wallet::NodeClient, call: ac_runtime::RuntimeCall) -> bool {
+    use ac_crypto::SigAlg;
+    use ac_crypto::sig::SigningKey;
+    use ac_runtime::transaction::{
+        TxParams, assemble, authorized_extensions, implicit_from, payload,
+    };
+    let key =
+        SigningKey::from_seed(SigAlg::MlDsa44, &ac_crypto::dev_seed("alice").unwrap()).unwrap();
+    let alice = pallet_pq_accounts::derived_account(&key.public_key().unwrap());
+    let context = client.chain_context().await.unwrap();
+    let params = TxParams {
+        nonce: client.nonce(&alice).await.unwrap(),
+        tip: 0,
+        era: sp_runtime::generic::Era::Immortal,
+        era_birth_hash: context.genesis_hash,
+    };
+    let extensions = authorized_extensions(&params);
+    let digest = payload(&call, &extensions, &implicit_from(&context, &params)).unwrap();
+    let mut rng = ac_crypto::OsRng::new().unwrap();
+    let signature = key
+        .sign(&digest, pallet_pq_accounts::TX_SIGNING_CONTEXT, &mut rng)
+        .unwrap();
+    let first = client.current_key(&alice).await.unwrap().is_none();
+    let xt = assemble(
+        call,
+        alice,
+        signature,
+        first.then(|| key.public_key().unwrap()),
+        extensions,
+    );
+    client
+        .submit_and_watch(&xt, Duration::from_secs(120))
+        .await
+        .unwrap()
+        .success
+}
+
+// Task 8.2, Scenarios "超发的 runtime 升级" and "本节点产出违规区块": the dev administration
+// (alice, threshold 1) upgrades the runtime to a build that over-mints at settlement. The
+// upgrade itself is accepted and the new version runs, but the node refuses the next
+// settlement block it authors: the best height stops before it and the log names the rule.
+#[tokio::test(flavor = "multi_thread")]
+async fn overminting_upgrade_is_rejected() {
+    use ac_runtime::RuntimeCall;
+    use parity_scale_codec::Encode;
+
+    let dir = temp_dir("overmint-upgrade");
+    let log = dir.join("node.log");
+    let node = start_node_with(
+        &["--dev"],
+        &NodeOpts {
+            log: Some(&log),
+            ..NodeOpts::default()
+        },
+    );
+    wait_for_height(&node, 1, START).await;
+    let client = ac_wallet::NodeClient::new(&node.rpc_url).unwrap();
+
+    let code = ac_overmint_runtime::WASM_BINARY.unwrap().to_vec();
+    let upgrade = RuntimeCall::PoaAdmin(pallet_poa_admin::Call::dispatch_as_root {
+        call: Box::new(RuntimeCall::System(frame_system::Call::set_code { code })),
+    });
+    let length_bound = u32::try_from(upgrade.encoded_size()).unwrap();
+    let propose = RuntimeCall::PoaCouncil(pallet_collective::Call::propose {
+        threshold: 1,
+        proposal: Box::new(upgrade),
+        length_bound,
+    });
+    assert!(
+        submit_as_alice(&client, propose).await,
+        "upgrade motion failed"
+    );
+
+    // The new runtime is live.
+    let deadline = std::time::Instant::now() + START;
+    loop {
+        let version: serde_json::Value = node
+            .rpc
+            .request("state_getRuntimeVersion", rpc_params![])
+            .await
+            .unwrap();
+        if version["specVersion"] == 3 {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "upgrade not applied");
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+
+    // The chain stops right before the next settlement block (10-block emission epochs:
+    // settlements at 11, 21, 31, ...).
+    let upgraded_at = common::heights(&node).await.unwrap().0;
+    let mut settlement = upgraded_at / 10 * 10 + 1;
+    if settlement <= upgraded_at {
+        settlement += 10;
+    }
+    assert!(
+        common::wait_for_log(&log, "rejecting block", START).await,
+        "no block was rejected"
+    );
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    let best = common::heights(&node).await.unwrap().0;
+    assert!(
+        best < settlement,
+        "best {best} reached settlement {settlement}"
+    );
+    drop(node);
+    let text = std::fs::read_to_string(&log).unwrap();
+    assert!(
+        text.contains(&format!("rejecting block #{settlement}")),
+        "rejection of #{settlement} not logged"
+    );
+    assert!(text.contains("minting bounded by the emission curve"));
+}
