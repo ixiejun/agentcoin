@@ -104,6 +104,7 @@ dependencies = [
  "pallet-emission",
  "pallet-poa-admin",
  "pallet-pq-accounts",
+ "pallet-staking-pos",
  "pallet-treasury-dual",
  "parity-scale-codec",
  "serde_json",
@@ -113,9 +114,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ac-early-switch-runtime"
+version = "0.1.0"
+dependencies = [
+ "ac-runtime",
+ "substrate-wasm-builder",
+]
+
+[[package]]
 name = "ac-invariants"
 version = "0.1.0"
 dependencies = [
+ "ac-crypto",
  "ac-primitives",
  "parity-scale-codec",
  "proptest",
@@ -129,6 +139,7 @@ dependencies = [
  "ac-consensus-aura-pq",
  "ac-consensus-bft",
  "ac-crypto",
+ "ac-early-switch-runtime",
  "ac-invariants",
  "ac-overmint-runtime",
  "ac-primitives",
@@ -150,6 +161,7 @@ dependencies = [
  "pallet-collective",
  "pallet-poa-admin",
  "pallet-pq-accounts",
+ "pallet-staking-pos",
  "parity-scale-codec",
  "sc-basic-authorship",
  "sc-chain-spec",

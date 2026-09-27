@@ -102,6 +102,7 @@ impl From<ChainPhase> for crate::emission::Phase {
     serde::Serialize,
     serde::Deserialize,
 )]
+#[serde(rename_all = "camelCase")]
 pub struct TransitionParams {
     /// Active stake threshold in basis points of the total issuance.
     pub stake_bps: u32,

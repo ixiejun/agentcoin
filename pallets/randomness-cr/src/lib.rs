@@ -9,8 +9,10 @@
 //! fills from its local secrets. The author comes from Aura-PQ's record of the block's slot, so
 //! nobody can commit or reveal for someone else. Invalid data (a second commitment in one epoch,
 //! a reveal that does not match its commitment) is ignored and changes nothing; the call never
-//! fails. Validators that committed but did not reveal are counted in [`MissedReveals`]; M3
-//! turns this into lost emission.
+//! fails. Validators that committed but did not reveal are counted in [`MissedReveals`], and
+//! each conclusion's misses are offered to staking through
+//! [`RevealTracker`](ac_primitives::validator_set::RevealTracker): in PoS a miss costs the
+//! epoch's work points and three in a row pause the validator.
 //!
 //! **Known bias**: the last validator to reveal may withhold its reveal to choose between two
 //! outcomes, and colluding validators amplify this. The randomness suits low-value purposes

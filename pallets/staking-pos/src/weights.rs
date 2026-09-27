@@ -74,8 +74,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `StakingPos::TotalActive` (r:1 w:1)
     /// Proof: `StakingPos::TotalActive` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
     fn register_candidate(c: u32) -> Weight {
-        Weight::from_parts(1_122_599_217, 11226)
-            .saturating_add(Weight::from_parts(6_606_752, 0).saturating_mul(c.into()))
+        Weight::from_parts(1_115_945_076, 11226)
+            .saturating_add(Weight::from_parts(6_731_496, 0).saturating_mul(c.into()))
             .saturating_add(T::DbWeight::get().reads(11_u64))
             .saturating_add(T::DbWeight::get().reads((2_u64).saturating_mul(c.into())))
             .saturating_add(T::DbWeight::get().writes(9_u64))
@@ -92,7 +92,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `StakingPos::TotalActive` (r:1 w:1)
     /// Proof: `StakingPos::TotalActive` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
     fn bond_extra() -> Weight {
-        Weight::from_parts(73_901_000, 6108)
+        Weight::from_parts(75_408_000, 6108)
             .saturating_add(T::DbWeight::get().reads(5_u64))
             .saturating_add(T::DbWeight::get().writes(4_u64))
     }
@@ -103,7 +103,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `System::BlockHash` (r:1 w:0)
     /// Proof: `System::BlockHash` (`max_values`: None, `max_size`: Some(44), added: 2519, mode: `MaxEncodedLen`)
     fn set_validator_key() -> Weight {
-        Weight::from_parts(998_312_000, 6108)
+        Weight::from_parts(1_006_465_000, 6108)
             .saturating_add(T::DbWeight::get().reads(3_u64))
             .saturating_add(T::DbWeight::get().writes(2_u64))
     }
@@ -118,7 +118,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `StakingPos::TotalActive` (r:1 w:1)
     /// Proof: `StakingPos::TotalActive` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
     fn retire() -> Weight {
-        Weight::from_parts(40_278_000, 6108)
+        Weight::from_parts(40_519_000, 6108)
             .saturating_add(T::DbWeight::get().reads(5_u64))
             .saturating_add(T::DbWeight::get().writes(4_u64))
     }
@@ -141,8 +141,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `StakingPos::UnbondQueueEnd` (r:1 w:1)
     /// Proof: `StakingPos::UnbondQueueEnd` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
     fn nominate(n: u32) -> Weight {
-        Weight::from_parts(167_534_000, 87996)
-            .saturating_add(Weight::from_parts(7_125_158, 0).saturating_mul(n.into()))
+        Weight::from_parts(176_132_000, 87996)
+            .saturating_add(Weight::from_parts(7_277_533, 0).saturating_mul(n.into()))
             .saturating_add(T::DbWeight::get().reads(26_u64))
             .saturating_add(T::DbWeight::get().reads((2_u64).saturating_mul(n.into())))
             .saturating_add(T::DbWeight::get().writes(9_u64))
@@ -153,7 +153,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `StakingPos::Candidates` (r:16 w:0)
     /// Proof: `StakingPos::Candidates` (`max_values`: None, `max_size`: Some(2643), added: 5118, mode: `MaxEncodedLen`)
     fn set_nominations() -> Weight {
-        Weight::from_parts(74_537_000, 82878)
+        Weight::from_parts(75_134_000, 82878)
             .saturating_add(T::DbWeight::get().reads(17_u64))
             .saturating_add(T::DbWeight::get().writes(1_u64))
     }
@@ -170,7 +170,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `StakingPos::TotalActive` (r:1 w:1)
     /// Proof: `StakingPos::TotalActive` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
     fn unnominate() -> Weight {
-        Weight::from_parts(43_176_000, 4282)
+        Weight::from_parts(42_159_000, 4282)
             .saturating_add(T::DbWeight::get().reads(6_u64))
             .saturating_add(T::DbWeight::get().writes(5_u64))
     }
@@ -187,7 +187,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `StakingPos::TotalActive` (r:1 w:1)
     /// Proof: `StakingPos::TotalActive` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
     fn unbond() -> Weight {
-        Weight::from_parts(40_052_000, 6108)
+        Weight::from_parts(39_122_000, 6108)
             .saturating_add(T::DbWeight::get().reads(6_u64))
             .saturating_add(T::DbWeight::get().writes(3_u64))
     }
@@ -198,7 +198,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `Balances::Holds` (r:1 w:1)
     /// Proof: `Balances::Holds` (`max_values`: None, `max_size`: Some(103), added: 2578, mode: `MaxEncodedLen`)
     fn withdraw_unbonded() -> Weight {
-        Weight::from_parts(50_580_000, 4282)
+        Weight::from_parts(51_742_000, 4282)
             .saturating_add(T::DbWeight::get().reads(3_u64))
             .saturating_add(T::DbWeight::get().writes(3_u64))
     }
@@ -207,14 +207,14 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `StakingPos::Params` (r:1 w:0)
     /// Proof: `StakingPos::Params` (`max_values`: Some(1), `max_size`: Some(40), added: 535, mode: `MaxEncodedLen`)
     fn set_commission() -> Weight {
-        Weight::from_parts(26_015_000, 6108)
+        Weight::from_parts(24_394_000, 6108)
             .saturating_add(T::DbWeight::get().reads(2_u64))
             .saturating_add(T::DbWeight::get().writes(1_u64))
     }
     /// Storage: `StakingPos::Candidates` (r:1 w:1)
     /// Proof: `StakingPos::Candidates` (`max_values`: None, `max_size`: Some(2643), added: 5118, mode: `MaxEncodedLen`)
     fn chill() -> Weight {
-        Weight::from_parts(23_225_000, 6108)
+        Weight::from_parts(22_232_000, 6108)
             .saturating_add(T::DbWeight::get().reads(1_u64))
             .saturating_add(T::DbWeight::get().writes(1_u64))
     }
@@ -223,108 +223,210 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `StakingPos::Ledger` (r:1 w:0)
     /// Proof: `StakingPos::Ledger` (`max_values`: None, `max_size`: Some(817), added: 3292, mode: `MaxEncodedLen`)
     fn validate() -> Weight {
-        Weight::from_parts(30_075_000, 6108)
+        Weight::from_parts(27_390_000, 6108)
             .saturating_add(T::DbWeight::get().reads(2_u64))
             .saturating_add(T::DbWeight::get().writes(1_u64))
     }
-    fn elect(_c: u32, _n: u32, _s: u32) -> Weight {
-        Weight::zero()
+    /// Storage: `StakingPos::Candidates` (r:501 w:0)
+    /// Proof: `StakingPos::Candidates` (`max_values`: None, `max_size`: Some(2643), added: 5118, mode: `MaxEncodedLen`)
+    /// Storage: `StakingPos::Ledger` (r:2500 w:0)
+    /// Proof: `StakingPos::Ledger` (`max_values`: None, `max_size`: Some(817), added: 3292, mode: `MaxEncodedLen`)
+    /// Storage: `StakingPos::Nominators` (r:2001 w:0)
+    /// Proof: `StakingPos::Nominators` (`max_values`: None, `max_size`: Some(545), added: 3020, mode: `MaxEncodedLen`)
+    /// Storage: `StakingPos::LastElection` (r:0 w:1)
+    /// Proof: `StakingPos::LastElection` (`max_values`: Some(1), `max_size`: Some(2641011), added: 2641506, mode: `MaxEncodedLen`)
+    /// Storage: `StakingPos::Exposures` (r:0 w:200)
+    /// Proof: `StakingPos::Exposures` (`max_values`: None, `max_size`: Some(96082), added: 98557, mode: `MaxEncodedLen`)
+    fn elect(c: u32, n: u32, s: u32) -> Weight {
+        Weight::from_parts(21_673_978_000, 6108)
+            .saturating_add(Weight::from_parts(57_570_648, 0).saturating_mul(c.into()))
+            .saturating_add(Weight::from_parts(120_120_287, 0).saturating_mul(n.into()))
+            .saturating_add(Weight::from_parts(1_117_218_394, 0).saturating_mul(s.into()))
+            .saturating_add(T::DbWeight::get().reads(2_u64))
+            .saturating_add(T::DbWeight::get().reads((2_u64).saturating_mul(c.into())))
+            .saturating_add(T::DbWeight::get().reads((2_u64).saturating_mul(n.into())))
+            .saturating_add(T::DbWeight::get().writes(2_u64))
+            .saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(s.into())))
+            .saturating_add(Weight::from_parts(0, 5118).saturating_mul(c.into()))
+            .saturating_add(Weight::from_parts(0, 3292).saturating_mul(n.into()))
     }
-    fn transition_inputs(_c: u32, _n: u32) -> Weight {
-        Weight::zero()
+    /// Storage: `StakingPos::Ledger` (r:2501 w:0)
+    /// Proof: `StakingPos::Ledger` (`max_values`: None, `max_size`: Some(817), added: 3292, mode: `MaxEncodedLen`)
+    /// Storage: `StakingPos::Candidates` (r:501 w:0)
+    /// Proof: `StakingPos::Candidates` (`max_values`: None, `max_size`: Some(2643), added: 5118, mode: `MaxEncodedLen`)
+    fn transition_inputs(c: u32, n: u32) -> Weight {
+        Weight::from_parts(6_091_292_000, 6108)
+            .saturating_add(Weight::from_parts(6_408_813, 0).saturating_mul(c.into()))
+            .saturating_add(Weight::from_parts(3_377_267, 0).saturating_mul(n.into()))
+            .saturating_add(T::DbWeight::get().reads(2_u64))
+            .saturating_add(T::DbWeight::get().reads((2_u64).saturating_mul(c.into())))
+            .saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(n.into())))
+            .saturating_add(Weight::from_parts(0, 5118).saturating_mul(c.into()))
+            .saturating_add(Weight::from_parts(0, 3292).saturating_mul(n.into()))
     }
-    fn close_epoch(_p: u32, _m: u32) -> Weight {
-        Weight::zero()
+    /// Storage: `StakingPos::EpochPoints` (r:1001 w:1000)
+    /// Proof: `StakingPos::EpochPoints` (`max_values`: None, `max_size`: Some(36), added: 2511, mode: `MaxEncodedLen`)
+    /// Storage: `StakingPos::MissStreak` (r:1000 w:1000)
+    /// Proof: `StakingPos::MissStreak` (`max_values`: None, `max_size`: Some(36), added: 2511, mode: `MaxEncodedLen`)
+    /// Storage: `StakingPos::KeyOwner` (r:1000 w:0)
+    /// Proof: `StakingPos::KeyOwner` (`max_values`: None, `max_size`: Some(64), added: 2539, mode: `MaxEncodedLen`)
+    /// Storage: `StakingPos::Candidates` (r:1000 w:1000)
+    /// Proof: `StakingPos::Candidates` (`max_values`: None, `max_size`: Some(2643), added: 5118, mode: `MaxEncodedLen`)
+    /// Storage: `StakingPos::PendingPoints` (r:21 w:21)
+    /// Proof: `StakingPos::PendingPoints` (`max_values`: None, `max_size`: Some(40), added: 2515, mode: `MaxEncodedLen`)
+    fn close_epoch(p: u32, m: u32) -> Weight {
+        Weight::from_parts(6_366_079_118, 2539990)
+            .saturating_add(Weight::from_parts(5_864_120, 0).saturating_mul(p.into()))
+            .saturating_add(Weight::from_parts(11_364_212, 0).saturating_mul(m.into()))
+            .saturating_add(T::DbWeight::get().reads(2001_u64))
+            .saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(p.into())))
+            .saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(m.into())))
+            .saturating_add(T::DbWeight::get().writes(2000_u64))
+            .saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(p.into())))
+            .saturating_add(Weight::from_parts(0, 5118).saturating_mul(m.into()))
+            .saturating_add(Weight::from_parts(0, 2516).saturating_mul(p.into()))
     }
+    /// Storage: `StakingPos::EpochPoints` (r:1 w:1)
+    /// Proof: `StakingPos::EpochPoints` (`max_values`: None, `max_size`: Some(36), added: 2511, mode: `MaxEncodedLen`)
     fn note_author() -> Weight {
-        Weight::zero()
+        Weight::from_parts(16_159_000, 3501)
+            .saturating_add(T::DbWeight::get().reads(1_u64))
+            .saturating_add(T::DbWeight::get().writes(1_u64))
     }
-    fn pay_rewards(_n: u32) -> Weight {
-        Weight::zero()
+    /// Storage: `StakingPos::PayoutHead` (r:1 w:1)
+    /// Proof: `StakingPos::PayoutHead` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+    /// Storage: `StakingPos::PayoutTail` (r:1 w:0)
+    /// Proof: `StakingPos::PayoutTail` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+    /// Storage: `StakingPos::Payouts` (r:256 w:256)
+    /// Proof: `StakingPos::Payouts` (`max_values`: None, `max_size`: Some(64), added: 2539, mode: `MaxEncodedLen`)
+    /// Storage: `System::Account` (r:257 w:257)
+    /// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+    fn pay_rewards(n: u32) -> Weight {
+        Weight::from_parts(63_317_119, 3593)
+            .saturating_add(Weight::from_parts(48_666_448, 0).saturating_mul(n.into()))
+            .saturating_add(T::DbWeight::get().reads(3_u64))
+            .saturating_add(T::DbWeight::get().reads((2_u64).saturating_mul(n.into())))
+            .saturating_add(T::DbWeight::get().writes(2_u64))
+            .saturating_add(T::DbWeight::get().writes((2_u64).saturating_mul(n.into())))
+            .saturating_add(Weight::from_parts(0, 2603).saturating_mul(n.into()))
     }
 }
 
 /// Same weights with RocksDB database weights, for tests and mocks.
 impl WeightInfo for () {
     fn register_candidate(c: u32) -> Weight {
-        Weight::from_parts(1_122_599_217, 11226)
-            .saturating_add(Weight::from_parts(6_606_752, 0).saturating_mul(c.into()))
+        Weight::from_parts(1_115_945_076, 11226)
+            .saturating_add(Weight::from_parts(6_731_496, 0).saturating_mul(c.into()))
             .saturating_add(RocksDbWeight::get().reads(11_u64))
             .saturating_add(RocksDbWeight::get().reads((2_u64).saturating_mul(c.into())))
             .saturating_add(RocksDbWeight::get().writes(9_u64))
             .saturating_add(Weight::from_parts(0, 5118).saturating_mul(c.into()))
     }
     fn bond_extra() -> Weight {
-        Weight::from_parts(73_901_000, 6108)
+        Weight::from_parts(75_408_000, 6108)
             .saturating_add(RocksDbWeight::get().reads(5_u64))
             .saturating_add(RocksDbWeight::get().writes(4_u64))
     }
     fn set_validator_key() -> Weight {
-        Weight::from_parts(998_312_000, 6108)
+        Weight::from_parts(1_006_465_000, 6108)
             .saturating_add(RocksDbWeight::get().reads(3_u64))
             .saturating_add(RocksDbWeight::get().writes(2_u64))
     }
     fn retire() -> Weight {
-        Weight::from_parts(40_278_000, 6108)
+        Weight::from_parts(40_519_000, 6108)
             .saturating_add(RocksDbWeight::get().reads(5_u64))
             .saturating_add(RocksDbWeight::get().writes(4_u64))
     }
     fn nominate(n: u32) -> Weight {
-        Weight::from_parts(167_534_000, 87996)
-            .saturating_add(Weight::from_parts(7_125_158, 0).saturating_mul(n.into()))
+        Weight::from_parts(176_132_000, 87996)
+            .saturating_add(Weight::from_parts(7_277_533, 0).saturating_mul(n.into()))
             .saturating_add(RocksDbWeight::get().reads(26_u64))
             .saturating_add(RocksDbWeight::get().reads((2_u64).saturating_mul(n.into())))
             .saturating_add(RocksDbWeight::get().writes(9_u64))
             .saturating_add(Weight::from_parts(0, 3292).saturating_mul(n.into()))
     }
     fn set_nominations() -> Weight {
-        Weight::from_parts(74_537_000, 82878)
+        Weight::from_parts(75_134_000, 82878)
             .saturating_add(RocksDbWeight::get().reads(17_u64))
             .saturating_add(RocksDbWeight::get().writes(1_u64))
     }
     fn unnominate() -> Weight {
-        Weight::from_parts(43_176_000, 4282)
+        Weight::from_parts(42_159_000, 4282)
             .saturating_add(RocksDbWeight::get().reads(6_u64))
             .saturating_add(RocksDbWeight::get().writes(5_u64))
     }
     fn unbond() -> Weight {
-        Weight::from_parts(40_052_000, 6108)
+        Weight::from_parts(39_122_000, 6108)
             .saturating_add(RocksDbWeight::get().reads(6_u64))
             .saturating_add(RocksDbWeight::get().writes(3_u64))
     }
     fn withdraw_unbonded() -> Weight {
-        Weight::from_parts(50_580_000, 4282)
+        Weight::from_parts(51_742_000, 4282)
             .saturating_add(RocksDbWeight::get().reads(3_u64))
             .saturating_add(RocksDbWeight::get().writes(3_u64))
     }
     fn set_commission() -> Weight {
-        Weight::from_parts(26_015_000, 6108)
+        Weight::from_parts(24_394_000, 6108)
             .saturating_add(RocksDbWeight::get().reads(2_u64))
             .saturating_add(RocksDbWeight::get().writes(1_u64))
     }
     fn chill() -> Weight {
-        Weight::from_parts(23_225_000, 6108)
+        Weight::from_parts(22_232_000, 6108)
             .saturating_add(RocksDbWeight::get().reads(1_u64))
             .saturating_add(RocksDbWeight::get().writes(1_u64))
     }
     fn validate() -> Weight {
-        Weight::from_parts(30_075_000, 6108)
+        Weight::from_parts(27_390_000, 6108)
             .saturating_add(RocksDbWeight::get().reads(2_u64))
             .saturating_add(RocksDbWeight::get().writes(1_u64))
     }
-    fn elect(_c: u32, _n: u32, _s: u32) -> Weight {
-        Weight::zero()
+    fn elect(c: u32, n: u32, s: u32) -> Weight {
+        Weight::from_parts(21_673_978_000, 6108)
+            .saturating_add(Weight::from_parts(57_570_648, 0).saturating_mul(c.into()))
+            .saturating_add(Weight::from_parts(120_120_287, 0).saturating_mul(n.into()))
+            .saturating_add(Weight::from_parts(1_117_218_394, 0).saturating_mul(s.into()))
+            .saturating_add(RocksDbWeight::get().reads(2_u64))
+            .saturating_add(RocksDbWeight::get().reads((2_u64).saturating_mul(c.into())))
+            .saturating_add(RocksDbWeight::get().reads((2_u64).saturating_mul(n.into())))
+            .saturating_add(RocksDbWeight::get().writes(2_u64))
+            .saturating_add(RocksDbWeight::get().writes((1_u64).saturating_mul(s.into())))
+            .saturating_add(Weight::from_parts(0, 5118).saturating_mul(c.into()))
+            .saturating_add(Weight::from_parts(0, 3292).saturating_mul(n.into()))
     }
-    fn transition_inputs(_c: u32, _n: u32) -> Weight {
-        Weight::zero()
+    fn transition_inputs(c: u32, n: u32) -> Weight {
+        Weight::from_parts(6_091_292_000, 6108)
+            .saturating_add(Weight::from_parts(6_408_813, 0).saturating_mul(c.into()))
+            .saturating_add(Weight::from_parts(3_377_267, 0).saturating_mul(n.into()))
+            .saturating_add(RocksDbWeight::get().reads(2_u64))
+            .saturating_add(RocksDbWeight::get().reads((2_u64).saturating_mul(c.into())))
+            .saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(n.into())))
+            .saturating_add(Weight::from_parts(0, 5118).saturating_mul(c.into()))
+            .saturating_add(Weight::from_parts(0, 3292).saturating_mul(n.into()))
     }
-    fn close_epoch(_p: u32, _m: u32) -> Weight {
-        Weight::zero()
+    fn close_epoch(p: u32, m: u32) -> Weight {
+        Weight::from_parts(6_366_079_118, 2539990)
+            .saturating_add(Weight::from_parts(5_864_120, 0).saturating_mul(p.into()))
+            .saturating_add(Weight::from_parts(11_364_212, 0).saturating_mul(m.into()))
+            .saturating_add(RocksDbWeight::get().reads(2001_u64))
+            .saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(p.into())))
+            .saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(m.into())))
+            .saturating_add(RocksDbWeight::get().writes(2000_u64))
+            .saturating_add(RocksDbWeight::get().writes((1_u64).saturating_mul(p.into())))
+            .saturating_add(Weight::from_parts(0, 5118).saturating_mul(m.into()))
+            .saturating_add(Weight::from_parts(0, 2516).saturating_mul(p.into()))
     }
     fn note_author() -> Weight {
-        Weight::zero()
+        Weight::from_parts(16_159_000, 3501)
+            .saturating_add(RocksDbWeight::get().reads(1_u64))
+            .saturating_add(RocksDbWeight::get().writes(1_u64))
     }
-    fn pay_rewards(_n: u32) -> Weight {
-        Weight::zero()
+    fn pay_rewards(n: u32) -> Weight {
+        Weight::from_parts(63_317_119, 3593)
+            .saturating_add(Weight::from_parts(48_666_448, 0).saturating_mul(n.into()))
+            .saturating_add(RocksDbWeight::get().reads(3_u64))
+            .saturating_add(RocksDbWeight::get().reads((2_u64).saturating_mul(n.into())))
+            .saturating_add(RocksDbWeight::get().writes(2_u64))
+            .saturating_add(RocksDbWeight::get().writes((2_u64).saturating_mul(n.into())))
+            .saturating_add(Weight::from_parts(0, 2603).saturating_mul(n.into()))
     }
 }

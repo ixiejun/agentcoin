@@ -104,6 +104,24 @@ if $check; then
   echo "emission minted $minted, treasury floor $floor, PoA council members $members"
   [[ "$minted" -gt 0 && "$floor" == "$minted" ]] || { echo "emission not settled; see logs in $base" >&2; exit 1; }
   [[ "$members" == 3 ]] || { echo "unexpected PoA council; see logs in $base" >&2; exit 1; }
+  # The PoA -> PoS switch progress of the root README (m3-pos 10.4): nobody stakes here, so the
+  # chain is in PoA with no qualified run, and the local switch parameters are in force (10%,
+  # three candidates, height 40, held for 40 blocks).
+  progress="$(curl -s -H 'Content-Type: application/json' http://127.0.0.1:9944 \
+    -d '{"id":1,"jsonrpc":"2.0","method":"state_call","params":["StakingApi_transition","0x"]}' |
+    python3 -c '
+import json, sys
+raw = bytes.fromhex(json.load(sys.stdin)["result"][2:])
+phase, rest = raw[0], raw[1:]
+switched, rest = (rest[0], rest[1 + (8 if rest[0] else 0):])
+since, rest = (rest[0], rest[1 + (8 if rest[0] else 0):])
+rest = rest[16 + 16 + 4:]
+stake_bps, min_candidates = int.from_bytes(rest[0:4], "little"), int.from_bytes(rest[4:8], "little")
+min_height, sustain = int.from_bytes(rest[8:16], "little"), int.from_bytes(rest[16:24], "little")
+print(phase, switched, since, stake_bps, min_candidates, min_height, sustain)
+')"
+  echo "switch progress (phase switched qualified bps candidates height sustain): $progress"
+  [[ "$progress" == "0 0 0 1000 3 40 40" ]] || { echo "unexpected switch progress; see logs in $base" >&2; exit 1; }
   echo "local testnet check passed"
 else
   wait

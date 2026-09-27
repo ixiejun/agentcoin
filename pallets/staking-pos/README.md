@@ -24,7 +24,7 @@ empty ledger (all earlier stake withdrawn).
 | | Minimum | Cap (live chains) |
 |---|---|---|
 | Candidate self-stake | 0.1% of the total issuance | 500 candidates |
-| Nomination | 0.001% of the total issuance | 2,000 nominators |
+| Nomination | 0.001% of the total issuance | 750 nominators |
 
 Minimums follow the issuance and are rounded up. A candidate whose self-stake falls below the
 minimum as the issuance grows keeps its stake but is not qualified (does not count for the
@@ -48,6 +48,39 @@ The same rules apply in the PoA and PoS phases. Candidates leave with `retire`; 
 5% to 100%. An increase takes effect 7 days later (604,800 blocks); a decrease at the next
 validator epoch. Until then the scheduled value is visible in the candidate record.
 
+## Election
+
+In PoS, the last block of every validator epoch runs a sequential Phragmén election with
+balancing (`sp-npos-elections`) for `K` seats over the qualified candidates (not chilled, self-stake
+at the minimum) and the nominators at the minimum; a candidate's self-stake counts as a vote for
+itself. The result records each winner's backing and its exact composition (the validator and
+each nominator with amounts). During the switch buffer the same election runs as a preview that
+does not change the PoA set. `pallet-validator-set` installs the winners with AC-BFT weight
+`max(1, backing / 10^12)`.
+
+## Rewards
+
+The security budget of each emission settlement (10% of the scheduled amount, paid only in PoS)
+is shared by work, not by stake (decision D19, rule R1):
+
+1. Every block earns its author one work point. At each epoch boundary the points of the epoch
+   that just ended move to the author's account — except for validators that missed their
+   randomness reveal in that epoch, whose points are dropped. Three missed epochs in a row
+   pause the validator from elections.
+2. At settlement the budget is split by points between validators (rounding down), then each
+   share pays the validator's commission in force and is split pro rata over the backing of its
+   latest election. Rounding remainders are never minted.
+3. The budget is minted into the keyless reward pot (`PalletId(*b"ac/stkrw")`) and paid out by a
+   queue, 256 payouts per block on live chains, without any claim transaction.
+
+## Slashing
+
+For each recorded double signing (`pallet-ac-offences`), only the validator's own self-stake is
+slashed, bonded and unbonding alike: vote double signing 100%, seal double signing 10%. Within a
+set the most severe kind counts and nothing adds up. The slashed ATC is burned through
+`Emission` and counted in `Emission::TotalBurned`; the validator is paused from elections.
+Nominators are never slashed, and going offline costs no principal.
+
 ## Well-known storage keys
 
 Read by the node's PoA → PoS check; never renamed or re-encoded:
@@ -61,14 +94,16 @@ Read by the node's PoA → PoS check; never renamed or re-encoded:
 
 `register_candidate`, `bond_extra`, `set_validator_key`, `retire`, `nominate`,
 `set_nominations`, `unnominate`, `unbond`, `withdraw_unbonded`, `set_commission`, `chill`,
-`validate`. All weights are benchmarked; registration and nomination are charged for scanning a
-full list and refunded when they do not.
+`validate`. All weights are benchmarked, and so are the per-block hooks (work points, payouts)
+and the election; registration and nomination are charged for scanning a full list and
+refunded when they do not.
 
 ## Queries
 
 Runtime API `StakingApi`: `stake` (active, unbonding and withdrawable amounts of an account),
-`candidate` (record, commission in force and received nominations), `total_active` and
-`minimums`.
+`candidate` (record, commission in force and received nominations), `total_active`,
+`minimums`, `last_election` (winners, backings and their composition; marked when a preview) and
+`transition` (phase and the switch conditions with their current values).
 
 ## Features
 
@@ -90,7 +125,7 @@ use pallet_staking_pos::StakingParams;
 let live = StakingParams::LIVE;
 assert_eq!(live.self_unbond_blocks, 28 * 86_400);
 assert_eq!((live.nomination_unbond_min, live.nomination_unbond_max), (2 * 86_400, 28 * 86_400));
-assert_eq!((live.max_candidates, live.max_nominators), (500, 2_000));
+assert_eq!((live.max_candidates, live.max_nominators), (500, 750));
 
 let issuance = 10_000_000 * UNITS;
 assert_eq!(min_self_bond(issuance), 10_000 * UNITS);

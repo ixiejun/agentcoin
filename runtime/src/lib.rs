@@ -51,33 +51,36 @@ pub use pallet_timestamp::Call as TimestampCall;
 pub use sp_runtime::BuildStorage;
 
 /// Runtime version.
-#[cfg(not(ac_test_overmint))]
+#[cfg(not(any(ac_test_overmint, ac_test_early_switch)))]
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     impl_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     authoring_version: 1,
     // 2: emission, treasury, fee distribution and the PoA multisig (m3-economics).
-    spec_version: 2,
+    // 3: staking, elections and the PoA -> PoS switch (m3-pos).
+    spec_version: 3,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     // 2: `AuthorizeCall` joined the extension pipeline (m2-finality); encodings are unchanged.
-    transaction_version: 2,
+    // 3: new staking and validator-set calls (m3-pos).
+    transaction_version: 3,
     system_version: 1,
 };
 
-/// Runtime version of the test-only over-minting build (`tests/overmint-runtime`, compiled with
-/// `--cfg ac_test_overmint`): one `spec_version` higher so that `set_code` accepts it.
-#[cfg(ac_test_overmint)]
+/// Runtime version of the test-only faulty builds (`tests/overmint-runtime` with
+/// `--cfg ac_test_overmint`, `tests/early-switch-runtime` with `--cfg ac_test_early_switch`):
+/// one `spec_version` higher so that `set_code` accepts them.
+#[cfg(any(ac_test_overmint, ac_test_early_switch))]
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     impl_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     authoring_version: 1,
-    spec_version: 3,
+    spec_version: 4,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
-    transaction_version: 2,
+    transaction_version: 3,
     system_version: 1,
 };
 

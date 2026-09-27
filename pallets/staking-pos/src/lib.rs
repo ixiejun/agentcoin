@@ -163,6 +163,7 @@ impl<S: Get<u32>> StakingLedger<S> {
     serde::Serialize,
     serde::Deserialize,
 )]
+#[serde(rename_all = "camelCase")]
 pub struct StakingParams {
     /// Most candidates at once.
     pub max_candidates: u32,
@@ -179,11 +180,11 @@ pub struct StakingParams {
 }
 
 impl StakingParams {
-    /// Live-chain values: 500 candidates, 2,000 nominators, 28-day self-unbonding, 2–28-day
+    /// Live-chain values: 500 candidates, 750 nominators (the most one block can elect, task 3.4), 28-day self-unbonding, 2–28-day
     /// nomination unbonding, 7-day commission delay (one-second blocks).
     pub const LIVE: Self = Self {
         max_candidates: 500,
-        max_nominators: 2_000,
+        max_nominators: 750,
         self_unbond_blocks: 2_419_200,
         nomination_unbond_min: 172_800,
         nomination_unbond_max: 2_419_200,

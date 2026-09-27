@@ -51,7 +51,7 @@ jobs:
         run: |
           for crate in ac-crypto ac-primitives ac-invariants pallet-pq-accounts pallet-aura-pq \
             pallet-validator-set pallet-ac-offences pallet-randomness-cr pallet-emission \
-            pallet-treasury-dual pallet-poa-admin; do
+            pallet-treasury-dual pallet-poa-admin pallet-staking-pos; do
             cargo build -p "$crate" --no-default-features --target wasm32-unknown-unknown
           done
 
@@ -74,7 +74,7 @@ jobs:
       - uses: ./.github/actions/setup-substrate
       - run: cargo build -p ac-node -p ac-wallet
       # One network at a time: each test runs four to six debug nodes.
-      - name: Four-node network, finality, fault tolerance, double signing, randomness, transfers, key rotation, emission and the PoA multisig
+      - name: Four-node network, finality, fault tolerance, double signing, randomness, transfers, key rotation, emission, the PoA multisig, the PoA-to-PoS switch, elections, rewards and slashing
         run: cargo test -p ac-e2e -- --test-threads 1
       - name: Local testnet script
         run: AC_TESTNET_DIR="$AC_E2E_LOGS/testnet" scripts/run-local-testnet.sh --check

@@ -18,8 +18,12 @@ low-value uses.
 - Both steps travel in the inherent `note_randomness`, filled by the author's node. The author
   comes from Aura-PQ's record of the block's slot, so nobody can commit or reveal for someone
   else. A second commitment in one epoch, or a reveal that does not match, is ignored.
-- Validators that committed but did not reveal are counted in `MissedReveals`; M3 turns this
-  into lost emission.
+- Validators that committed but did not reveal are counted in `MissedReveals`, and each
+  conclusion also records its list of misses (`LastMissed`), which `pallet-staking-pos` reads
+  through `RevealTracker` in the concluding block. In PoA a miss has no other consequence. In
+  PoS the validator earns no work points for the epoch in which it failed to reveal, and three
+  missed epochs in a row pause it from elections until it asks to validate again (spec
+  economics/validator-rewards).
 - **Queries**: the `RandomnessApi` runtime API (latest value, per-subject values, per-epoch
   values and reveals) and FRAME's `Randomness` trait for other pallets. Per-subject values are
   `derive_key("agentcoin 2026-09 randomness-subject v1", R ‖ subject)`, independent across

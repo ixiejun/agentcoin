@@ -8,7 +8,7 @@
 - **揭示**：在纪元 `e + 1`，验证人在自己的某个区块中揭示 `secret(e)`，链会将其与承诺核对。
 - **公布**：在纪元 `e + 2` 的边界区块，链公布 `R(e) = derive_key("agentcoin 2026-09 randomness v1", u64_le(e) ‖ 按账户 ID 排序的揭示值)`。任何人都可以用 `ac_primitives::randomness::epoch_randomness` 从公开的揭示值复算。没有任何揭示的纪元没有随机数。
 - 承诺和揭示都放在 inherent `note_randomness` 中，由出块人的节点填写。出块人取自 Aura-PQ 记录的本区块时隙，因此任何人都无法替他人承诺或揭示。同一纪元的第二个承诺、与承诺不符的揭示都会被忽略。
-- 提交了承诺却没有揭示的验证人计入 `MissedReveals`；M3 起会因此扣减排放。
+- 提交了承诺却没有揭示的验证人计入 `MissedReveals`；每次结论还会记下本次未揭示的名单（`LastMissed`），`pallet-staking-pos` 在得出结论的区块中通过 `RevealTracker` 读取。PoA 阶段未揭示没有其他后果。PoS 阶段该验证人在未揭示的那个纪元不计工作分，连续 3 个纪元未揭示则被暂停参选，直到其申请恢复（规格 economics/validator-rewards）。
 - **查询**：`RandomnessApi` runtime API（最新值、按主题派生的值、各纪元的值与揭示值），以及供其他模块使用的 FRAME `Randomness` trait。按主题派生的值为 `derive_key("agentcoin 2026-09 randomness-subject v1", R ‖ subject)`，不同主题之间互相独立。
 
 ## 已知偏置

@@ -298,6 +298,7 @@ pub mod pallet {
             Phase::<T>::put(ChainPhase::Poa);
             QualifiedSince::<T>::put(None::<u64>);
             TransitionParams::<T>::put(self.transition);
+            EpochLength::<T>::put(self.epoch_length);
             if keys.is_empty() {
                 // SDK tooling builds a default genesis without authorities; the node refuses
                 // to run such a chain.
@@ -543,11 +544,17 @@ pub mod pallet {
                         T::Staking::qualified_candidates(),
                         number,
                     );
-                    let step = transition_step(
-                        QualifiedSince::<T>::get(),
-                        &inputs,
-                        &TransitionParams::<T>::get(),
-                    );
+                    let params = TransitionParams::<T>::get();
+                    // Test-only fault (m3-pos 9.1), compiled only with `--cfg
+                    // ac_test_early_switch` by `tests/early-switch-runtime`: ignore the minimum
+                    // height and the sustain period.
+                    #[cfg(ac_test_early_switch)]
+                    let params = SwitchParams {
+                        min_height: 0,
+                        sustain_blocks: 0,
+                        ..params
+                    };
+                    let step = transition_step(QualifiedSince::<T>::get(), &inputs, &params);
                     QualifiedSince::<T>::put(step.qualified_since);
                     Self::deposit_event(Event::TransitionCheckpoint {
                         qualified: step.ok,

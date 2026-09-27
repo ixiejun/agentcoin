@@ -21,7 +21,7 @@ use super::{
 };
 use crate::holder_lock::HolderTreasuryLock;
 use ac_primitives::Blake3Hasher;
-use ac_primitives::emission::{FLOOR_BATCH_BLOCKS, FLOOR_VESTING_BLOCKS, PoaPhase};
+use ac_primitives::emission::{FLOOR_BATCH_BLOCKS, FLOOR_VESTING_BLOCKS};
 use frame_support::traits::EitherOfDiverse;
 use frame_support::traits::fungible::{Balanced, Credit};
 use frame_support::traits::{Imbalance, OnUnbalanced};
@@ -169,8 +169,9 @@ impl pallet_ac_offences::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type ValidatorSet = ValidatorSet;
     type Slots = AuraPq;
-    /// PoA validators hold no stake (decisions D9, D19): nothing to slash until M3.
-    type SlashHandler = ();
+    /// Slashes and burns the offender's self-stake (`m3-pos`); PoA authorities without stake
+    /// lose nothing.
+    type SlashHandler = StakingPos;
     type MaxAuthorities = ConstU32<{ ac_primitives::aura_pq::MAX_AUTHORITIES }>;
     /// Seal evidence older than eight 600-slot epochs is rejected (matches `HistoryEpochs`).
     type MaxEvidenceAge = ConstU64<4_800>;
@@ -192,8 +193,9 @@ impl pallet_emission::Config for Runtime {
     type Currency = Balances;
     /// No verified work before M5 (`pallet-work`).
     type WorkSource = ();
-    /// PoA: the security budget rolls over (decision D19) until `m3-pos`.
-    type SecurityBudget = PoaPhase;
+    /// PoA: the security budget rolls over (decision D19); PoS: paid by work points to
+    /// validators and their stakers (`m3-pos`).
+    type SecurityBudget = StakingPos;
     type Treasury = TreasuryDual;
     type WeightInfo = pallet_emission::weights::SubstrateWeight<Runtime>;
 }
@@ -266,11 +268,13 @@ impl pallet_staking_pos::Config for Runtime {
     type Reveals = RandomnessCr;
     /// Slashed stake is burned and counted in `Emission::TotalBurned`.
     type Slash = Emission;
-    /// A full live-chain queue (about 32,000 payouts) drains in about 125 blocks.
+    /// A full live-chain queue (about 12,000 payouts) drains in about 50 blocks.
     type PayoutsPerBlock = ConstU32<256>;
     /// Live-chain caps (design D10 of `m3-pos`); presets may set smaller ones.
     type MaxCandidates = ConstU32<500>;
-    type MaxNominators = ConstU32<2_000>;
+    /// The worst-case election (500 candidates, 750 nominators with 16 targets each, K = 100)
+    /// fits one block's execution budget (task 3.4, issue I-005).
+    type MaxNominators = ConstU32<750>;
     /// Unbonding requests per account before they merge into the latest one.
     type MaxUnlocking = ConstU32<32>;
     /// Storage bound of the active-set size K (I-004: K is a parameter, never hard-coded).

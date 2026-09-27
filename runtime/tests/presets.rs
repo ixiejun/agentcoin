@@ -120,3 +120,64 @@ fn development_economics() {
         2,
     );
 }
+
+// m3-pos 8.2, node/chain-spec Requirement "质押与切换参数": the development and local presets use
+// small values so that a switch completes within minutes; `K` fits half an epoch; the default
+// (live) genesis values are the constitution's.
+#[test]
+fn staking_and_switch_parameters() {
+    use ac_primitives::staking::TransitionParams;
+    use ac_runtime::Runtime;
+    use ac_runtime::genesis_config_presets::{
+        DEV_STAKING, DEV_TRANSITION, LOCAL_STAKING, LOCAL_TRANSITION,
+    };
+
+    for (id, transition, staking, k, epoch) in [
+        (
+            sp_genesis_builder::DEV_RUNTIME_PRESET,
+            DEV_TRANSITION,
+            DEV_STAKING,
+            5u32,
+            10u64,
+        ),
+        (
+            sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET,
+            LOCAL_TRANSITION,
+            LOCAL_STAKING,
+            10,
+            20,
+        ),
+    ] {
+        preset_ext(id).execute_with(|| {
+            assert_eq!(
+                pallet_validator_set::TransitionParams::<Runtime>::get(),
+                transition
+            );
+            assert_eq!(pallet_validator_set::ValidatorCount::<Runtime>::get(), k);
+            assert_eq!(pallet_validator_set::EpochLength::<Runtime>::get(), epoch);
+            assert!(u64::from(k) * 2 <= epoch, "K fits half an epoch");
+            assert_eq!(pallet_staking_pos::Params::<Runtime>::get(), staking);
+            // Minutes, not days: at most a hundred one-second blocks each.
+            assert!(transition.min_height + transition.sustain_blocks <= 100);
+            assert!(staking.self_unbond_blocks <= 100 && staking.commission_delay <= 100);
+            assert!(transition.min_candidates <= 3);
+        });
+    }
+    // Scenario "导出正式链参数": the defaults a live chain spec starts from.
+    let live = pallet_validator_set::GenesisConfig::<Runtime>::default();
+    assert_eq!(live.transition, TransitionParams::CONSTITUTION);
+    assert_eq!(live.transition.stake_bps, 1_000);
+    assert_eq!(live.transition.min_candidates, 21);
+    assert_eq!(live.transition.min_height, 63_115_200);
+    assert_eq!(live.transition.sustain_blocks, 604_800);
+    assert_eq!(live.validator_count, 100);
+    let staking = pallet_staking_pos::StakingParams::default();
+    assert_eq!(staking, pallet_staking_pos::StakingParams::LIVE);
+    assert_eq!((staking.max_candidates, staking.max_nominators), (500, 750));
+    assert_eq!(staking.self_unbond_blocks, 2_419_200);
+    assert_eq!(
+        (staking.nomination_unbond_min, staking.nomination_unbond_max),
+        (172_800, 2_419_200)
+    );
+    assert_eq!(staking.commission_delay, 604_800);
+}

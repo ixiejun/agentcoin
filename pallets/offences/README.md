@@ -35,9 +35,13 @@ never enters the pool or a block, and no account pays a fee or uses a nonce.
   empty). A record of the other kind emits its event but punishes nothing more.
 - The `SlashHandler` is called for every record with the kinds already recorded for the
   offender in that set; implementations slash for the most severe kind and never add up.
-- **No slashing in M2**: during PoA validators hold no stake (decisions D9, D19), so the
-  `SlashHandler` of M2 is `()`, slashes nothing and leaves every balance and the total issuance
-  unchanged. M3 connects stake and slashes (and burns) 100%.
+- **Slashing** (`m3-pos`; the runtime's `SlashHandler` is `pallet-staking-pos`): only the
+  offender's own self-stake is slashed, bonded and unbonding alike — vote double signing 100%,
+  seal double signing 10%. Within one set the most severe kind counts and nothing adds up: a
+  later record only takes the difference. The slashed ATC is burned through `Emission` and
+  counted in `Emission::TotalBurned`, so the total issuance falls by the same amount.
+  Nominators are never slashed. In PoS the offender is also paused from elections until it
+  asks to validate again. A PoA authority without stake loses nothing.
 - Event: `OffenceReported { offender, key, set_id, slashed }`.
 
 ## Features

@@ -13,7 +13,7 @@ use sp_version::RuntimeVersion;
 
 use super::{
     AccountId, AuraPq, Balance, Block, Emission, Executive, InherentDataExt, Nonce, Offences,
-    PqAccounts, RandomnessCr, Runtime, RuntimeCall, RuntimeGenesisConfig, System,
+    PqAccounts, RandomnessCr, Runtime, RuntimeCall, RuntimeGenesisConfig, StakingPos, System,
     TransactionPayment, TreasuryDual, VERSION, ValidatorSet,
 };
 
@@ -143,6 +143,32 @@ impl_runtime_apis! {
             set_id: ac_primitives::ac_bft::SetId,
         ) -> Option<Vec<ac_primitives::ac_bft::Authority>> {
             ValidatorSet::historical_set(set_id)
+        }
+    }
+
+    impl ac_primitives::staking::StakingApi<Block, AccountId> for Runtime {
+        fn stake(who: AccountId) -> ac_primitives::staking::AccountStake {
+            StakingPos::stake_of(&who)
+        }
+
+        fn candidate(who: AccountId) -> Option<ac_primitives::staking::CandidateInfo<AccountId>> {
+            StakingPos::candidate_info(&who)
+        }
+
+        fn total_active() -> u128 {
+            <StakingPos as ac_primitives::validator_set::StakingInterface>::total_active()
+        }
+
+        fn minimums() -> (u128, u128) {
+            StakingPos::minimums()
+        }
+
+        fn last_election() -> Option<ac_primitives::staking::ElectionInfo<AccountId>> {
+            StakingPos::last_election()
+        }
+
+        fn transition() -> ac_primitives::staking::TransitionProgress {
+            ValidatorSet::transition_progress()
         }
     }
 

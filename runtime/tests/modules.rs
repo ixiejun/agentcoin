@@ -24,6 +24,16 @@ fn pallet_indices_are_fixed() {
     assert_eq!(<ac_runtime::TreasuryDual as PalletInfoAccess>::index(), 10);
     assert_eq!(<ac_runtime::PoaCouncil as PalletInfoAccess>::index(), 11);
     assert_eq!(<ac_runtime::PoaAdmin as PalletInfoAccess>::index(), 12);
+    // m3-pos (design D11).
+    assert_eq!(<ac_runtime::StakingPos as PalletInfoAccess>::index(), 13);
+    assert_eq!(
+        <ac_runtime::StakingPos as PalletInfoAccess>::name(),
+        "StakingPos"
+    );
+    assert_eq!(
+        <ac_runtime::ValidatorSet as PalletInfoAccess>::name(),
+        "ValidatorSet"
+    );
     // The published names the node reads storage keys under.
     assert_eq!(
         <ac_runtime::Emission as PalletInfoAccess>::name(),
@@ -33,8 +43,9 @@ fn pallet_indices_are_fixed() {
         <ac_runtime::PoaCouncil as PalletInfoAccess>::name(),
         "PoaCouncil"
     );
-    assert_eq!(VERSION.transaction_version, 2);
-    assert_eq!(VERSION.spec_version, 2);
+    // m3-pos: new calls (design D11).
+    assert_eq!(VERSION.transaction_version, 3);
+    assert_eq!(VERSION.spec_version, 3);
 }
 
 // The M2 runtime APIs are declared by the runtime.
@@ -56,6 +67,9 @@ fn runtime_apis_are_declared() {
     ));
     assert!(has(
         <dyn ac_primitives::emission::TreasuryApi<ac_runtime::Block, ac_runtime::AccountId>>::ID
+    ));
+    assert!(has(
+        <dyn ac_primitives::staking::StakingApi<ac_runtime::Block, ac_runtime::AccountId>>::ID
     ));
 }
 

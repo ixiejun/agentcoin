@@ -169,3 +169,44 @@ fn governance_pallets_use_benchmarked_weights() {
         std::any::type_name::<pallet_collective::weights::SubstrateWeight<Runtime>>()
     );
 }
+
+// m3-pos 2.7, 3.4, 4.4, 5.4: staking and the roster calls use benchmarked weights, and the
+// worst-case election registered in the last block of an epoch fits one block's budget.
+#[test]
+fn staking_uses_benchmarked_weights() {
+    use ac_primitives::validator_set::StakingInterface;
+    use pallet_staking_pos::weights::WeightInfo as _;
+    use pallet_validator_set::weights::WeightInfo as _;
+    type St = <Runtime as pallet_staking_pos::Config>::WeightInfo;
+    type Vs = <Runtime as pallet_validator_set::Config>::WeightInfo;
+    type Generated = pallet_staking_pos::weights::SubstrateWeight<Runtime>;
+    for (used, generated) in [
+        (
+            St::register_candidate(500),
+            Generated::register_candidate(500),
+        ),
+        (St::nominate(750), Generated::nominate(750)),
+        (St::unbond(), Generated::unbond()),
+        (St::pay_rewards(256), Generated::pay_rewards(256)),
+        (St::elect(500, 750, 100), Generated::elect(500, 750, 100)),
+    ] {
+        assert_eq!(used, generated);
+        assert!(used.ref_time() > 0);
+    }
+    for w in [
+        Vs::add_poa_authority(),
+        Vs::remove_poa_authority(),
+        Vs::set_validator_count(),
+    ] {
+        assert!(w.ref_time() > 0);
+    }
+    let election = <ac_runtime::StakingPos as StakingInterface>::election_weight(100);
+    let budget = <<Runtime as frame_system::Config>::BlockWeights as frame_support::traits::Get<
+        frame_system::limits::BlockWeights,
+    >>::get()
+    .max_block;
+    assert!(
+        election.ref_time() < budget.ref_time(),
+        "election {election:?} exceeds the block budget {budget:?}"
+    );
+}

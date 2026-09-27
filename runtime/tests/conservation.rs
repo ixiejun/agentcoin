@@ -2,7 +2,9 @@
 //!
 //! Random sequences of transfers (with and without tips), first-key registrations, rotations,
 //! failing transactions, double-signing reports (m2-finality 6.3), randomness inherents,
-//! treasury spends and blocks crossing emission-epoch boundaries (m3-economics 7.2): after every
+//! treasury spends and blocks crossing emission-epoch boundaries (m3-economics 7.2), staking,
+//! nominating, unbonding, withdrawing, the switch to PoS with reward payouts and slashing
+//! (m3-pos 8.3): after every
 //! step the sum of all balances equals the total issuance, and the issuance changed by exactly
 //! what emission minted minus what was burned.
 #![allow(
@@ -52,6 +54,16 @@ enum Op {
     CrossEpoch,
     /// Produce `n` blocks.
     Blocks { n: u8 },
+    /// Alice registers her authority key as a candidate with `thousands` × 1,000 ATC.
+    Stake { thousands: u16 },
+    /// Signer `who` nominates alice with `amount` ATC.
+    Nominate { who: usize, amount: u64 },
+    /// Signer `who` unbonds `amount` ATC.
+    Unbond { who: usize, amount: u64 },
+    /// Signer `who` withdraws unlocked stake.
+    Withdraw { who: usize },
+    /// Produce blocks until the chain is in PoS (at most 60): settlements then pay rewards.
+    ToPos,
 }
 
 fn op() -> impl Strategy<Value = Op> {
@@ -76,6 +88,11 @@ fn op() -> impl Strategy<Value = Op> {
         (0usize..6, 1u64..3_000).prop_map(|(to, amount)| Op::Spend { to, amount }),
         proptest::strategy::Just(Op::CrossEpoch),
         (1u8..4).prop_map(|n| Op::Blocks { n }),
+        (100u16..900).prop_map(|thousands| Op::Stake { thousands }),
+        (1usize..4, 60u64..5_000).prop_map(|(who, amount)| Op::Nominate { who, amount }),
+        (0usize..4, 1u64..5_000).prop_map(|(who, amount)| Op::Unbond { who, amount }),
+        (0usize..4).prop_map(|who| Op::Withdraw { who }),
+        proptest::strategy::Just(Op::ToPos),
     ]
 }
 
@@ -171,6 +188,53 @@ proptest! {
                     }
                     Op::Blocks { n } => {
                         for _ in 0..n {
+                            next_authored_block();
+                        }
+                    }
+                    Op::Stake { thousands } => {
+                        let authority = ac_crypto::sig::SigningKey::from_seed(
+                            SigAlg::MlDsa65,
+                            &ac_crypto::dev_seed("alice").unwrap(),
+                        )
+                        .unwrap();
+                        let key = authority.public_key().unwrap();
+                        let genesis = frame_system::Pallet::<ac_runtime::Runtime>::block_hash(0);
+                        let statement = ac_primitives::staking::pop_statement(&genesis, &signers[0].account, &key);
+                        let proof = authority
+                            .sign_deterministic(&statement, ac_primitives::staking::VALIDATOR_POP_CONTEXT)
+                            .unwrap();
+                        let call = RuntimeCall::StakingPos(pallet_staking_pos::Call::register_candidate {
+                            key,
+                            proof,
+                            value: u128::from(thousands) * 1_000 * ATC,
+                            commission_bps: 1_000,
+                        });
+                        let _ = apply(signed(&signers[0], call));
+                    }
+                    Op::Nominate { who, amount } => {
+                        let call = RuntimeCall::StakingPos(pallet_staking_pos::Call::nominate {
+                            value: u128::from(amount) * ATC,
+                            targets: vec![signers[0].account.clone()],
+                        });
+                        let _ = apply(signed(&signers[who], call));
+                    }
+                    Op::Unbond { who, amount } => {
+                        let call = RuntimeCall::StakingPos(pallet_staking_pos::Call::unbond {
+                            value: u128::from(amount) * ATC,
+                        });
+                        let _ = apply(signed(&signers[who], call));
+                    }
+                    Op::Withdraw { who } => {
+                        let call = RuntimeCall::StakingPos(pallet_staking_pos::Call::withdraw_unbonded {});
+                        let _ = apply(signed(&signers[who], call));
+                    }
+                    Op::ToPos => {
+                        for _ in 0..60 {
+                            if pallet_validator_set::Phase::<ac_runtime::Runtime>::get()
+                                == ac_primitives::staking::ChainPhase::Pos
+                            {
+                                break;
+                            }
                             next_authored_block();
                         }
                     }

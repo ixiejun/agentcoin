@@ -6,9 +6,9 @@
 //! the `AuthorizeCall` transaction extension). A recorded offender is
 //! - removed from block authoring and AC-BFT voting at the next epoch boundary (through the
 //!   validator set), and
-//! - passed to the [`SlashHandler`](ac_primitives::validator_set::SlashHandler). During PoA
-//!   validators hold no stake (D9, D19), so the M2 handler `()` slashes nothing and no balance
-//!   changes; M3 slashes and burns stake.
+//! - passed to the [`SlashHandler`](ac_primitives::validator_set::SlashHandler). The runtime's
+//!   handler (`pallet-staking-pos`, `m3-pos`) slashes and burns the offender's self-stake; a PoA
+//!   authority without stake loses nothing.
 //!
 //! Each offence is recorded once, and each offender at most once per offence kind (block seal,
 //! AC-BFT vote) and authority set, so the records of a set never exceed twice its size. Only an
