@@ -292,11 +292,6 @@ fn inherent_providers(
 ///
 /// Fails if the database or the runtime executor cannot be set up.
 pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
-    // Constitution layer 1, before any database is touched: the chain spec's genesis must pass
-    // the start-up checks, and its parameters drive the per-block invariant checks of every
-    // block, authored here or imported.
-    let genesis = crate::invariants::genesis_params(config.chain_spec.as_ref())
-        .map_err(sc_service::Error::Other)?;
     let telemetry = config
         .telemetry_endpoints
         .clone()
@@ -317,6 +312,13 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
             Default::default(),
         )?;
     let client = Arc::new(client);
+
+    // Constitution layer 1: the genesis must pass the start-up checks (read from the state the
+    // client just built from the chain spec), and its parameters drive the per-block invariant
+    // checks of every block, authored here or imported.
+    let live = config.chain_spec.chain_type() == sc_chain_spec::ChainType::Live;
+    let genesis =
+        crate::invariants::genesis_params(&client, live).map_err(sc_service::Error::Other)?;
 
     let telemetry = telemetry.map(|(worker, telemetry)| {
         task_manager

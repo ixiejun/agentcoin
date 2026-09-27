@@ -27,22 +27,46 @@ use crate::service::{FullBackend, FullClient};
 pub const LOG_TARGET: &str = "ac-invariants";
 
 /// Constitution layer 1 at start-up (spec node/invariants "启动时校验创世参数", node/chain-spec
-/// "正式链创世零发行"): builds the chain spec's genesis state and checks it with
-/// [`ac_invariants::check_genesis`] — a valid emission epoch length and an issuance within the
+/// "正式链创世零发行"): reads the chain's genesis state from the client — built from the chain
+/// spec, so no second genesis build is needed — and checks it with
+/// [`ac_invariants::check_genesis`]: a valid emission epoch length and an issuance within the
 /// cap for every chain; for a live chain also zero issuance, no balances and at least one PoA
 /// admin member. Returns the parameters of the per-block checks.
 ///
 /// # Errors
 ///
-/// The genesis cannot be built or breaks a rule; the node must not start.
-pub fn genesis_params(spec: &dyn sc_service::ChainSpec) -> Result<GenesisParams, String> {
-    let storage = spec.as_storage_builder().build_storage()?;
-    let live = spec.chain_type() == sc_chain_spec::ChainType::Live;
+/// The genesis state cannot be read or breaks a rule; the node must not start.
+pub fn genesis_params(client: &FullClient, live: bool) -> Result<GenesisParams, String> {
+    use ac_invariants::keys;
+    use sc_client_api::HeaderBackend;
+    let genesis = client.info().genesis_hash;
+    let read = |key: &[u8]| -> Result<Option<Vec<u8>>, String> {
+        client
+            .storage(genesis, &StorageKey(key.to_vec()))
+            .map(|v| v.map(|v| v.0))
+            .map_err(|e| format!("cannot read the genesis state: {e}"))
+    };
+    let mut entries = Vec::new();
+    for key in [
+        keys::TOTAL_ISSUANCE.as_slice(),
+        keys::EMISSION_EPOCH_LENGTH.as_slice(),
+        keys::POA_COUNCIL_MEMBERS.as_slice(),
+    ] {
+        if let Some(value) = read(key)? {
+            entries.push((key.to_vec(), value));
+        }
+    }
+    let prefix = StorageKey(keys::SYSTEM_ACCOUNT_PREFIX.to_vec());
+    let accounts = client
+        .storage_keys(genesis, Some(&prefix), None)
+        .map_err(|e| format!("cannot read the genesis state: {e}"))?;
+    for key in accounts {
+        if let Some(value) = read(&key.0)? {
+            entries.push((key.0, value));
+        }
+    }
     check_genesis(
-        storage
-            .top
-            .iter()
-            .map(|(k, v)| (k.as_slice(), v.as_slice())),
+        entries.iter().map(|(k, v)| (k.as_slice(), v.as_slice())),
         live,
     )
     .map_err(|e| format!("invalid chain spec genesis: {e}"))
