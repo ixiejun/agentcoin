@@ -5,7 +5,9 @@
 #   (no flag)  run until Ctrl-C; RPC on 127.0.0.1:9944 (alice), :9945 (bob), :9946 (charlie),
 #              :9947 (dave); Prometheus metrics on 127.0.0.1:9615-9618
 #   --check    run for 40 s, then require every node to be at best height >= 20 and finalized
-#              height >= 15, and alice's acbft_finalized_number metric to be above 0; then exit
+#              height >= 15, alice's acbft_finalized_number metric to be above 0, the first
+#              emission epoch to have minted the treasury floor and the PoA council to have
+#              three members; then exit
 # Environment: AC_NODE (node binary, default target/release/ac-node or target/debug/ac-node),
 #              AC_TESTNET_DIR (base directory for databases and logs, default a temp dir).
 # Requirements: bash, curl, python3.
@@ -83,6 +85,25 @@ if $check; then
   metric="$(curl -sf http://127.0.0.1:9615/metrics | awk '/^acbft_finalized_number/ {print $2}')"
   echo "alice acbft_finalized_number $metric"
   [[ "${metric:-0}" -gt 0 ]] || { echo "AC-BFT metrics missing; see logs in $base" >&2; exit 1; }
+  # The emission and multisig observation commands of the root README (m3-economics 9.1):
+  # epoch 0 (20 blocks) settles at block 21, minting the treasury floor; the PoA council has
+  # three members (alice, bob, charlie).
+  for _ in $(seq 30); do
+    [[ "$(height 9944 || echo 0)" -ge 22 ]] && break
+    sleep 1
+  done
+  minted="$(curl -s -H 'Content-Type: application/json' http://127.0.0.1:9944 \
+    -d '{"id":1,"jsonrpc":"2.0","method":"state_call","params":["EmissionApi_total_minted","0x"]}' |
+    python3 -c 'import json,sys; print(int.from_bytes(bytes.fromhex(json.load(sys.stdin)["result"][2:]), "little"))')"
+  floor="$(curl -s -H 'Content-Type: application/json' http://127.0.0.1:9944 \
+    -d '{"id":1,"jsonrpc":"2.0","method":"state_call","params":["TreasuryApi_floor","0x"]}' |
+    python3 -c 'import json,sys; print(int.from_bytes(bytes.fromhex(json.load(sys.stdin)["result"][2+64:]), "little"))')"
+  members="$(curl -s -H 'Content-Type: application/json' http://127.0.0.1:9944 \
+    -d '{"id":1,"jsonrpc":"2.0","method":"state_getStorage","params":["0x0a7e2b603d0e3b9627cde4d35083b551ba7fb8745735dc3be2a2c61a72c39e78"]}' |
+    python3 -c 'import json,sys; print(int(json.load(sys.stdin)["result"][2:4], 16) >> 2)')"
+  echo "emission minted $minted, treasury floor $floor, PoA council members $members"
+  [[ "$minted" -gt 0 && "$floor" == "$minted" ]] || { echo "emission not settled; see logs in $base" >&2; exit 1; }
+  [[ "$members" == 3 ]] || { echo "unexpected PoA council; see logs in $base" >&2; exit 1; }
   echo "local testnet check passed"
 else
   wait

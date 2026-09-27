@@ -16,7 +16,7 @@
 
 文档语言约定：每份项目文档都有英文版（主版本，位于规范路径）和简体中文版（`*.zh-CN.md`），两者在页首互相链接。
 
-状态：M0（工作区、CI 与抗量子密码库 `ac-crypto`，[crates/ac-crypto](crates/ac-crypto/README.zh-CN.md)）和 M1（抗量子链，[node](node/README.zh-CN.md)）已完成；M2（AC-BFT 终局性、双签证据、commit–reveal 随机数）已完成。规范见 `openspec/specs/`。
+状态：M0（工作区、CI 与抗量子密码库 `ac-crypto`，[crates/ac-crypto](crates/ac-crypto/README.zh-CN.md)）和 M1（抗量子链，[node](node/README.zh-CN.md)）已完成；M2（AC-BFT 终局性、双签证据、commit–reveal 随机数）已完成；M3 经济部分（计划排放、双国库、80/20 手续费分配、PoA 多签、节点执行的供应量不变量）已实现，PoS 随后进行。规范见 `openspec/specs/`。
 
 ## 本地开发
 
@@ -27,14 +27,16 @@
 cargo fmt --all -- --check
 SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
-for c in ac-crypto ac-primitives pallet-pq-accounts pallet-aura-pq \
-  pallet-validator-set pallet-ac-offences pallet-randomness-cr; do
+for c in ac-crypto ac-primitives ac-invariants pallet-pq-accounts pallet-aura-pq \
+  pallet-validator-set pallet-ac-offences pallet-randomness-cr pallet-emission \
+  pallet-treasury-dual pallet-poa-admin; do
   cargo build -p $c --no-default-features --target wasm32-unknown-unknown
 done
 cargo install --locked cargo-deny cargo-audit   # 仅需一次
 cargo deny check
 cargo audit
 scripts/check-license-boundary.sh
+scripts/check-overmint-flag.sh
 scripts/sync-audit-exceptions.py
 scripts/fetch-test-vectors.sh && git diff --exit-code -- crates/ac-crypto/tests/vectors
 
@@ -44,6 +46,15 @@ target/debug/ac-node --dev --tmp
 scripts/run-local-testnet.sh --check
 AC_E2E=1 cargo test -p ac-e2e -- --test-threads 1
 scripts/wallet-smoke.sh
+# 观察运行中本地测试网的排放与 PoA 多签（run-local-testnet.sh --check 会执行这些检查）：
+# 纪元 0 在第 21 块结算，铸造国库保底。
+curl -s -H 'Content-Type: application/json' http://127.0.0.1:9944 \
+  -d '{"id":1,"jsonrpc":"2.0","method":"state_call","params":["EmissionApi_total_minted","0x"]}'
+curl -s -H 'Content-Type: application/json' http://127.0.0.1:9944 \
+  -d '{"id":1,"jsonrpc":"2.0","method":"state_call","params":["TreasuryApi_floor","0x"]}'
+# PoaCouncil::Members（固定存储键）：管理成员账户的 SCALE 列表
+curl -s -H 'Content-Type: application/json' http://127.0.0.1:9944 \
+  -d '{"id":1,"jsonrpc":"2.0","method":"state_getStorage","params":["0x0a7e2b603d0e3b9627cde4d35083b551ba7fb8745735dc3be2a2c61a72c39e78"]}'
 # 4、7、10 个本地验证人的终局性延迟（release 构建，至少 4 核）
 scripts/measure-finality.sh
 ```

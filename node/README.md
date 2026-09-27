@@ -2,7 +2,7 @@
 
 # ac-node
 
-The AgentCoin node client (M2: post-quantum chain with finality).
+The AgentCoin node client (M3: post-quantum chain with finality and scheduled emission).
 
 - **Block production**: Aura-PQ (`ac-consensus-aura-pq`): ML-DSA-65 block seals, 1 s slots,
   authorities from the validator-set pallet, which changes them only at epoch boundaries.
@@ -20,8 +20,19 @@ The AgentCoin node client (M2: post-quantum chain with finality).
   randomness is published at the start of epoch `e + 2`. Secrets derive from the validator key
   and never appear in logs.
 - **Hashing**: blocks and state are hashed with BLAKE3-256.
-- **Constitution layer 1**: a `Live` chain spec whose genesis allocates any ATC is refused at
-  start-up (no premine, D9). A chain without Aura-PQ authorities is refused as well.
+- **Constitution layer 1** (`ac-invariants`, enforced here, independently of the runtime):
+  - at start-up the chain spec's genesis must set a valid emission epoch length and keep the
+    issuance within 21,000,000 ATC; a `Live` spec must also allocate no ATC (no premine, D9)
+    and name at least one PoA admin member. A chain without Aura-PQ authorities is refused too;
+  - every block — authored here, received or synced — goes through `InvariantBlockImport`
+    before the client: the issuance stays within the cap, only emission-settlement blocks mint,
+    at most twice the settled epoch's scheduled amount, and minting since genesis never exceeds
+    the cumulative schedule. Minting is measured as Δ(`Balances::TotalIssuance` +
+    `Emission::TotalBurned`), both published well-known keys. A violating block is rejected
+    (our own is neither imported nor announced) and the log names the rule and the values.
+    This holds after any runtime upgrade;
+  - fail-closed: a missing or undecodable well-known value rejects the block, and blocks are
+    never imported without executing them, so warp and fast sync are not supported.
 - **Keys**: the validator key comes from an encrypted file (`--pq-key-file` +
   `--pq-password-file`) or, on development and local chains only, from a public development
   name (`--dev-key alice`; `--dev` implies alice). Development keys are refused on live chains,
@@ -39,8 +50,9 @@ target/release/ac-node --dev --tmp
 # Four-node local testnet (alice, bob, charlie, dave); RPC on 127.0.0.1:9944-9947,
 # Prometheus metrics on 127.0.0.1:9615-9618.
 scripts/run-local-testnet.sh
-# Same, but check after 40 s that every node reached height 20 and finalized height 15, and
-# that alice exports acbft_finalized_number; then stop.
+# Same, but check after 40 s that every node reached height 20 and finalized height 15, that
+# alice exports acbft_finalized_number, that emission epoch 0 minted the treasury floor and that
+# the PoA council has three members; then stop.
 scripts/run-local-testnet.sh --check
 
 # AC-BFT metrics of alice.

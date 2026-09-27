@@ -292,6 +292,11 @@ fn inherent_providers(
 ///
 /// Fails if the database or the runtime executor cannot be set up.
 pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
+    // Constitution layer 1, before any database is touched: the chain spec's genesis must pass
+    // the start-up checks, and its parameters drive the per-block invariant checks of every
+    // block, authored here or imported.
+    let genesis = crate::invariants::genesis_params(config.chain_spec.as_ref())
+        .map_err(sc_service::Error::Other)?;
     let telemetry = config
         .telemetry_endpoints
         .clone()
@@ -334,10 +339,6 @@ pub fn new_partial(config: &Configuration) -> Result<Service, ServiceError> {
     );
 
     let tracker: SharedTracker = Arc::new(Mutex::new(load_tracker(&client)?));
-    // Constitution layer 1: every block, authored here or imported, passes the invariant
-    // checks against the genesis parameters of the chain spec.
-    let genesis = crate::invariants::genesis_params(config.chain_spec.as_ref())
-        .map_err(sc_service::Error::Other)?;
     let invariants = InvariantBlockImport::new(client.clone(), backend.clone(), genesis);
     let block_import = AcBftBlockImport::new(invariants, client.clone(), tracker.clone());
     let reporter = Arc::new(PoolReporter {

@@ -10,7 +10,7 @@ use ac_primitives::aura_pq::AUTHORITY_ALG;
 use crate::{
     chain_spec,
     cli::{Cli, PqKeyCmd, Subcommand},
-    invariants, keys, service,
+    keys, service,
 };
 
 /// Runs `pq-key` subcommands.
@@ -58,11 +58,6 @@ fn pq_key(cmd: &PqKeyCmd) -> Result<(), String> {
 
 fn hex_encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// Constitution layer 1 at start-up, before anything else happens (spec node/invariants).
-fn check_genesis(spec: &dyn sc_service::ChainSpec) -> Result<(), String> {
-    invariants::genesis_params(spec).map(|_| ())
 }
 
 impl SubstrateCli for Cli {
@@ -182,7 +177,6 @@ pub fn run() -> sc_cli::Result<()> {
             let dev_flag = cli.run.shared_params.is_dev();
             let key_args = cli.pq.clone();
             runner.run_node_until_exit(|config| async move {
-                check_genesis(config.chain_spec.as_ref()).map_err(sc_cli::Error::Input)?;
                 let key = keys::resolve(&key_args, &config.chain_spec.chain_type(), dev_flag)
                     .map_err(sc_cli::Error::Input)?;
                 match config.network.network_backend {
