@@ -25,6 +25,18 @@ fn live_spec(authority: &str) -> serde_json::Value {
     spec["id"] = "agentcoin_live_test".into();
     patch(&mut spec)["balances"]["balances"] = serde_json::json!([]);
     patch(&mut spec)["auraPq"]["authorities"] = serde_json::json!([authority]);
+    // Live chains must use the constitution's switch values (node/invariants), and K ≥ 21
+    // needs epochs of at least 42 blocks.
+    patch(&mut spec)["validatorSet"] = serde_json::json!({
+        "epochLength": 60,
+        "validatorCount": 21,
+        "transition": {
+            "stakeBps": 1_000,
+            "minCandidates": 21,
+            "minHeight": 63_115_200u64,
+            "sustainBlocks": 604_800,
+        },
+    });
     spec
 }
 
@@ -242,4 +254,27 @@ fn live_chain_without_admin_members_is_refused() {
     let (ok, output) = run_to_exit(&["--chain", path.to_str().unwrap()], START);
     assert!(!ok);
     assert!(output.contains("PoA admin member"), "{output}");
+}
+
+// node/invariants Scenario "正式链降低门槛": a live chain spec whose switch parameters differ
+// from the constitution values is refused at start-up.
+#[test]
+fn live_chain_with_lowered_switch_parameters_is_refused() {
+    let mut spec = export_spec("dev");
+    spec["chainType"] = "Live".into();
+    patch(&mut spec)["balances"]["balances"] = serde_json::json!([]);
+    patch(&mut spec)["validatorSet"] = serde_json::json!({
+        "epochLength": 60,
+        "validatorCount": 21,
+        "transition": {
+            "stakeBps": 1_000,
+            "minCandidates": 21,
+            "minHeight": 1_000,
+            "sustainBlocks": 604_800,
+        },
+    });
+    let path = write_spec(&spec, "live-lowered-switch");
+    let (ok, output) = run_to_exit(&["--chain", path.to_str().unwrap()], START);
+    assert!(!ok);
+    assert!(output.contains("constitution values"), "{output}");
 }

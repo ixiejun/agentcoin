@@ -2,9 +2,11 @@
 //! and node/chain-spec "正式链创世零发行"). Moved here from the M1 node's `genesis_guard`.
 
 use ac_primitives::emission::{CAP, EmissionError, EmissionSchedule};
+use ac_primitives::staking::TransitionParams;
 use parity_scale_codec::{Decode, Input};
 
 use crate::keys;
+use crate::transition::TransitionGenesis;
 
 /// Parameters fixed at genesis that the per-block checks need.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -13,6 +15,8 @@ pub struct GenesisParams {
     pub schedule: EmissionSchedule,
     /// Total issuance at genesis (non-zero only on development chains).
     pub genesis_issuance: u128,
+    /// PoA → PoS switch parameters and the validator epoch length.
+    pub transition: TransitionGenesis,
 }
 
 /// Why a genesis is rejected.
@@ -31,6 +35,12 @@ pub enum GenesisError {
     InvalidEpochLength(u64),
     /// A live chain has no PoA admin members.
     NoAdminMembers,
+    /// The switch parameters are missing.
+    MissingTransitionParams,
+    /// A live chain's switch parameters differ from the constitution values.
+    TransitionParamsNotConstitution(TransitionParams),
+    /// The validator epoch length is missing or zero.
+    MissingValidatorEpochLength,
     /// A well-known value does not decode.
     Malformed(&'static str),
 }
@@ -55,6 +65,17 @@ impl core::fmt::Display for GenesisError {
                 write!(f, "{}", EmissionError::InvalidEpochLength(*l))
             }
             Self::NoAdminMembers => f.write_str("a live chain needs at least one PoA admin member"),
+            Self::MissingTransitionParams => f.write_str(
+                "the chain spec sets no PoA -> PoS switch parameters (ValidatorSet::TransitionParams)",
+            ),
+            Self::TransitionParamsNotConstitution(p) => write!(
+                f,
+                "live chain switch parameters are not the constitution values (10%, 21 \
+                 candidates, 63,115,200 and 604,800 blocks): {p:?}"
+            ),
+            Self::MissingValidatorEpochLength => f.write_str(
+                "the chain spec sets no validator epoch length (ValidatorSet::EpochLength)",
+            ),
             Self::Malformed(what) => write!(f, "malformed genesis value: {what}"),
         }
     }
@@ -106,11 +127,20 @@ pub fn check_genesis<'a>(
     let mut epoch_length = None;
     let mut members = 0usize;
     let mut endowed = false;
+    let mut transition = None;
+    let mut validator_epoch = 0u64;
     for (key, value) in entries {
         if key == keys::TOTAL_ISSUANCE.as_slice() {
             issuance = decode(value, "Balances::TotalIssuance")?;
         } else if key == keys::EMISSION_EPOCH_LENGTH.as_slice() {
             epoch_length = Some(decode::<u64>(value, "Emission::EpochLength")?);
+        } else if key == keys::TRANSITION_PARAMS.as_slice() {
+            transition = Some(decode::<TransitionParams>(
+                value,
+                "ValidatorSet::TransitionParams",
+            )?);
+        } else if key == keys::VALIDATOR_EPOCH_LENGTH.as_slice() {
+            validator_epoch = decode::<u64>(value, "ValidatorSet::EpochLength")?;
         } else if key == keys::POA_COUNCIL_MEMBERS.as_slice() {
             members = decode::<alloc::vec::Vec<[u8; 32]>>(value, "PoaCouncil::Members")?.len();
         } else if key.starts_with(&keys::SYSTEM_ACCOUNT_PREFIX) {
@@ -135,9 +165,20 @@ pub fn check_genesis<'a>(
     if live && members == 0 {
         return Err(GenesisError::NoAdminMembers);
     }
+    let params = transition.ok_or(GenesisError::MissingTransitionParams)?;
+    if live && params != TransitionParams::CONSTITUTION {
+        return Err(GenesisError::TransitionParamsNotConstitution(params));
+    }
+    if validator_epoch == 0 {
+        return Err(GenesisError::MissingValidatorEpochLength);
+    }
     Ok(GenesisParams {
         schedule,
         genesis_issuance: issuance,
+        transition: TransitionGenesis {
+            params,
+            epoch_length: validator_epoch,
+        },
     })
 }
 
@@ -170,7 +211,64 @@ mod tests {
             keys::POA_COUNCIL_MEMBERS.to_vec(),
             vec![[1u8; 32]; members].encode(),
         ));
+        s.push((
+            keys::TRANSITION_PARAMS.to_vec(),
+            TransitionParams::CONSTITUTION.encode(),
+        ));
+        s.push((keys::VALIDATOR_EPOCH_LENGTH.to_vec(), 600u64.encode()));
         s
+    }
+
+    fn with_params(
+        mut s: Vec<(Vec<u8>, Vec<u8>)>,
+        params: TransitionParams,
+    ) -> Vec<(Vec<u8>, Vec<u8>)> {
+        for (k, v) in &mut s {
+            if k.as_slice() == keys::TRANSITION_PARAMS.as_slice() {
+                *v = params.encode();
+            }
+        }
+        s
+    }
+
+    // node/invariants Scenario "正式链降低门槛": live chains must use the constitution values.
+    #[test]
+    fn live_switch_parameters_are_the_constitution() {
+        let lowered = TransitionParams {
+            min_height: 1_000,
+            ..TransitionParams::CONSTITUTION
+        };
+        let s = with_params(state(0, Some(3_600), 3), lowered);
+        let err = check(&s, true).unwrap_err();
+        assert_eq!(err, GenesisError::TransitionParamsNotConstitution(lowered));
+        assert!(err.to_string().contains("constitution values"));
+        // Development chains may switch sooner.
+        let params = check(&s, false).unwrap();
+        assert_eq!(params.transition.params, lowered);
+        assert_eq!(params.transition.epoch_length, 600);
+        // The constitution values pass on a live chain.
+        let ok = check(&state(0, Some(3_600), 3), true).unwrap();
+        assert_eq!(ok.transition.params, TransitionParams::CONSTITUTION);
+    }
+
+    #[test]
+    fn switch_parameters_are_required() {
+        let s: Vec<_> = state(0, Some(3_600), 3)
+            .into_iter()
+            .filter(|(k, _)| k.as_slice() != keys::TRANSITION_PARAMS.as_slice())
+            .collect();
+        assert_eq!(
+            check(&s, false).unwrap_err(),
+            GenesisError::MissingTransitionParams
+        );
+        let s: Vec<_> = state(0, Some(3_600), 3)
+            .into_iter()
+            .filter(|(k, _)| k.as_slice() != keys::VALIDATOR_EPOCH_LENGTH.as_slice())
+            .collect();
+        assert_eq!(
+            check(&s, false).unwrap_err(),
+            GenesisError::MissingValidatorEpochLength
+        );
     }
 
     fn check(s: &[(Vec<u8>, Vec<u8>)], live: bool) -> Result<GenesisParams, GenesisError> {

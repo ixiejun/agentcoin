@@ -55,6 +55,27 @@ pub enum Violation {
         /// Cumulative scheduled amount of the epochs settled so far.
         limit: u128,
     },
+    /// A block switched to PoS before the conditions held for the sustain period, or outside
+    /// a PoA epoch boundary.
+    SwitchEarly,
+    /// A PoA epoch boundary at which the conditions had held for the sustain period did not
+    /// switch to PoS.
+    SwitchDelayed,
+    /// A block went back from PoS to PoA.
+    SwitchReverted,
+    /// The PoA roster is not empty in PoS.
+    PoaAuthoritiesInPos {
+        /// Keys in the roster.
+        count: u32,
+    },
+    /// `ValidatorSet::QualifiedSince` differs from what the checkpoint gives (or changed
+    /// outside a checkpoint).
+    QualifiedSinceMismatch {
+        /// Value the node computed.
+        expected: Option<u64>,
+        /// Value the block wrote.
+        found: Option<u64>,
+    },
     /// A well-known key is missing (fail-closed).
     MissingKey(&'static str),
     /// A well-known value does not decode (fail-closed).
@@ -70,6 +91,11 @@ impl Violation {
             Self::MintOutsideSettlement { .. }
             | Self::EpochMint { .. }
             | Self::CumulativeMint { .. } => "minting bounded by the emission curve",
+            Self::SwitchEarly
+            | Self::SwitchDelayed
+            | Self::SwitchReverted
+            | Self::PoaAuthoritiesInPos { .. }
+            | Self::QualifiedSinceMismatch { .. } => "PoA → PoS transition",
             Self::MissingKey(_) | Self::Malformed(_) => "well-known storage keys",
         }
     }
@@ -97,6 +123,21 @@ impl core::fmt::Display for Violation {
                     "minted {minted} since genesis, cumulative schedule {limit}"
                 )
             }
+            Self::SwitchEarly => f.write_str(
+                "switched to PoS before the conditions held for the sustain period, or outside \
+                 an epoch boundary",
+            ),
+            Self::SwitchDelayed => f.write_str(
+                "the conditions held for the sustain period but the boundary did not switch to PoS",
+            ),
+            Self::SwitchReverted => f.write_str("went back from PoS to PoA"),
+            Self::PoaAuthoritiesInPos { count } => {
+                write!(f, "{count} PoA authorities remain after the switch to PoS")
+            }
+            Self::QualifiedSinceMismatch { expected, found } => write!(
+                f,
+                "start of the qualified run is {found:?}, the checkpoint gives {expected:?}"
+            ),
             Self::MissingKey(what) => write!(f, "{what} is missing"),
             Self::Malformed(what) => write!(f, "{what} does not decode"),
         }
@@ -195,6 +236,10 @@ mod tests {
         GenesisParams {
             schedule: EmissionSchedule::new(L).unwrap(),
             genesis_issuance,
+            transition: crate::TransitionGenesis {
+                params: ac_primitives::staking::TransitionParams::CONSTITUTION,
+                epoch_length: L,
+            },
         }
     }
 

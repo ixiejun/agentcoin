@@ -197,7 +197,7 @@ async fn overminting_upgrade_is_rejected() {
             .request("state_getRuntimeVersion", rpc_params![])
             .await
             .unwrap();
-        if version["specVersion"] == 3 {
+        if version["specVersion"] == 4 {
             break;
         }
         assert!(std::time::Instant::now() < deadline, "upgrade not applied");
@@ -228,4 +228,148 @@ async fn overminting_upgrade_is_rejected() {
         "rejection of #{settlement} not logged"
     );
     assert!(text.contains("minting bounded by the emission curve"));
+}
+
+/// Reads a storage value of the best block through RPC.
+async fn storage(node: &common::Node, key: &[u8]) -> Option<Vec<u8>> {
+    let value: Option<String> = node
+        .rpc
+        .request(
+            "state_getStorage",
+            rpc_params![format!("0x{}", hex::encode(key))],
+        )
+        .await
+        .unwrap();
+    value.map(|v| common::unhex(&v))
+}
+
+// m3-pos task 7.3, node/invariants Scenario "正常切换": alice registers her authority key as a
+// candidate with 12% of the issuance. The dev chain (one candidate, conditions from block 20,
+// held for 20 blocks) switches to PoS at an epoch boundary; the node accepts every block
+// through its independent check, and the chain keeps producing and finalizing blocks.
+#[tokio::test(flavor = "multi_thread")]
+async fn dev_chain_switches_to_pos() {
+    use ac_invariants::keys;
+
+    let dir = temp_dir("switch-to-pos");
+    let log = dir.join("node.log");
+    let node = start_node_with(
+        &["--dev"],
+        &NodeOpts {
+            log: Some(&log),
+            ..NodeOpts::default()
+        },
+    );
+    wait_for_height(&node, 1, START).await;
+    let client = ac_wallet::NodeClient::new(&node.rpc_url).unwrap();
+    assert!(
+        register_alice(&client, 600_000 * ac_runtime::ATC).await,
+        "registration failed"
+    );
+
+    let deadline = std::time::Instant::now() + START;
+    loop {
+        if storage(&node, &keys::PHASE).await == Some(vec![1]) {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "no switch to PoS");
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    assert_eq!(storage(&node, &keys::POA_AUTHORITIES).await, Some(vec![0]));
+    let switched = common::heights(&node).await.unwrap().0;
+    wait_for_height(&node, switched + 15, START).await;
+    wait_for_finalized(&node, switched + 10, START).await;
+    drop(node);
+    let text = std::fs::read_to_string(&log).unwrap();
+    assert!(!text.contains("rejecting block"), "a block was rejected");
+    assert!(!text.contains("constitution invariant violated"));
+}
+
+/// Signs alice's registration of her authority key as a candidate with `value`.
+async fn register_alice(client: &ac_wallet::NodeClient, value: u128) -> bool {
+    use ac_crypto::SigAlg;
+    use ac_crypto::sig::SigningKey;
+    use ac_primitives::staking::{VALIDATOR_POP_CONTEXT, pop_statement};
+    let context = client.chain_context().await.unwrap();
+    let alice = pallet_pq_accounts::derived_account(
+        &SigningKey::from_seed(SigAlg::MlDsa44, &ac_crypto::dev_seed("alice").unwrap())
+            .unwrap()
+            .public_key()
+            .unwrap(),
+    );
+    let authority =
+        SigningKey::from_seed(SigAlg::MlDsa65, &ac_crypto::dev_seed("alice").unwrap()).unwrap();
+    let key = authority.public_key().unwrap();
+    let proof = authority
+        .sign_deterministic(
+            &pop_statement(&context.genesis_hash, &alice, &key),
+            VALIDATOR_POP_CONTEXT,
+        )
+        .unwrap();
+    let register =
+        ac_runtime::RuntimeCall::StakingPos(pallet_staking_pos::Call::register_candidate {
+            key,
+            proof,
+            value,
+            commission_bps: 1_000,
+        });
+    submit_as_alice(client, register).await
+}
+
+// m3-pos task 9.2, node/invariants Scenario "提前切换被拒绝": the dev administration upgrades the
+// runtime to a build whose checkpoints ignore the minimum height and the sustain period, and
+// alice stakes enough to qualify. The faulty runtime switches to PoS at the next checkpoint;
+// the node refuses that block, and the log names the rule.
+#[tokio::test(flavor = "multi_thread")]
+async fn early_switch_upgrade_is_rejected() {
+    use ac_runtime::RuntimeCall;
+    use parity_scale_codec::Encode;
+
+    let dir = temp_dir("early-switch-upgrade");
+    let log = dir.join("node.log");
+    let node = start_node_with(
+        &["--dev"],
+        &NodeOpts {
+            log: Some(&log),
+            ..NodeOpts::default()
+        },
+    );
+    wait_for_height(&node, 1, START).await;
+    let client = ac_wallet::NodeClient::new(&node.rpc_url).unwrap();
+
+    let code = ac_early_switch_runtime::WASM_BINARY.unwrap().to_vec();
+    let upgrade = RuntimeCall::PoaAdmin(pallet_poa_admin::Call::dispatch_as_root {
+        call: Box::new(RuntimeCall::System(frame_system::Call::set_code { code })),
+    });
+    let length_bound = u32::try_from(upgrade.encoded_size()).unwrap();
+    let propose = RuntimeCall::PoaCouncil(pallet_collective::Call::propose {
+        threshold: 1,
+        proposal: Box::new(upgrade),
+        length_bound,
+    });
+    assert!(
+        submit_as_alice(&client, propose).await,
+        "upgrade motion failed"
+    );
+    assert!(
+        register_alice(&client, 600_000 * ac_runtime::ATC).await,
+        "registration failed"
+    );
+
+    assert!(
+        common::wait_for_log(&log, "rejecting block", START).await,
+        "no block was rejected"
+    );
+    drop(node);
+    let text = std::fs::read_to_string(&log).unwrap();
+    assert!(text.contains("PoA → PoS transition"), "rule not named");
+    // The rejected block is an epoch boundary (10-block epochs) before the switch is due.
+    let rejected: u64 = text
+        .split("rejecting block #")
+        .nth(1)
+        .and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next())
+        .and_then(|n| n.parse().ok())
+        .unwrap();
+    assert_eq!(rejected % 10, 1, "rejected block #{rejected}");
+    assert!(rejected < 41, "rejected block #{rejected}");
 }

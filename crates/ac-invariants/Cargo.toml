@@ -13,6 +13,7 @@ ac-primitives = { workspace = true }
 parity-scale-codec = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
+ac-crypto = { workspace = true, features = ["std", "scale", "deterministic"] }
 ac-primitives = { workspace = true, features = ["std"] }
 proptest = { workspace = true, features = ["std"] }
 sp-io = { workspace = true, features = ["std"] }

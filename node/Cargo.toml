@@ -62,11 +62,14 @@ substrate-build-script-utils = { workspace = true }
 ac-wallet = { workspace = true }
 # Test only: the over-minting runtime the node must reject (m3-economics 8.2).
 ac-overmint-runtime = { workspace = true, features = ["std"] }
+# Test only: the early-switch runtime the node must reject (m3-pos 9.2).
+ac-early-switch-runtime = { workspace = true, features = ["std"] }
 pallet-collective = { workspace = true, features = ["std"] }
 pallet-poa-admin = { workspace = true, features = ["std"] }
 pallet-pq-accounts = { workspace = true, features = ["std"] }
+pallet-staking-pos = { workspace = true, features = ["std"] }
 frame-support = { workspace = true, features = ["std"] }
-ac-crypto = { workspace = true, features = ["std", "keystore"] }
+ac-crypto = { workspace = true, features = ["std", "keystore", "deterministic"] }
 # Independent reference implementation for the hash recomputation tests.
 blake3 = { workspace = true, features = ["std"] }
 hash-db = { workspace = true, features = ["std"] }

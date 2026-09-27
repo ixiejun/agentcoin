@@ -5,12 +5,17 @@
 //! block's storage changes (given by the proposer for our own blocks; for other blocks it
 //! executes the block on the parent state itself, exactly as the client would, and hands the
 //! result on so the block is not executed twice), reads the well-known issuance and burned
-//! values before and after, and runs [`ac_invariants::check_block`]. A violation rejects the
-//! block: it is neither imported nor, for our own blocks, announced.
+//! values before and after, and runs [`ac_invariants::check_block`]. It also reads the PoA → PoS
+//! switch state before and after and runs [`ac_invariants::check_transition`], which at PoA
+//! epoch boundaries recomputes the switch checkpoint from the parent state's stake ledger. A
+//! violation rejects the block: it is neither imported nor, for our own blocks, announced.
 
 use std::sync::Arc;
 
-use ac_invariants::{GenesisParams, Ledger, Violation, check_block, check_genesis, read_ledger};
+use ac_invariants::{
+    GenesisParams, Ledger, StakeSnapshot, SwitchState, Violation, check_block, check_genesis,
+    check_transition, keys, read_ledger, read_switch_state, stake_snapshot,
+};
 use ac_runtime::opaque::Block;
 use sc_client_api::{Backend as _, StorageProvider};
 use sc_consensus::{
@@ -37,7 +42,6 @@ pub const LOG_TARGET: &str = "ac-invariants";
 ///
 /// The genesis state cannot be read or breaks a rule; the node must not start.
 pub fn genesis_params(client: &FullClient, live: bool) -> Result<GenesisParams, String> {
-    use ac_invariants::keys;
     use sc_client_api::HeaderBackend;
     let genesis = client.info().genesis_hash;
     let read = |key: &[u8]| -> Result<Option<Vec<u8>>, String> {
@@ -51,6 +55,8 @@ pub fn genesis_params(client: &FullClient, live: bool) -> Result<GenesisParams, 
         keys::TOTAL_ISSUANCE.as_slice(),
         keys::EMISSION_EPOCH_LENGTH.as_slice(),
         keys::POA_COUNCIL_MEMBERS.as_slice(),
+        keys::TRANSITION_PARAMS.as_slice(),
+        keys::VALIDATOR_EPOCH_LENGTH.as_slice(),
     ] {
         if let Some(value) = read(key)? {
             entries.push((key.to_vec(), value));
@@ -73,6 +79,9 @@ pub fn genesis_params(client: &FullClient, live: bool) -> Result<GenesisParams, 
 }
 
 type Hash = <Block as BlockT>::Hash;
+
+/// A storage entry: key suffix (account) and value.
+type Entry = (Vec<u8>, Vec<u8>);
 
 /// Block import that enforces the node invariants before handing blocks to the client.
 #[derive(Clone)]
@@ -121,37 +130,57 @@ impl InvariantBlockImport {
         Ok(changes)
     }
 
-    fn parent_ledger(&self, parent: Hash) -> Result<Ledger, Violation> {
-        read_ledger(|key| {
-            self.client
-                .storage(parent, &StorageKey(key.to_vec()))
-                .ok()
-                .flatten()
-                .map(|v| v.0)
-        })
+    /// A value of the parent state.
+    fn parent_value(&self, parent: Hash, key: &[u8]) -> Option<Vec<u8>> {
+        self.client
+            .storage(parent, &StorageKey(key.to_vec()))
+            .ok()
+            .flatten()
+            .map(|v| v.0)
     }
 
-    fn post_ledger(
+    /// A value of the block's state: its own change if it wrote the key, else the parent's.
+    fn post_value(
         &self,
         parent: Hash,
         changes: &sp_api::StorageChanges<Block>,
-    ) -> Result<Ledger, Violation> {
-        read_ledger(|key| {
-            match changes
-                .main_storage_changes
-                .iter()
-                .rev()
-                .find(|(k, _)| k.as_slice() == key)
-            {
-                Some((_, value)) => value.clone(),
-                None => self
-                    .client
-                    .storage(parent, &StorageKey(key.to_vec()))
-                    .ok()
-                    .flatten()
-                    .map(|v| v.0),
-            }
-        })
+        key: &[u8],
+    ) -> Option<Vec<u8>> {
+        match changes
+            .main_storage_changes
+            .iter()
+            .rev()
+            .find(|(k, _)| k.as_slice() == key)
+        {
+            Some((_, value)) => value.clone(),
+            None => self.parent_value(parent, key),
+        }
+    }
+
+    /// The `(account, value)` entries of an `Identity`-hashed map in the parent state.
+    fn parent_map(&self, parent: Hash, prefix: &[u8]) -> Result<Vec<Entry>, Violation> {
+        let pairs = self
+            .client
+            .storage_pairs(parent, Some(&StorageKey(prefix.to_vec())), None)
+            .map_err(|_| Violation::MissingKey("stake ledger of the parent state"))?;
+        Ok(pairs
+            .filter_map(|(key, value)| {
+                key.0
+                    .strip_prefix(prefix)
+                    .map(|suffix| (suffix.to_vec(), value.0))
+            })
+            .collect())
+    }
+
+    /// The parent state's stake snapshot for a PoA checkpoint.
+    fn parent_stake(&self, parent: Hash, issuance: u128) -> Result<StakeSnapshot, Violation> {
+        let ledgers = self.parent_map(parent, &keys::STAKING_LEDGER_PREFIX)?;
+        let candidates = self.parent_map(parent, &keys::STAKING_CANDIDATES_PREFIX)?;
+        stake_snapshot(
+            issuance,
+            ledgers.iter().map(|(k, v)| (k.as_slice(), v.as_slice())),
+            candidates.iter().map(|(k, v)| (k.as_slice(), v.as_slice())),
+        )
     }
 
     fn check(
@@ -161,9 +190,18 @@ impl InvariantBlockImport {
         parent: Hash,
         changes: &sp_api::StorageChanges<Block>,
     ) -> Result<(), Violation> {
-        let pre = self.parent_ledger(parent)?;
-        let post = self.post_ledger(parent, changes)?;
-        check_block(params, u64::from(number), pre, post)
+        let pre: Ledger = read_ledger(|key| self.parent_value(parent, key))?;
+        let post = read_ledger(|key| self.post_value(parent, changes, key))?;
+        check_block(params, u64::from(number), pre, post)?;
+        let pre_switch: SwitchState = read_switch_state(|key| self.parent_value(parent, key))?;
+        let post_switch = read_switch_state(|key| self.post_value(parent, changes, key))?;
+        check_transition(
+            &params.transition,
+            u64::from(number),
+            &pre_switch,
+            &post_switch,
+            || self.parent_stake(parent, pre.issuance),
+        )
     }
 }
 
