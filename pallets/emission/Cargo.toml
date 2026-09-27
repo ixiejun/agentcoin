@@ -1,0 +1,70 @@
+[package]
+name = "pallet-emission"
+description = "AgentCoin scheduled emission: epoch settlement, rollover reserve, treasury share and the burned-amount ledger"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+ac-primitives = { workspace = true }
+frame-benchmarking = { workspace = true, optional = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+log = { workspace = true }
+parity-scale-codec = { workspace = true, features = ["derive", "max-encoded-len"] }
+scale-info = { workspace = true, features = ["derive"] }
+sp-core = { workspace = true }
+sp-runtime = { workspace = true }
+
+[dev-dependencies]
+frame-benchmarking = { workspace = true, features = ["std"] }
+pallet-balances = { workspace = true, features = ["std"] }
+sp-io = { workspace = true, features = ["std"] }
+
+[features]
+default = ["std"]
+std = [
+    "ac-primitives/std",
+    "frame-benchmarking?/std",
+    "frame-support/std",
+    "frame-system/std",
+    "log/std",
+    "parity-scale-codec/std",
+    "scale-info/std",
+    "sp-core/std",
+    "sp-runtime/std",
+]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+]
+# Test-only: settlement mints the scheduled amount again to a fixed account, so that the node
+# invariants can be shown to reject an over-minting runtime (m3-economics 8.1). Never enabled
+# in a real runtime build; CI checks it.
+test-overmint = []
+try-runtime = [
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+    "sp-runtime/try-runtime",
+]
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+dbg_macro = "deny"
+wildcard_imports = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"

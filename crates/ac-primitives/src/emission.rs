@@ -327,6 +327,68 @@ pub fn vested(amount: u128, batch_end: u64, now: u64) -> u128 {
     )
 }
 
+/// Source of verified work for the market and public shares (M5 `pallet-work`, M6
+/// `pallet-public-jobs`). `()` reports no work, as in M3.
+pub trait WorkSource {
+    /// Verified `(market, public)` work of `epoch`, in smallest ATC units.
+    fn verified_work(epoch: EpochIndex) -> (u128, u128);
+}
+
+impl WorkSource for () {
+    fn verified_work(_epoch: EpochIndex) -> (u128, u128) {
+        (0, 0)
+    }
+}
+
+/// Recipients of the security budget. In PoA ([`PoaPhase`]) nothing is paid (D19); `m3-pos`
+/// pays the validator set.
+pub trait SecurityBudget<AccountId> {
+    /// Current validator phase.
+    fn phase() -> Phase;
+    /// How `amount` is paid out: `(account, amount)` pairs summing to at most `amount`; the
+    /// rest rolls over into the reserve.
+    fn recipients(amount: u128) -> alloc::vec::Vec<(AccountId, u128)>;
+}
+
+/// Proof-of-authority phase: no security budget is paid.
+pub struct PoaPhase;
+
+impl<AccountId> SecurityBudget<AccountId> for PoaPhase {
+    fn phase() -> Phase {
+        Phase::Poa
+    }
+
+    fn recipients(_amount: u128) -> alloc::vec::Vec<(AccountId, u128)> {
+        alloc::vec::Vec::new()
+    }
+}
+
+/// Where the treasury part of an epoch goes (`pallet-treasury-dual`).
+pub trait TreasuryDeposit<AccountId> {
+    /// Accounts and amounts receiving the proportional share and the floor top-up; called once
+    /// per settlement, so an implementation may record the floor batch here. The amounts sum to
+    /// `proportional + floor_topup`.
+    fn recipients(proportional: u128, floor_topup: u128) -> [(AccountId, u128); 3];
+}
+
+sp_api::decl_runtime_apis! {
+    /// Emission queries (spec economics/emission "排放结果可复算与查询").
+    pub trait EmissionApi {
+        /// Emission epoch length in blocks.
+        fn epoch_length() -> u64;
+        /// Emission epoch of the next block.
+        fn current_epoch() -> EpochIndex;
+        /// Scheduled amount of `epoch`.
+        fn scheduled(epoch: EpochIndex) -> u128;
+        /// Rollover reserve.
+        fn reserve() -> u128;
+        /// Total minted by emission since genesis.
+        fn total_minted() -> u128;
+        /// Total burned since genesis.
+        fn total_burned() -> u128;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::arithmetic_side_effects, clippy::unwrap_used)]
