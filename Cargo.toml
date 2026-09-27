@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["clients/wallet-cli", "tests/e2e", "tests/sim", "crates/ac-crypto", "crates/ac-primitives", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "runtime"]
+members = ["clients/wallet-cli", "tests/e2e", "tests/sim", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "runtime"]
 
 [workspace.package]
 version = "0.1.0"
@@ -91,6 +91,7 @@ bech32 = { version = "0.12", default-features = false, features = ["alloc"] }
 # Workspace crates
 ac-crypto = { path = "crates/ac-crypto", version = "0.1", default-features = false }
 ac-primitives = { path = "crates/ac-primitives", version = "0.1", default-features = false }
+ac-invariants = { path = "crates/ac-invariants", version = "0.1", default-features = false }
 ac-wallet = { path = "clients/wallet-cli", version = "0.1", default-features = false }
 ac-runtime = { path = "runtime", version = "0.1", default-features = false }
 ac-consensus-aura-pq = { path = "node/consensus/aura-pq", version = "0.1", default-features = false }

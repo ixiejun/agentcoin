@@ -150,6 +150,16 @@ impl EmissionSchedule {
         )
     }
 
+    /// Number of epochs settled up to and including block `number`: `⌊(number − 1) / L⌋`
+    /// (0 for genesis).
+    #[must_use]
+    pub fn settled_epochs(&self, number: u64) -> u64 {
+        number
+            .saturating_sub(1)
+            .checked_div(self.length)
+            .unwrap_or(0)
+    }
+
     /// The epoch settled in block `number`, if it is a settlement block: block
     /// `(e + 1) × L + 1` settles epoch `e`.
     #[must_use]
@@ -380,6 +390,10 @@ mod tests {
         assert_eq!(s.settled_epoch(11), Some(0));
         assert_eq!(s.settled_epoch(12), None);
         assert_eq!(s.settled_epoch(21), Some(1));
+        assert_eq!(
+            [0, 1, 10, 11, 20, 21].map(|n| s.settled_epochs(n)),
+            [0, 0, 0, 1, 1, 2]
+        );
     }
 
     // The whole curve stays below the cap.

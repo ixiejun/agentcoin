@@ -107,6 +107,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ac-invariants"
+version = "0.1.0"
+dependencies = [
+ "ac-primitives",
+ "parity-scale-codec",
+ "proptest",
+ "sp-io",
+]
+
+[[package]]
 name = "ac-node"
 version = "0.1.0"
 dependencies = [

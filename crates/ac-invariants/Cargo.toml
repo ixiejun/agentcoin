@@ -1,0 +1,38 @@
+[package]
+name = "ac-invariants"
+description = "AgentCoin constitution layer 1: node-enforced invariants (supply cap, emission ceiling, no premine) as pure functions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+ac-primitives = { workspace = true }
+parity-scale-codec = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+ac-primitives = { workspace = true, features = ["std"] }
+proptest = { workspace = true, features = ["std"] }
+sp-io = { workspace = true, features = ["std"] }
+
+[features]
+default = ["std"]
+std = ["ac-primitives/std", "parity-scale-codec/std"]
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+dbg_macro = "deny"
+wildcard_imports = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
