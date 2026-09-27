@@ -97,8 +97,8 @@ jobs:
       - run: scripts/check-license-boundary.sh --self-test
 
   overmint-flag:
-    # The test-only over-minting fault (`--cfg ac_test_overmint`) stays out of real builds
-    # (m3-economics 8.1).
+    # The test-only over-minting fault (a compiler flag set only by tests/overmint-runtime)
+    # stays out of real builds (m3-economics 8.1).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
