@@ -169,6 +169,47 @@ fn report_extrinsic_api() {
     });
 }
 
+// Scenarios "同一集合内的另一类违规" and "第二类违规不重复处置" through the runtime: a vote
+// offence and then a seal offence of alice are both recorded; a second one of either kind is
+// refused by the pool; issuance and balances do not change.
+#[test]
+fn both_kinds_are_recorded_once_each() {
+    dev_ext().execute_with(|| {
+        let before = (
+            issuance(),
+            dev_accounts().iter().map(free).collect::<Vec<_>>(),
+        );
+        assert_eq!(
+            apply(common::report(common::vote_evidence("alice", 0, 1, false))),
+            Ok(Ok(()))
+        );
+        assert_eq!(apply(report(evidence(&authority()))), Ok(Ok(())));
+        assert_eq!(
+            apply(common::report(common::vote_evidence("alice", 0, 2, false))),
+            Err(TransactionValidityError::Invalid(InvalidTransaction::Stale))
+        );
+        assert!(report_extrinsic(common::seal_evidence("alice", 5, false)).is_none());
+        let kinds: Vec<_> = ac_runtime::Offences::offences(0)
+            .iter()
+            .map(|(_, k)| k.kind())
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                ac_primitives::offences::OffenceKind::BftEquivocation,
+                ac_primitives::offences::OffenceKind::AuraEquivocation
+            ]
+        );
+        assert_eq!(
+            (
+                issuance(),
+                dev_accounts().iter().map(free).collect::<Vec<_>>()
+            ),
+            before
+        );
+    });
+}
+
 /// The M1 extension tuple, without `AuthorizeCall`.
 type M1Extension = (
     PqAuthorize<Runtime>,

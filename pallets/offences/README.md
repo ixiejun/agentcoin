@@ -24,11 +24,17 @@ never enters the pool or a block, and no account pays a fee or uses a nonce.
 
 ## Recording and consequences
 
-- Each offence is recorded once, and each offender at most once per authority set; later
-  evidence against a recorded offender in the same set is stale. A set's records never exceed
-  its size and are dropped once the set leaves the validator set's history window.
-- A recorded offender leaves block authoring and AC-BFT voting at the next epoch boundary
-  (`pallet-validator-set`), which also keeps the set from ever becoming empty.
+- Each offence is recorded once, and each offender at most once per offence kind (block seal,
+  AC-BFT vote) and authority set; later evidence of an already recorded kind against the same
+  offender in the same set is stale, while the other kind is still recorded. A set's records
+  never exceed twice its size and are dropped once the set leaves the validator set's history
+  window. Kinds are kept apart because they differ in severity (a vote double signing threatens
+  finality, a seal double signing only forks) and because evidence expires.
+- An offender's first record in a set removes it from block authoring and AC-BFT voting at the
+  next epoch boundary (`pallet-validator-set`, which also keeps the set from ever becoming
+  empty). A record of the other kind emits its event but punishes nothing more.
+- The `SlashHandler` is called for every record with the kinds already recorded for the
+  offender in that set; implementations slash for the most severe kind and never add up.
 - **No slashing in M2**: during PoA validators hold no stake (decisions D9, D19), so the
   `SlashHandler` of M2 is `()`, slashes nothing and leaves every balance and the total issuance
   unchanged. M3 connects stake and slashes (and burns) 100%.

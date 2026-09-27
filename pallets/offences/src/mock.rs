@@ -2,6 +2,8 @@
 
 use frame_support::{derive_impl, traits::ConstU32, traits::ConstU64};
 
+use ac_primitives::offences::OffenceKind;
+
 use crate as pallet_ac_offences;
 
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -67,7 +69,7 @@ impl pallet_ac_offences::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type ValidatorSet = ValidatorSet;
     type Slots = AuraPq;
-    type SlashHandler = ();
+    type SlashHandler = RecordingSlash;
     type MaxAuthorities = ConstU32<10>;
     type MaxEvidenceAge = ConstU64<24>;
     type WeightInfo = ();
@@ -101,4 +103,24 @@ pub fn new_bench_ext() -> sp_io::TestExternalities {
     .build_storage()
     .unwrap()
     .into()
+}
+
+std::thread_local! {
+    /// Calls of the slash handler: offence kind and kinds recorded before it.
+    pub static SLASH_CALLS: core::cell::RefCell<Vec<(OffenceKind, Vec<OffenceKind>)>> =
+        const { core::cell::RefCell::new(Vec::new()) };
+}
+
+/// Slash handler that records its calls and slashes nothing, like `()`.
+pub struct RecordingSlash;
+
+impl ac_primitives::validator_set::SlashHandler for RecordingSlash {
+    fn on_offence(
+        _offender: &ac_crypto::PqPublicKey,
+        kind: OffenceKind,
+        prior: &[OffenceKind],
+    ) -> u128 {
+        SLASH_CALLS.with(|calls| calls.borrow_mut().push((kind, prior.to_vec())));
+        0
+    }
 }

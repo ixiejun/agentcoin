@@ -10,9 +10,12 @@
 //!   validators hold no stake (D9, D19), so the M2 handler `()` slashes nothing and no balance
 //!   changes; M3 slashes and burns stake.
 //!
-//! Each offence is recorded once, and each offender at most once per authority set, so the
-//! records of a set never exceed its size. Records are dropped once their set leaves the
-//! validator set's history window.
+//! Each offence is recorded once, and each offender at most once per offence kind (block seal,
+//! AC-BFT vote) and authority set, so the records of a set never exceed twice its size. Only an
+//! offender's first record in a set disables it; a record of the other kind is kept and reported
+//! as an event but punishes nothing more, and the slash handler is told the kinds already
+//! recorded so that slashing follows the most severe one instead of adding up. Records are
+//! dropped once their set leaves the validator set's history window.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -39,7 +42,7 @@ use alloc::vec::Vec;
 
 use ac_crypto::PqPublicKey;
 use ac_primitives::ac_bft::{Authority, SetId};
-use ac_primitives::offences::AuthoritySets;
+use ac_primitives::offences::{AuthoritySets, OffenceKind};
 use ac_primitives::validator_set::ValidatorSetInterface;
 pub use weights::WeightInfo;
 
@@ -56,12 +59,26 @@ impl<V: ValidatorSetInterface> AuthoritySets for RecentSets<V> {
     }
 }
 
+/// Twice `N`: an offender may hold one record per offence kind in a set.
+pub struct TwicePerSet<N>(core::marker::PhantomData<N>);
+
+impl<N: frame_support::traits::Get<u32>> frame_support::traits::Get<u32> for TwicePerSet<N> {
+    fn get() -> u32 {
+        N::get().saturating_mul(2)
+    }
+}
+
+/// Number of offence kinds; one record per kind and offender is kept per set.
+const OFFENCE_KINDS: usize = 2;
+
 // FRAME's `pallet` macro expands to code (genesis defaults, storage metadata) that uses
 // `expect` / `unreachable!` on our spans; hand-written code here uses neither.
 #[allow(clippy::expect_used, clippy::unreachable)]
 #[frame_support::pallet]
 pub mod pallet {
-    use super::{PqPublicKey, RecentSets, SetId, Vec, WeightInfo};
+    use super::{
+        OFFENCE_KINDS, OffenceKind, PqPublicKey, RecentSets, SetId, TwicePerSet, Vec, WeightInfo,
+    };
     use ac_primitives::offences::{Evidence, Offence, OffenceKey, verify_evidence};
     use ac_primitives::validator_set::{CurrentAuthor, SlashHandler, ValidatorSetInterface};
     use frame_support::pallet_prelude::{
@@ -103,13 +120,15 @@ pub mod pallet {
     #[pallet::storage]
     pub type Reports<T: Config> = StorageMap<_, Blake2_128Concat, OffenceKey, SetId, OptionQuery>;
 
-    /// Offenders recorded per set (at most one record each), with the offence.
+    /// Offenders recorded per set (at most one record per offender and offence kind), with the
+    /// offence. The encoding is that of the former one-per-offender bound, so no migration is
+    /// needed.
     #[pallet::storage]
     pub type Offenders<T: Config> = StorageMap<
         _,
         Twox64Concat,
         SetId,
-        BoundedVec<(PqPublicKey, OffenceKey), T::MaxAuthorities>,
+        BoundedVec<(PqPublicKey, OffenceKey), TwicePerSet<T::MaxAuthorities>>,
         ValueQuery,
     >;
 
@@ -120,7 +139,8 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// Double signing was proven; the offender leaves the set at the next epoch boundary.
+        /// Double signing was proven. On the offender's first record in the set it leaves the
+        /// set at the next epoch boundary; a record of the other kind changes nothing more.
         OffenceReported {
             /// Offender's key.
             offender: PqPublicKey,
@@ -178,7 +198,8 @@ pub mod pallet {
         /// # Errors
         ///
         /// `InvalidTransaction::BadProof` for invalid evidence, `InvalidTransaction::Stale` for
-        /// an offence or offender already recorded.
+        /// an offence already recorded or an offender already recorded for this kind in the
+        /// set.
         pub fn authorize_report(
             _source: TransactionSource,
             evidence: &Evidence,
@@ -187,7 +208,9 @@ pub mod pallet {
             let set_id = Self::record_set(&offence);
             let validity = ValidTransaction::with_tag_prefix("AcOffences")
                 .priority(u64::MAX >> 1)
-                .and_provides((set_id, offence.offender))
+                // Reports of one kind against one offender in one set exclude each other in the
+                // pool; the other kind is independent.
+                .and_provides((set_id, offence.offender, offence.key.kind()))
                 .longevity(64)
                 .propagate(true)
                 .build()?;
@@ -209,10 +232,9 @@ pub mod pallet {
                 return Err(TransactionValidityError::Invalid(InvalidTransaction::Stale));
             }
             let set_id = Self::record_set(&offence);
+            let kind = offence.key.kind();
             if Reports::<T>::contains_key(&offence.key)
-                || Offenders::<T>::get(set_id)
-                    .iter()
-                    .any(|(k, _)| k == &offence.offender)
+                || Self::prior_kinds(set_id, &offence.offender).contains(&kind)
             {
                 return Err(TransactionValidityError::Invalid(InvalidTransaction::Stale));
             }
@@ -226,9 +248,22 @@ pub mod pallet {
                 .unwrap_or_else(|| T::ValidatorSet::current().0)
         }
 
-        /// Records a checked offence, disables the offender and applies slashing.
+        /// Kinds of offence already recorded for `offender` in `set_id`.
+        fn prior_kinds(set_id: SetId, offender: &PqPublicKey) -> Vec<OffenceKind> {
+            let mut kinds = Vec::with_capacity(OFFENCE_KINDS);
+            for (who, key) in Offenders::<T>::get(set_id).iter() {
+                if who == offender && !kinds.contains(&key.kind()) {
+                    kinds.push(key.kind());
+                }
+            }
+            kinds
+        }
+
+        /// Records a checked offence. The offender's first record in the set disables it; every
+        /// record is passed to the slash handler with the kinds recorded before it.
         pub(crate) fn record(offence: Offence) {
             let set_id = Self::record_set(&offence);
+            let prior = Self::prior_kinds(set_id, &offence.offender);
             let pushed = Offenders::<T>::mutate(set_id, |records| {
                 records
                     .try_push((offence.offender.clone(), offence.key.clone()))
@@ -238,8 +273,11 @@ pub mod pallet {
                 return;
             }
             Reports::<T>::insert(&offence.key, set_id);
-            T::ValidatorSet::disable(&offence.offender);
-            let slashed = T::SlashHandler::on_offence(&offence.offender, offence.key.kind());
+            if prior.is_empty() {
+                T::ValidatorSet::disable(&offence.offender);
+            }
+            let slashed =
+                T::SlashHandler::on_offence(&offence.offender, offence.key.kind(), &prior);
             Self::deposit_event(Event::OffenceReported {
                 offender: offence.offender,
                 key: offence.key,

@@ -245,6 +245,46 @@ pub fn seal_evidence(name: &str, slot: u64, forged: bool) -> ac_primitives::offe
     }
 }
 
+/// Vote double-signing evidence by development authority `name` (member `index` of set 0):
+/// two prepare votes of `round` for different targets; `forged` signs the second with another
+/// key.
+pub fn vote_evidence(
+    name: &str,
+    index: u16,
+    round: u64,
+    forged: bool,
+) -> ac_primitives::offences::Evidence {
+    use ac_primitives::ac_bft::{
+        BlockRef, Message, SignedMessage, VOTE_CONTEXT, VoteKind, signing_payload,
+    };
+    use ac_primitives::offences::Evidence;
+    let key =
+        |n: &str| SigningKey::from_seed(SigAlg::MlDsa65, &ac_crypto::dev_seed(n).unwrap()).unwrap();
+    let genesis = frame_system::Pallet::<ac_runtime::Runtime>::block_hash(0);
+    let vote = |signer: &SigningKey, target: u8| {
+        let message = Message::Vote {
+            kind: VoteKind::Prepare,
+            round,
+            target: BlockRef {
+                hash: H256::repeat_byte(target),
+                number: 1,
+            },
+        };
+        let payload = signing_payload(&genesis, 0, &message).unwrap();
+        SignedMessage {
+            set_id: 0,
+            signer: index,
+            message,
+            signature: signer.sign_deterministic(&payload, VOTE_CONTEXT).unwrap(),
+        }
+    };
+    let second = if forged { key("zed") } else { key(name) };
+    Evidence::BftEquivocation {
+        first: Box::new(vote(&key(name), 1)),
+        second: Box::new(vote(&second, 2)),
+    }
+}
+
 /// A double-signing report without signature.
 pub fn report(evidence: ac_primitives::offences::Evidence) -> UncheckedExtrinsic {
     ac_runtime::transaction::assemble_unsigned(RuntimeCall::Offences(

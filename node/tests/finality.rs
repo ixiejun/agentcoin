@@ -251,7 +251,7 @@ async fn randomness_reveal_survives_restart() {
 
 // Scenario "双签被记录": two nodes seal blocks with alice's key in the same slots of a chain
 // whose authorities are alice and bob; bob's node imports both headers, logs the double
-// signing and reports it, and an offence of alice is recorded on chain. (With alice as the
+// signing and reports it, and a block-seal offence of alice is recorded on chain. (With alice as the
 // only authority each copy would finalize its own fork alone and the network would split.)
 #[tokio::test(flavor = "multi_thread")]
 async fn double_signing_is_recorded() {
@@ -317,42 +317,23 @@ async fn double_signing_is_recorded() {
         wait_for_log(&bob_log, "equivocation: authority", Duration::from_secs(90)).await,
         "bob saw no double signing"
     );
-    // The seal evidence goes through the reporter and the runtime's check. One offence is
-    // recorded per offender and set, and the two copies also double-vote in AC-BFT, so either
-    // report may win; the other is then refused as already decided — by the runtime when the
-    // offence is on chain, or by the pool (same `provides` tag) when its report is pending, in
-    // which case the runtime has already accepted the seal evidence while building the report.
-    let deadline = std::time::Instant::now() + Duration::from_secs(60);
-    loop {
-        let log = std::fs::read_to_string(&bob_log).unwrap_or_default();
-        if log.contains("reported block seal double signing")
-            || log.contains(
-                "block seal double signing not reported: the offender is already recorded",
-            )
-            || log.contains(
-                "block seal double-signing report rejected: Transaction pool error: Too low priority",
-            )
-        {
-            break;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "the seal double signing was neither reported nor found already decided"
-        );
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    }
+    // Each offence kind is recorded once per offender and set, so the seal offence is
+    // recorded even when the copies' vote double signing reaches the chain first.
     let alice =
         ac_runtime::genesis_config_presets::dev_public_key("alice", ac_crypto::SigAlg::MlDsa65)
             .unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(90);
     loop {
         let offences = all_offences(&bob).await;
-        if offences.iter().any(|(who, _)| *who == alice) {
+        if offences
+            .iter()
+            .any(|(who, key)| *who == alice && matches!(key, OffenceKey::Aura { .. }))
+        {
             break;
         }
         assert!(
             std::time::Instant::now() < deadline,
-            "no offence of alice recorded; offences: {offences:?}"
+            "no block-seal offence of alice recorded; offences: {offences:?}"
         );
         tokio::time::sleep(Duration::from_millis(500)).await;
     }

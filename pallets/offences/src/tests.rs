@@ -14,7 +14,7 @@ use ac_primitives::ac_bft::{
     BlockRef, Message, SignedMessage, VOTE_CONTEXT, VoteKind, signing_payload,
 };
 use ac_primitives::aura_pq::{SEAL_CONTEXT, Slot, pre_digest, seal_digest};
-use ac_primitives::offences::{ChainHeader, EncodedHeader, Evidence, OffenceKey};
+use ac_primitives::offences::{ChainHeader, EncodedHeader, Evidence, OffenceKey, OffenceKind};
 use frame_support::pallet_prelude::{
     InvalidTransaction, TransactionSource, TransactionValidityError,
 };
@@ -25,8 +25,8 @@ use sp_runtime::traits::Header as _;
 use sp_runtime::{BuildStorage, Digest};
 
 use crate::mock::{
-    AuraPq, Balances, Offences, RuntimeEvent, RuntimeGenesisConfig, RuntimeOrigin, System, Test,
-    ValidatorSet,
+    AuraPq, Balances, Offences, RuntimeEvent, RuntimeGenesisConfig, RuntimeOrigin, SLASH_CALLS,
+    System, Test, ValidatorSet,
 };
 use crate::{Event, Offenders, Reports};
 
@@ -225,20 +225,110 @@ fn invalid_evidence_is_rejected() {
     });
 }
 
-// Scenarios "重复举报" and "同一集合内的其他违规".
+// Scenarios "重复举报" and "同一集合内的其他违规": an offence is recorded once, and an
+// offender at most once per kind in a set.
 #[test]
-fn offences_are_recorded_once() {
+fn offences_are_recorded_once_per_kind() {
     ext().execute_with(|| {
         run_to(4);
         submit(aura_evidence("bob", 3)).unwrap();
         let stale = Err(TransactionValidityError::Invalid(InvalidTransaction::Stale));
         assert_eq!(submit(aura_evidence("bob", 3)), stale);
         assert_eq!(submit(aura_evidence("bob", 4)), stale);
-        assert_eq!(submit(bft_evidence("bob", 1, 0, 2)), stale);
         assert_eq!(Offences::offences(0).len(), 1);
         // Another offender in the same set is still recorded.
         submit(aura_evidence("dave", 4)).unwrap();
         assert_eq!(Offences::offences(0).len(), 2);
+    });
+}
+
+// Scenario "同一集合内的另一类违规": after a vote offence, a seal offence of the same
+// offender in the same set is still recorded; a second one of either kind is not.
+#[test]
+fn the_other_kind_is_still_recorded() {
+    ext().execute_with(|| {
+        run_to(4);
+        submit(bft_evidence("bob", 1, 0, 2)).unwrap();
+        submit(aura_evidence("bob", 3)).unwrap();
+        let stale = Err(TransactionValidityError::Invalid(InvalidTransaction::Stale));
+        assert_eq!(submit(bft_evidence("bob", 1, 0, 3)), stale);
+        assert_eq!(submit(aura_evidence("bob", 4)), stale);
+        let kinds: Vec<_> = Offences::offences(0)
+            .iter()
+            .map(|(who, k)| (who.clone(), k.kind()))
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                (key("bob"), OffenceKind::BftEquivocation),
+                (key("bob"), OffenceKind::AuraEquivocation)
+            ]
+        );
+    });
+}
+
+// Pool exclusion: reports of one kind against one offender and set provide the same tag;
+// the other kind provides another.
+#[test]
+fn pool_tags_separate_kinds() {
+    ext().execute_with(|| {
+        run_to(4);
+        let tags = |e: &Evidence| {
+            Offences::authorize_report(TransactionSource::External, e)
+                .unwrap()
+                .0
+                .provides
+        };
+        assert_eq!(
+            tags(&aura_evidence("bob", 3)),
+            tags(&aura_evidence("bob", 4))
+        );
+        assert_ne!(
+            tags(&aura_evidence("bob", 3)),
+            tags(&bft_evidence("bob", 1, 0, 2))
+        );
+    });
+}
+
+// Scenario "第二类违规不重复处置": both records emit an event, the offender is disabled once,
+// and the slash handler is told the kinds recorded before each record.
+#[test]
+fn second_kind_does_not_punish_again() {
+    ext().execute_with(|| {
+        SLASH_CALLS.with(|c| c.borrow_mut().clear());
+        run_to(3);
+        submit(aura_evidence("alice", 3)).unwrap();
+        submit(bft_evidence("alice", 0, 0, 2)).unwrap();
+        assert_eq!(reported().len(), 2);
+        assert_eq!(
+            SLASH_CALLS.with(|c| c.borrow().clone()),
+            vec![
+                (OffenceKind::AuraEquivocation, vec![]),
+                (
+                    OffenceKind::BftEquivocation,
+                    vec![OffenceKind::AuraEquivocation]
+                ),
+            ]
+        );
+        run_to(9);
+        let disabled = System::events()
+            .into_iter()
+            .filter(|e| {
+                matches!(
+                    &e.event,
+                    RuntimeEvent::ValidatorSet(pallet_validator_set::Event::AuthorityDisabled {
+                        key: k
+                    }) if *k == key("alice")
+                )
+            })
+            .count();
+        assert_eq!(disabled, 1);
+        assert!(
+            ValidatorSet::authority_set()
+                .1
+                .iter()
+                .all(|a| a.key != key("alice"))
+        );
     });
 }
 

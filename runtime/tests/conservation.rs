@@ -32,6 +32,8 @@ enum Op {
     Rotate { who: usize, seed: u8 },
     /// Report the authority's double signing in `slot`; `forged` breaks one seal.
     Report { slot: u64, forged: bool },
+    /// Report the authority's vote double signing in `round`; `forged` breaks one signature.
+    ReportVote { round: u64, forged: bool },
     /// Apply a randomness inherent with arbitrary data.
     Randomness { commit: u8, reveal: u8 },
 }
@@ -48,6 +50,7 @@ fn op() -> impl Strategy<Value = Op> {
         }),
         (0usize..6, 100u8..200).prop_map(|(who, seed)| Op::Rotate { who, seed }),
         (0u64..10, any::<bool>()).prop_map(|(slot, forged)| Op::Report { slot, forged }),
+        (0u64..10, any::<bool>()).prop_map(|(round, forged)| Op::ReportVote { round, forged }),
         (any::<u8>(), any::<u8>()).prop_map(|(commit, reveal)| Op::Randomness { commit, reveal }),
     ]
 }
@@ -88,6 +91,9 @@ proptest! {
                     }
                     Op::Report { slot, forged } => {
                         let _ = apply(common::report(common::seal_evidence("alice", slot, forged)));
+                    }
+                    Op::ReportVote { round, forged } => {
+                        let _ = apply(common::report(common::vote_evidence("alice", 0, round, forged)));
                     }
                     Op::Randomness { commit, reveal } => {
                         let call = RuntimeCall::RandomnessCr(pallet_randomness_cr::Call::note_randomness {

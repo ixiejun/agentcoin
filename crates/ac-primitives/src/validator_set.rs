@@ -31,14 +31,27 @@ pub trait CurrentAuthor {
 
 /// Slashing of offenders. M2 validators hold no stake (decisions D9, D19), so the M2
 /// implementation `()` slashes nothing; M3 connects stake and burns 100%.
+///
+/// Called for every recorded offence. An offender is recorded at most once per offence kind and
+/// authority set; `prior` lists the kinds already recorded for it in the same set. Implementations
+/// must slash according to the most severe kind among `prior` and `kind`, never adding up: only
+/// the difference to what the earlier records already slashed may be taken.
 pub trait SlashHandler {
-    /// Slashes `offender` for an offence of `kind` and returns the amount slashed (smallest ATC
-    /// unit).
-    fn on_offence(offender: &PqPublicKey, kind: crate::offences::OffenceKind) -> u128;
+    /// Slashes `offender` for an offence of `kind`, given the kinds already recorded for it in
+    /// the same set, and returns the amount slashed (smallest ATC unit).
+    fn on_offence(
+        offender: &PqPublicKey,
+        kind: crate::offences::OffenceKind,
+        prior: &[crate::offences::OffenceKind],
+    ) -> u128;
 }
 
 impl SlashHandler for () {
-    fn on_offence(_offender: &PqPublicKey, _kind: crate::offences::OffenceKind) -> u128 {
+    fn on_offence(
+        _offender: &PqPublicKey,
+        _kind: crate::offences::OffenceKind,
+        _prior: &[crate::offences::OffenceKind],
+    ) -> u128 {
         0
     }
 }
