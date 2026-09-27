@@ -14,6 +14,7 @@ pub mod offences;
 pub mod profile;
 pub mod randomness;
 mod signature;
+pub mod staking;
 pub mod validator_set;
 
 pub use address::{

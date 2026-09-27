@@ -22,6 +22,9 @@ Shared on-chain types for AgentCoin, used by the runtime, the node and clients.
 - `epoch`: epoch numbering (`epoch_of`, `is_boundary`) and the minimum epoch length.
 - `emission`: the ATC emission curve and epoch settlement (plan §5.1). The runtime, the node's
   invariant checker and the economic simulation all use it, so they compute the same numbers.
+- `staking`: the PoA → PoS switch rule and its constitution values, minimum stakes, the
+  nomination unbonding queue, reward splitting and election inputs. The runtime and the node's
+  invariant checker share it, so both reach the same switch decision.
 
 Byte-level regression vectors for the AC-BFT formats live in `tests/vectors/` (see `SOURCES.md`).
 
@@ -115,4 +118,44 @@ assert_eq!(out.reserve + out.total, s);
 // Block 3,601 settles epoch 0.
 assert_eq!(schedule.settled_epoch(3_601), Some(0));
 # Ok::<(), ac_primitives::emission::EmissionError>(())
+```
+
+## Staking and the PoA → PoS switch
+
+- Constitution values (decisions D19, D24): total active stake ≥ 10% of the issuance, at least
+  21 qualified candidates, height ≥ 63,115,200 (two years), and all three holding at every
+  epoch boundary for 604,800 blocks (seven days). `TransitionParams::CONSTITUTION` holds them;
+  `ChainPhase` and `TransitionParams` are values of published well-known storage keys and
+  never change their encoding.
+- `transition_step` performs one epoch-boundary checkpoint: it clears the start of the
+  qualified run when a checkpoint fails, sets it at the first passing one, and switches once
+  the run has lasted the sustain period. The switch is one-way.
+- Minimum self-stake 0.1% and minimum nomination 0.001% of the issuance, rounded up.
+- `unbonding_unlock`: nominations leave through a network-wide queue that drains the whole
+  active stake in the maximum period; each request waits between the minimum (2 days on live
+  chains) and the maximum (28 days).
+- `split_by_points` shares the security budget by work points (blocks authored), independent
+  of stake; `split_reward` takes the commission and splits the rest by backing. Both round
+  down, so no ATC is created.
+
+```rust
+use ac_primitives::staking::{
+    TransitionInputs, TransitionParams, min_self_bond, split_reward, transition_step,
+};
+
+let params = TransitionParams::CONSTITUTION;
+let issuance = 1_000_000u128;
+// 12% staked, 25 candidates, two years reached: the qualified run starts here.
+let first = transition_step(None, &TransitionInputs::new(120_000, issuance, 25, 63_115_200), &params);
+assert_eq!(first.qualified_since, Some(63_115_200));
+assert!(!first.switch);
+// Seven days later, still qualified: switch to PoS.
+let later = TransitionInputs::new(120_000, issuance, 25, 63_115_200 + 604_800);
+assert!(transition_step(first.qualified_since, &later, &params).switch);
+
+assert_eq!(min_self_bond(issuance), 1_000);
+// 10% commission, then 1/3 to the validator's own stake and 2/3 to its nominator.
+let split = split_reward(100, 1_000, &[("validator", 1), ("nominator", 2)]);
+assert_eq!(split.commission, 10);
+assert_eq!(split.shares, vec![("validator", 30), ("nominator", 60)]);
 ```
