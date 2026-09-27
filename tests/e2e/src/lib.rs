@@ -12,6 +12,7 @@
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
 use jsonrpsee::core::client::{ClientT, Subscription, SubscriptionClientT};
@@ -39,8 +40,41 @@ pub fn node_binary() -> PathBuf {
     )
 }
 
+/// Ports handed to test nodes come from this range, below Linux's ephemeral range
+/// (32768-60999). A port picked from the ephemeral range and released before the node binds it
+/// can meanwhile become the source port of another node's outgoing connection, and the node
+/// then fails to start.
+const PORT_RANGE: std::ops::Range<u16> = 20_000..32_000;
+
+/// Offset of the next port to try within [`PORT_RANGE`]; 0 until first use.
+static NEXT_PORT: AtomicU32 = AtomicU32::new(0);
+
+/// A port in [`PORT_RANGE`] that is free now and was not handed out before by this process.
+/// Each process starts at a pid-dependent offset, so concurrent test processes rarely overlap.
 fn free_port() -> std::io::Result<u16> {
-    Ok(TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
+    let span = u32::from(PORT_RANGE.end - PORT_RANGE.start);
+    let start = (std::process::id() % 97) * 100 + 1;
+    let _ = NEXT_PORT.compare_exchange(0, start, Ordering::SeqCst, Ordering::SeqCst);
+    for _ in 0..span {
+        let offset = NEXT_PORT.fetch_add(1, Ordering::SeqCst) % span;
+        let port = PORT_RANGE.start + u16::try_from(offset).unwrap_or(0);
+        if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            return Ok(port);
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AddrInUse,
+        "no free port for a test node",
+    ))
+}
+
+/// The last `lines` lines of the file at `path` (empty if unreadable).
+fn log_tail(path: &Path, lines: usize) -> String {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    let all: Vec<&str> = text.lines().collect();
+    all.get(all.len().saturating_sub(lines)..)
+        .unwrap_or_default()
+        .join("\n")
 }
 
 fn parse_number(value: &serde_json::Value) -> Option<u64> {
@@ -509,6 +543,7 @@ impl Testnet {
         let started = Instant::now();
         loop {
             let mut heights = Vec::new();
+            let mut unreachable = Vec::new();
             for &i in which {
                 let node = self.nodes.get(i).ok_or("no such node")?;
                 let h = if finalized {
@@ -516,14 +551,28 @@ impl Testnet {
                 } else {
                     node.height().await
                 };
+                if h.is_none() {
+                    unreachable.push(node);
+                }
                 heights.push(h.unwrap_or(0));
             }
             if heights.iter().all(|h| *h >= height) {
                 return Ok(());
             }
             if started.elapsed() > timeout {
+                // A node whose RPC does not answer has usually exited: show why.
+                let tails: String = unreachable
+                    .iter()
+                    .map(|n| {
+                        format!(
+                            "\n--- {} (RPC unreachable), last log lines:\n{}",
+                            n.name,
+                            log_tail(&n.log_path(), 40)
+                        )
+                    })
+                    .collect();
                 return Err(format!(
-                    "{} heights {heights:?} did not reach {height} within {timeout:?}; logs in {}",
+                    "{} heights {heights:?} did not reach {height} within {timeout:?}; logs in {}{tails}",
                     if finalized { "finalized" } else { "best" },
                     self.base.display()
                 ));
@@ -585,4 +634,32 @@ pub fn write_spec(dir: &Path, authorities: usize) -> Result<PathBuf, String> {
     )
     .map_err(|e| e.to_string())?;
     Ok(path)
+}
+
+#[cfg(test)]
+mod port_tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::{PORT_RANGE, free_port, log_tail};
+
+    // Ports come from outside the ephemeral range and are never handed out twice.
+    #[test]
+    fn ports_are_distinct_and_outside_the_ephemeral_range() {
+        let ports: Vec<u16> = (0..50).map(|_| free_port().unwrap()).collect();
+        assert!(ports.iter().all(|p| PORT_RANGE.contains(p)));
+        let mut unique = ports.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), ports.len());
+    }
+
+    #[test]
+    fn log_tail_keeps_the_last_lines() {
+        let path = std::env::temp_dir().join(format!("ac-e2e-tail-{}", std::process::id()));
+        std::fs::write(&path, "a\nb\nc\nd\n").unwrap();
+        assert_eq!(log_tail(&path, 2), "c\nd");
+        assert_eq!(log_tail(&path, 10), "a\nb\nc\nd");
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(log_tail(&path, 3), "");
+    }
 }
