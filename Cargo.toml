@@ -39,6 +39,8 @@ pallet-balances = { version = "50.0", default-features = false }
 pallet-collective = { version = "49.0", default-features = false }
 # EVM (m4-evm): EVM bytecode only; the PolkaVM path is closed by the runtime call filter.
 pallet-revive = { version = "0.19", default-features = false }
+# Solidity ABI types for the PQ precompiles (same crate pallet-revive uses).
+alloy-core = { version = "1.2", default-features = false, features = ["sol-types"] }
 pallet-timestamp = { version = "48.0", default-features = false }
 pallet-transaction-payment = { version = "49.0", default-features = false }
 pallet-transaction-payment-rpc = { version = "52.0", default-features = false }

@@ -742,7 +742,9 @@ fn contract_call_weight_fits_the_block_budget() {
         let max_extrinsic = block.get(DispatchClass::Normal).max_extrinsic.unwrap();
         // The fixed part of a call and of a deployment of the largest EVM init code leave room
         // for execution inside one extrinsic.
-        let base_call = contract_call(H160::zero(), vec![]).get_dispatch_info().call_weight
+        let base_call = contract_call(H160::zero(), vec![])
+            .get_dispatch_info()
+            .call_weight
             - weight_limit();
         assert!(base_call.all_lt(max_extrinsic), "{base_call:?}");
         let largest = deploy_call(vec![0u8; 48 * 1024]);
@@ -761,9 +763,155 @@ fn contract_call_weight_fits_the_block_budget() {
         });
         assert_eq!(
             apply(signed(&alice, too_big)),
-            Err(sp_runtime::transaction_validity::TransactionValidityError::Invalid(
-                sp_runtime::transaction_validity::InvalidTransaction::ExhaustsResources
-            ))
+            Err(
+                sp_runtime::transaction_validity::TransactionValidityError::Invalid(
+                    sp_runtime::transaction_validity::InvalidTransaction::ExhaustsResources
+                )
+            )
         );
+    });
+}
+
+// --- task 3.4: PQ precompiles called from contracts ------------------------------------------------
+
+/// Proxy: calldata = target address word ‖ inner calldata. STATICCALLs the target with the inner
+/// calldata and returns its output, or reverts with it.
+const PROXY: &[u8] = &[
+    0x36, 0x60, 0x20, 0x90, 0x03, // len = calldatasize - 32
+    0x80, 0x60, 0x20, 0x60, 0x00, 0x37, // calldatacopy(0, 32, len)
+    0x60, 0x00, 0x60, 0x00, 0x82, 0x60, 0x00, // ret 0 @0, args len @0
+    0x60, 0x00, 0x35, 0x5a, 0xfa, // staticcall(gas, calldataload(0), ...)
+    0x3d, 0x60, 0x00, 0x60, 0x00, 0x3e, // returndatacopy(0, 0, returndatasize)
+    0x15, 0x60, 0x25, 0x57, // if !success goto revert
+    0x3d, 0x60, 0x00, 0xf3, // return(0, returndatasize)
+    0x5b, 0x3d, 0x60, 0x00, 0xfd, // revert: revert(0, returndatasize)
+];
+
+fn proxied(target: [u8; 20], inner: &[u8]) -> Vec<u8> {
+    let mut data = address_word(H160::from(target));
+    data.extend_from_slice(inner);
+    data
+}
+
+// Spec evm/precompiles: "有效签名" end to end, "与 ac-crypto 一致", "保留地址回滚".
+#[test]
+fn precompiles_answer_contracts() {
+    use ac_primitives::evm::{
+        BLAKE3_ADDRESS, EVM_VERIFY_CONTEXT, PQ_VERIFY_ADDRESS, STARK_VERIFY_ADDRESS,
+    };
+    use alloy_core::sol_types::SolCall;
+    use pallet_evm_support::precompiles::{IBlake3, IPqVerify, IStarkVerify};
+    dev_ext().execute_with(|| {
+        let alice = Signer::dev("alice");
+        let proxy = deploy(&alice, PROXY);
+
+        // pq_verify with a signature made the way `ac-wallet evm sign-message` makes it.
+        for alg in [
+            ac_crypto::SigAlg::MlDsa44,
+            ac_crypto::SigAlg::MlDsa65,
+            ac_crypto::SigAlg::MlDsa87,
+        ] {
+            let signer = Signer::fresh(9, alg);
+            let message = b"transfer 5 tokens to 0xabc".to_vec();
+            let signature = signer
+                .key
+                .sign_deterministic(&message, EVM_VERIFY_CONTEXT)
+                .unwrap();
+            let call = IPqVerify::verifyCall {
+                alg: alg.id(),
+                publicKey: signer.public().as_bytes().to_vec().into(),
+                message: message.clone().into(),
+                signature: signature.as_bytes().to_vec().into(),
+            };
+            let out = dry_call(
+                &alice.account,
+                proxy,
+                proxied(PQ_VERIFY_ADDRESS, &call.abi_encode()),
+            );
+            assert!(!out.did_revert(), "{alg:?}");
+            assert_eq!(out.data, word(1u8), "{alg:?} verifies");
+            // The same signature under the transaction context does not verify in a contract.
+            let tx_sig = signer
+                .key
+                .sign_deterministic(&message, b"agentcoin/tx/v1")
+                .unwrap();
+            let call = IPqVerify::verifyCall {
+                signature: tx_sig.as_bytes().to_vec().into(),
+                ..call
+            };
+            let out = dry_call(
+                &alice.account,
+                proxy,
+                proxied(PQ_VERIFY_ADDRESS, &call.abi_encode()),
+            );
+            assert_eq!(out.data, word(0u8), "{alg:?} protocol signature refused");
+        }
+
+        // blake3 equals the off-chain hash.
+        let data = b"agentcoin evm".to_vec();
+        let call = IBlake3::hashCall {
+            data: data.clone().into(),
+        };
+        let out = dry_call(
+            &alice.account,
+            proxy,
+            proxied(BLAKE3_ADDRESS, &call.abi_encode()),
+        );
+        assert_eq!(out.data, ac_crypto::hash::blake3_256(&data).to_vec());
+
+        // The reserved stark_verify address reverts, as does undecodable input.
+        let call = IStarkVerify::verifyCall {
+            data: vec![].into(),
+        };
+        let out = dry_call(
+            &alice.account,
+            proxy,
+            proxied(STARK_VERIFY_ADDRESS, &call.abi_encode()),
+        );
+        assert!(out.did_revert());
+        let out = dry_call(
+            &alice.account,
+            proxy,
+            proxied(BLAKE3_ADDRESS, &[0xde, 0xad]),
+        );
+        assert!(out.did_revert());
+    });
+}
+
+// Spec evm/precompiles: "首次调用不创建账户" and "保留地址不可部署"; with a real transaction.
+#[test]
+fn precompile_calls_create_nothing() {
+    use ac_primitives::evm::{BLAKE3_ADDRESS, PQ_VERIFY_ADDRESS, STARK_VERIFY_ADDRESS};
+    use alloy_core::sol_types::SolCall;
+    use pallet_evm_support::precompiles::IBlake3;
+    dev_ext().execute_with(|| {
+        let alice = Signer::dev("alice");
+        let proxy = deploy(&alice, PROXY);
+        let before = gross();
+        let call = IBlake3::hashCall {
+            data: vec![1, 2, 3].into(),
+        };
+        assert_eq!(
+            apply(signed(
+                &alice,
+                contract_call(proxy, proxied(BLAKE3_ADDRESS, &call.abi_encode()))
+            )),
+            Ok(Ok(()))
+        );
+        assert_eq!(gross(), before);
+        for address in [PQ_VERIFY_ADDRESS, BLAKE3_ADDRESS, STARK_VERIFY_ADDRESS] {
+            let account = account_of(H160::from(address));
+            assert!(!System::account_exists(&account), "{address:02x?}");
+            // No contract lives at a precompile address: a plain call to it with value fails
+            // instead of creating an account there.
+            assert!(Revive::code(&H160::from(address)) != STORE.to_vec());
+        }
+        // The reserved address answers as a precompile (revert stub), so nothing can be
+        // deployed there and a call to it reverts.
+        let result = apply(signed(
+            &alice,
+            contract_call(H160::from(STARK_VERIFY_ADDRESS), vec![0; 4]),
+        ));
+        assert!(matches!(result, Ok(Err(_))), "{result:?}");
     });
 }

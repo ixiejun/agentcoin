@@ -20,8 +20,16 @@ keeps it inside AgentCoin's rules:
 - **Revive's own account**: revive holds code deposits on its pallet account and upstream mints
   an existential deposit into it at genesis. This pallet gives the account a provider reference
   at genesis and on runtime upgrade instead, so it exists with a zero balance.
-- **PQ precompiles** (task group 3): `pq_verify`, `blake3`, `poseidon2` and the reserved
-  `stark_verify` address.
+- **PQ precompiles** (`PqPrecompiles`), Solidity ABI, benchmarked weights charged before any
+  work, no state, no account:
+
+  | Precompile | Address | Interface |
+  |---|---|---|
+  | `pq_verify` | `0x000000000000000000000000000000000a010000` | `verify(uint8 alg, bytes publicKey, bytes message, bytes signature) returns (bool)` — ML-DSA-44/65/87 under the fixed context `agentcoin/evm-verify/v1`; any failure is `false` |
+  | `blake3` | `0x000000000000000000000000000000000a020000` | `hash(bytes data) returns (bytes32)` |
+  | `stark_verify` | `0x000000000000000000000000000000000a100000` | reserved (D27): every call reverts |
+
+  Address `0x…0a030000` is kept for `poseidon2`, pending the outcome of its research gate.
 
 ## Features
 

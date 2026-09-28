@@ -339,8 +339,8 @@ impl pallet_revive::Config for Runtime {
     type RuntimeOrigin = RuntimeOrigin;
     type RuntimeHoldReason = RuntimeHoldReason;
     type WeightInfo = pallet_revive::weights::SubstrateWeight<Self>;
-    // The PQ precompiles are added with m4-evm task group 3.
-    type Precompiles = ();
+    // `pq_verify`, `blake3` and the reserved `stark_verify` address (design D6).
+    type Precompiles = pallet_evm_support::PqPrecompiles<Self>;
     type FindAuthor = AuraPqAuthor;
     type DepositPerByte = DepositPerByte;
     type DepositPerItem = DepositPerItem;
@@ -366,4 +366,6 @@ impl pallet_revive::Config for Runtime {
     type GasScale = ConstU32<1>;
 }
 
-impl pallet_evm_support::Config for Runtime {}
+impl pallet_evm_support::Config for Runtime {
+    type WeightInfo = pallet_evm_support::weights::SubstrateWeight<Runtime>;
+}

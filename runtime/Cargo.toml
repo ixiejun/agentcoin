@@ -49,6 +49,7 @@ sp-transaction-pool = { workspace = true }
 sp-version = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
+alloy-core = { workspace = true, features = ["std"] }
 ac-invariants = { workspace = true, features = ["std"] }
 ac-crypto = { workspace = true, features = ["scale", "serde", "std", "deterministic"] }
 proptest = { workspace = true, features = ["std"] }
@@ -119,6 +120,7 @@ runtime-benchmarks = [
     "pallet-validator-set/runtime-benchmarks",
     "pallet-staking-pos/runtime-benchmarks",
     "pallet-revive/runtime-benchmarks",
+    "pallet-evm-support/runtime-benchmarks",
     "pallet-randomness-cr/runtime-benchmarks",
     "pallet-timestamp/runtime-benchmarks",
     "pallet-transaction-payment/runtime-benchmarks",

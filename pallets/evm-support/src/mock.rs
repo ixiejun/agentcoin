@@ -98,11 +98,14 @@ impl pallet_revive::Config for Test {
     type NativeToEthRatio = ConstU32<1>;
     type ChainId = ConstU64<{ ac_primitives::evm::EVM_CHAIN_ID }>;
     type AutoMap = ConstBool<true>;
+    type Precompiles = crate::PqPrecompiles<Self>;
     type UploadOrigin = frame_system::EnsureSigned<AccountId>;
     type InstantiateOrigin = frame_system::EnsureSigned<AccountId>;
 }
 
-impl pallet_evm_support::Config for Test {}
+impl pallet_evm_support::Config for Test {
+    type WeightInfo = ();
+}
 
 pub fn alice() -> AccountId {
     AccountId32::new([1; 32])

@@ -4,11 +4,17 @@
 
 extern crate alloc;
 
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
 mod currency;
 mod extension;
+pub mod precompiles;
+pub mod weights;
 
 #[cfg(test)]
 mod mock;
+#[cfg(test)]
+mod precompile_tests;
 #[cfg(test)]
 mod tests;
 
@@ -18,6 +24,8 @@ pub use extension::SetEvmPayer;
 // the `#[pallet]` macro generates inside `pallet`, so they cannot be listed explicitly.
 pub use pallet::*;
 pub use pallet_revive;
+pub use precompiles::PqPrecompiles;
+pub use weights::WeightInfo;
 
 use core::marker::PhantomData;
 use frame_support::traits::Get;
@@ -35,7 +43,10 @@ pub mod pallet {
 
     /// Configuration of the EVM support pallet.
     #[pallet::config]
-    pub trait Config: frame_system::Config + pallet_revive::Config {}
+    pub trait Config: frame_system::Config + pallet_revive::Config {
+        /// Weights of the PQ precompiles.
+        type WeightInfo: crate::WeightInfo;
+    }
 
     #[pallet::pallet]
     pub struct Pallet<T>(_);
