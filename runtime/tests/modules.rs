@@ -43,9 +43,15 @@ fn pallet_indices_are_fixed() {
         <ac_runtime::PoaCouncil as PalletInfoAccess>::name(),
         "PoaCouncil"
     );
-    // m3-pos: new calls (design D11).
-    assert_eq!(VERSION.transaction_version, 3);
-    assert_eq!(VERSION.spec_version, 3);
+    // m4-evm (design D1): the Revive index is published in `ac_primitives::evm`.
+    assert_eq!(
+        <ac_runtime::Revive as PalletInfoAccess>::index(),
+        usize::from(ac_primitives::evm::REVIVE_PALLET_INDEX)
+    );
+    assert_eq!(<ac_runtime::EvmSupport as PalletInfoAccess>::index(), 15);
+    // m4-evm: the `SetEvmPayer` extension and the Revive calls (design D11).
+    assert_eq!(VERSION.transaction_version, 4);
+    assert_eq!(VERSION.spec_version, 4);
 }
 
 // The M2 runtime APIs are declared by the runtime.

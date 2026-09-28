@@ -242,14 +242,17 @@ fn account_transactions_keep_their_encoding() {
         // Decodes as the M1 transaction type and re-encodes to the same bytes.
         let m1 = M1Extrinsic::decode(&mut &bytes[..]).unwrap();
         assert_eq!(m1.encode(), bytes);
-        // The explicit and implicit data covered by the signature encode as in M1.
+        // The explicit and implicit data covered by the signature encode as in M1:
+        // `AuthorizeCall` (M2) and `SetEvmPayer` (M4) carry no data.
         let params = immortal(0);
-        let (_authorize, a, b, c, d, e, f, g, h, i) = authorized_extensions(&params);
+        let (_authorize, a, b, c, d, e, f, g, h, _set_evm_payer, i) =
+            authorized_extensions(&params);
         assert_eq!(
             authorized_extensions(&params).encode(),
             (a, b, c, d, e, f, g, h, i).encode()
         );
-        let (_authorize, a, b, c, d, e, f, g, h, i) = implicit_from(&context(), &params);
+        let (_authorize, a, b, c, d, e, f, g, h, _set_evm_payer, i) =
+            implicit_from(&context(), &params);
         assert_eq!(
             implicit_from(&context(), &params).encode(),
             (a, b, c, d, e, f, g, h, i).encode()

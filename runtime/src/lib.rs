@@ -59,12 +59,14 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     authoring_version: 1,
     // 2: emission, treasury, fee distribution and the PoA multisig (m3-economics).
     // 3: staking, elections and the PoA -> PoS switch (m3-pos).
-    spec_version: 3,
+    // 4: EVM contracts through pallet-revive and EVM support (m4-evm).
+    spec_version: 4,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     // 2: `AuthorizeCall` joined the extension pipeline (m2-finality); encodings are unchanged.
     // 3: new staking and validator-set calls (m3-pos).
-    transaction_version: 3,
+    // 4: the `SetEvmPayer` extension and the `Revive` calls (m4-evm).
+    transaction_version: 4,
     system_version: 1,
 };
 
@@ -77,10 +79,10 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     impl_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     authoring_version: 1,
-    spec_version: 4,
+    spec_version: 5,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
-    transaction_version: 3,
+    transaction_version: 4,
     system_version: 1,
 };
 
@@ -133,6 +135,7 @@ pub type AuthorizedExtensions = (
     frame_system::CheckNonce<Runtime>,
     frame_system::CheckWeight<Runtime>,
     pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
+    pallet_evm_support::SetEvmPayer<Runtime>,
     frame_system::WeightReclaim<Runtime>,
 );
 
@@ -149,6 +152,7 @@ pub type TxExtension = (
     frame_system::CheckNonce<Runtime>,
     frame_system::CheckWeight<Runtime>,
     pallet_transaction_payment::ChargeTransactionPayment<Runtime>,
+    pallet_evm_support::SetEvmPayer<Runtime>,
     frame_system::WeightReclaim<Runtime>,
 );
 
@@ -244,4 +248,12 @@ mod runtime {
     // `StakingPos::Candidates` keys (red line 3).
     #[runtime::pallet_index(13)]
     pub type StakingPos = pallet_staking_pos;
+
+    // Index published: `ac_primitives::evm::REVIVE_PALLET_INDEX` classifies contract
+    // transactions for the wallet and the eth-RPC adapter.
+    #[runtime::pallet_index(14)]
+    pub type Revive = pallet_revive;
+
+    #[runtime::pallet_index(15)]
+    pub type EvmSupport = pallet_evm_support;
 }

@@ -2,7 +2,7 @@
 
 use frame_support::{
     derive_impl, parameter_types,
-    traits::{ConstU8, ConstU32, ConstU64, ConstU128, VariantCountOf},
+    traits::{ConstBool, ConstU8, ConstU32, ConstU64, ConstU128, FindAuthor, VariantCountOf},
     weights::{
         ConstantMultiplier, IdentityFee, Weight,
         constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
@@ -10,14 +10,14 @@ use frame_support::{
 };
 use frame_system::limits::{BlockLength, BlockWeights};
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter, Multiplier};
-use sp_runtime::{Perbill, traits::IdentityLookup, traits::One};
+use sp_runtime::{FixedU128, Perbill, traits::IdentityLookup, traits::One};
 
 // `derive_impl` expands to associated types that name these items.
 use super::{
-    AccountId, AuraPq, Balance, Balances, Block, BlockNumber, EXISTENTIAL_DEPOSIT, Emission, Hash,
-    MILLISECS_PER_BLOCK, Nonce, PalletInfo, RandomnessCr, Runtime, RuntimeCall, RuntimeEvent,
-    RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, StakingPos, TreasuryDual,
-    VERSION, ValidatorSet,
+    ATC, AccountId, AuraPq, Balance, Balances, Block, BlockNumber, EXISTENTIAL_DEPOSIT, Emission,
+    Hash, MILLISECS_PER_BLOCK, Nonce, PalletInfo, RandomnessCr, Runtime, RuntimeCall, RuntimeEvent,
+    RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, StakingPos, Timestamp,
+    TreasuryDual, VERSION, ValidatorSet,
 };
 use crate::holder_lock::HolderTreasuryLock;
 use ac_primitives::Blake3Hasher;
@@ -25,7 +25,7 @@ use ac_primitives::emission::{FLOOR_BATCH_BLOCKS, FLOOR_VESTING_BLOCKS};
 use frame_support::traits::EitherOfDiverse;
 use frame_support::traits::fungible::{Balanced, Credit};
 use frame_support::traits::{Imbalance, OnUnbalanced};
-use frame_system::{EnsureNever, EnsureRoot};
+use frame_system::{EnsureNever, EnsureRoot, EnsureSigned};
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
 
@@ -61,6 +61,9 @@ impl frame_system::Config for Runtime {
     /// The holder treasury is locked (decision D42); Root bypasses this filter, so
     /// `PoaAdmin::dispatch_as_root` applies it again.
     type BaseCallFilter = HolderTreasuryLock;
+    // Every account gets its EVM address mapping when it is created (m4-evm design D4).
+    type OnNewAccount = pallet_revive::AutoMapper<Runtime>;
+    type OnKilledAccount = pallet_revive::AutoMapper<Runtime>;
 }
 
 impl pallet_timestamp::Config for Runtime {
@@ -110,7 +113,7 @@ pub struct DealWithFees;
 
 impl DealWithFees {
     /// Account of the current block's author: derived from its block-sealing key.
-    fn author() -> Option<AccountId> {
+    pub(crate) fn author() -> Option<AccountId> {
         pallet_aura_pq::CurrentAuthor::<Runtime>::get()
             .map(|key| pallet_pq_accounts::derived_account(&key))
     }
@@ -281,3 +284,79 @@ impl pallet_staking_pos::Config for Runtime {
     type MaxWinners = ConstU32<1_000>;
     type WeightInfo = pallet_staking_pos::weights::SubstrateWeight<Runtime>;
 }
+
+/// Storage deposit of `items` storage items and `bytes` bytes: 0.01 ATC per item plus
+/// 0.0001 ATC per byte (m4-evm design D2). Widening `u32 -> u128` casts cannot truncate.
+pub const fn contract_deposit(items: u32, bytes: u32) -> Balance {
+    (items as Balance)
+        .saturating_mul(ATC / 100)
+        .saturating_add((bytes as Balance).saturating_mul(ATC / 10_000))
+}
+
+parameter_types! {
+    pub const DepositPerByte: Balance = contract_deposit(0, 1);
+    pub const DepositPerItem: Balance = contract_deposit(1, 0);
+    pub const DepositPerChildTrieItem: Balance = contract_deposit(1, 0);
+    pub const CodeHashLockupDepositPercent: Perbill = Perbill::from_percent(30);
+    pub const MaxEthExtrinsicWeight: FixedU128 = FixedU128::from_rational(9, 10);
+}
+
+/// `block.coinbase`: the account of the block's Aura-PQ author, the same account that receives
+/// the author's share of the fees.
+pub struct AuraPqAuthor;
+
+impl FindAuthor<AccountId> for AuraPqAuthor {
+    fn find_author<'a, I>(_digests: I) -> Option<AccountId>
+    where
+        I: 'a + IntoIterator<Item = (frame_support::ConsensusEngineId, &'a [u8])>,
+    {
+        DealWithFees::author()
+    }
+}
+
+/// The currency `pallet-revive` sees: `Balances`, except that amounts revive would mint are paid
+/// by the transaction signer and burns go through `Emission` (m4-evm design D5).
+pub type ReviveCurrency = pallet_evm_support::ReviveCurrency<
+    Balances,
+    pallet_evm_support::CurrentPayer<Runtime>,
+    Emission,
+>;
+
+impl pallet_revive::Config for Runtime {
+    type Time = Timestamp;
+    type Balance = Balance;
+    type Currency = ReviveCurrency;
+    type OnBurn = Emission;
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeCall = RuntimeCall;
+    type RuntimeOrigin = RuntimeOrigin;
+    type RuntimeHoldReason = RuntimeHoldReason;
+    type WeightInfo = pallet_revive::weights::SubstrateWeight<Self>;
+    // The PQ precompiles are added with m4-evm task group 3.
+    type Precompiles = ();
+    type FindAuthor = AuraPqAuthor;
+    type DepositPerByte = DepositPerByte;
+    type DepositPerItem = DepositPerItem;
+    type DepositPerChildTrieItem = DepositPerChildTrieItem;
+    type CodeHashLockupDepositPercent = CodeHashLockupDepositPercent;
+    type AddressMapper = pallet_revive::AccountId32Mapper<Self>;
+    // EVM bytecode only: PolkaVM uploads are refused by the call filter (design D3).
+    type AllowEVMBytecode = ConstBool<true>;
+    type UploadOrigin = EnsureSigned<AccountId>;
+    type InstantiateOrigin = EnsureSigned<AccountId>;
+    type RuntimeMemory = ConstU32<{ 128 * 1024 * 1024 }>;
+    type PVFMemory = ConstU32<{ 512 * 1024 * 1024 }>;
+    type ChainId = ConstU64<{ ac_primitives::evm::EVM_CHAIN_ID }>;
+    // ATC and wei both have 18 decimals: one wei is one smallest ATC unit, so there is no dust.
+    type NativeToEthRatio = ConstU32<1>;
+    // Contract transactions are native transactions: fees go through `pallet-transaction-payment`
+    // and `DealWithFees`, not through revive's Ethereum fee emulation.
+    type FeeInfo = ();
+    type Deposit = ();
+    type MaxEthExtrinsicWeight = MaxEthExtrinsicWeight;
+    type DebugEnabled = ConstBool<false>;
+    type AutoMap = ConstBool<true>;
+    type GasScale = ConstU32<1>;
+}
+
+impl pallet_evm_support::Config for Runtime {}

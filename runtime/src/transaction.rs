@@ -58,6 +58,7 @@ pub fn authorized_extensions(params: &TxParams) -> AuthorizedExtensions {
         frame_system::CheckNonce::from(params.nonce),
         frame_system::CheckWeight::new(),
         pallet_transaction_payment::ChargeTransactionPayment::from(params.tip),
+        pallet_evm_support::SetEvmPayer::new(),
         frame_system::WeightReclaim::new(),
     )
 }
@@ -72,6 +73,7 @@ pub fn implicit_from(context: &ChainContext, params: &TxParams) -> AuthorizedImp
         context.transaction_version,
         context.genesis_hash,
         params.era_birth_hash,
+        (),
         (),
         (),
         (),
@@ -124,8 +126,8 @@ pub fn assemble(
         signature,
         public_key,
     });
-    let (a, b, c, d, e, f, g, h, i, j) = extensions;
-    UncheckedExtrinsic::new_transaction(call, (auth, a, b, c, d, e, f, g, h, i, j))
+    let (a, b, c, d, e, f, g, h, i, j, k) = extensions;
+    UncheckedExtrinsic::new_transaction(call, (auth, a, b, c, d, e, f, g, h, i, j, k))
 }
 
 /// Assembles a v5 general transaction without an account signature, for calls that authorize
@@ -138,9 +140,9 @@ pub fn assemble_unsigned(call: RuntimeCall) -> UncheckedExtrinsic {
         era: Era::Immortal,
         era_birth_hash: Hash::zero(),
     };
-    let (a, b, c, d, e, f, g, h, i, j) = authorized_extensions(&params);
+    let (a, b, c, d, e, f, g, h, i, j, k) = authorized_extensions(&params);
     let auth = PqAuthorize::<Runtime>::new(PqAuth::None);
-    UncheckedExtrinsic::new_transaction(call, (auth, a, b, c, d, e, f, g, h, i, j))
+    UncheckedExtrinsic::new_transaction(call, (auth, a, b, c, d, e, f, g, h, i, j, k))
 }
 
 /// A ready-to-submit double-signing report, or `None` if the evidence is invalid or already
