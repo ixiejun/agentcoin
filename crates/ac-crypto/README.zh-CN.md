@@ -74,6 +74,7 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 | `agentcoin/key-rotation/v1` | 签名 | 轮换新密钥的持有证明 | 自 M1 起使用（共识关键） |
 | `agentcoin/bft-vote/v1` | 签名 | AC-BFT 的全部消息（提议、投票、超时） | 自 M2 起使用（共识关键） |
 | `agentcoin/validator-pop/v1` | 签名 | 质押注册的验证人公钥的持有证明 | 自 M3 起使用（共识关键） |
+| `agentcoin/evm-verify/v1` | 签名 | 合约通过 `pq_verify` 预编译验证的消息 | 自 M4 起使用 |
 | `agentcoin/receipt/v1` | 签名 | 推理回执 | 为 M5 预留 |
 
 ## 加密私钥文件（格式 v1）

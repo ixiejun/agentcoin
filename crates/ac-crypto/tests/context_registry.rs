@@ -38,13 +38,29 @@ fn readme_lists_every_context() {
             "README.zh-CN.md lacks {context}"
         );
     }
-    for context in [
-        "agentcoin/tx/v1",
-        "agentcoin/aura-seal/v1",
-        "agentcoin/key-rotation/v1",
-        "agentcoin/bft-vote/v1",
-        "agentcoin/validator-pop/v1",
-    ] {
+    for context in SIGNATURE_CONTEXTS {
         assert!(readme.contains(context) && readme_zh.contains(context));
+    }
+}
+
+/// The registered signature contexts, as listed in README.md.
+const SIGNATURE_CONTEXTS: [&str; 7] = [
+    "agentcoin/tx/v1",
+    "agentcoin/aura-seal/v1",
+    "agentcoin/key-rotation/v1",
+    "agentcoin/bft-vote/v1",
+    "agentcoin/validator-pop/v1",
+    "agentcoin/receipt/v1",
+    "agentcoin/evm-verify/v1",
+];
+
+// A purpose's context is never reused (AGENT.md §6.2): the registry has no duplicates, so a
+// signature made under one context never verifies under another.
+#[test]
+fn signature_contexts_are_distinct() {
+    let mut seen = std::collections::BTreeSet::new();
+    for context in SIGNATURE_CONTEXTS {
+        assert!(seen.insert(context), "{context} is registered twice");
+        assert!(context.len() <= 255);
     }
 }

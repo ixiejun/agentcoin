@@ -107,6 +107,7 @@ reused for another purpose.
 | `agentcoin/key-rotation/v1` | signature | proof of possession of a rotated-in key | in use from M1 (consensus-critical) |
 | `agentcoin/bft-vote/v1` | signature | every AC-BFT message (proposals, votes, timeouts) | in use from M2 (consensus-critical) |
 | `agentcoin/validator-pop/v1` | signature | proof of possession of a validator key registered for staking | in use from M3 (consensus-critical) |
+| `agentcoin/evm-verify/v1` | signature | messages verified by contracts through the `pq_verify` precompile | in use from M4 |
 | `agentcoin/receipt/v1` | signature | inference receipts | reserved for M5 |
 
 ## Encrypted secret files (format v1)

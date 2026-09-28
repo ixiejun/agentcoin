@@ -1,0 +1,46 @@
+[package]
+name = "pallet-evm-support"
+description = "AgentCoin EVM support: the contract fee payer, a non-minting currency adapter for pallet-revive and the post-quantum precompiles"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+ac-primitives = { workspace = true }
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+pallet-revive = { workspace = true }
+parity-scale-codec = { workspace = true, features = ["derive", "max-encoded-len"] }
+scale-info = { workspace = true, features = ["derive"] }
+sp-runtime = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "ac-primitives/std",
+    "frame-support/std",
+    "frame-system/std",
+    "pallet-revive/std",
+    "parity-scale-codec/std",
+    "scale-info/std",
+    "sp-runtime/std",
+]
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+dbg_macro = "deny"
+wildcard_imports = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"

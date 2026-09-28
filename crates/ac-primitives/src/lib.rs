@@ -9,6 +9,7 @@ mod address;
 pub mod aura_pq;
 pub mod emission;
 pub mod epoch;
+pub mod evm;
 mod hashing;
 pub mod offences;
 pub mod profile;

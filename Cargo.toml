@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["clients/wallet-cli", "tests/e2e", "tests/sim", "tests/overmint-runtime", "tests/early-switch-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "pallets/staking-pos", "runtime"]
+members = ["clients/wallet-cli", "tests/e2e", "tests/sim", "tests/overmint-runtime", "tests/early-switch-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "pallets/staking-pos", "pallets/evm-support", "runtime"]
 
 [workspace.package]
 version = "0.1.0"
@@ -37,6 +37,8 @@ frame-system-benchmarking = { version = "49.0", default-features = false }
 frame-system-rpc-runtime-api = { version = "43.0", default-features = false }
 pallet-balances = { version = "50.0", default-features = false }
 pallet-collective = { version = "49.0", default-features = false }
+# EVM (m4-evm): EVM bytecode only; the PolkaVM path is closed by the runtime call filter.
+pallet-revive = { version = "0.19", default-features = false }
 pallet-timestamp = { version = "48.0", default-features = false }
 pallet-transaction-payment = { version = "49.0", default-features = false }
 pallet-transaction-payment-rpc = { version = "52.0", default-features = false }
@@ -109,6 +111,7 @@ pallet-treasury-dual = { path = "pallets/treasury-dual", version = "0.1", defaul
 pallet-randomness-cr = { path = "pallets/randomness-cr", version = "0.1", default-features = false }
 pallet-validator-set = { path = "pallets/validator-set", version = "0.1", default-features = false }
 pallet-staking-pos = { path = "pallets/staking-pos", version = "0.1", default-features = false }
+pallet-evm-support = { path = "pallets/evm-support", version = "0.1", default-features = false }
 # Test-only
 hex = { version = "0.4", default-features = false }
 serde = { version = "1", default-features = false }
