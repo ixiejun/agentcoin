@@ -212,6 +212,7 @@ dependencies = [
  "sp-genesis-builder",
  "sp-inherents",
  "sp-io",
+ "sp-maybe-compressed-blob",
  "sp-runtime",
  "sp-timestamp",
  "sp-trie",

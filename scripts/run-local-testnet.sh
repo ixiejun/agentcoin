@@ -4,9 +4,9 @@
 # Usage: scripts/run-local-testnet.sh [--check]
 #   (no flag)  run until Ctrl-C; RPC on 127.0.0.1:9944 (alice), :9945 (bob), :9946 (charlie),
 #              :9947 (dave); Prometheus metrics on 127.0.0.1:9615-9618
-#   --check    run for 40 s, then require every node to be at best height >= 20 and finalized
-#              height >= 15, alice's acbft_finalized_number metric to be above 0, the first
-#              emission epoch to have minted the treasury floor and the PoA council to have
+#   --check    once all nodes answer, run for 40 s, then require every node to be at best
+#              height >= 20 and finalized height >= 15, alice's acbft_finalized_number metric
+#              to be above 0, the first emission epoch to have minted the treasury floor and the PoA council to have
 #              three members; then exit
 # Environment: AC_NODE (node binary, default target/release/ac-node or target/debug/ac-node),
 #              AC_TESTNET_DIR (base directory for databases and logs, default a temp dir).
@@ -74,6 +74,15 @@ finalized() {
 }
 
 if $check; then
+  # The 40 s window starts once every node answers: startup (genesis state, runtime
+  # compilation) depends on the build profile and the runtime size, block production does not.
+  for port in 9944 9945 9946 9947; do
+    for _ in $(seq 1 120); do
+      rpc "$port" system_health >/dev/null 2>&1 && break
+      sleep 1
+    done
+    rpc "$port" system_health >/dev/null 2>&1 || { echo "node on $port did not start; see logs in $base" >&2; exit 1; }
+  done
   sleep 40
   for port in 9944 9945 9946 9947; do
     h="$(height "$port" || echo 0)"

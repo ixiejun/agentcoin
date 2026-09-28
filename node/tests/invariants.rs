@@ -115,6 +115,16 @@ async fn normal_emission_is_accepted() {
     assert!(!text.contains("constitution invariant violated"));
 }
 
+/// The code a runtime upgrade submits: the zstd-compressed blob, as real upgrades do. Dev-profile
+/// builds embed the uncompressed blob, which no longer fits the 5 MiB block length.
+fn upgrade_code(wasm: &[u8]) -> Vec<u8> {
+    sp_maybe_compressed_blob::compress_strongly(
+        wasm,
+        sp_maybe_compressed_blob::CODE_BLOB_BOMB_LIMIT,
+    )
+    .unwrap()
+}
+
 /// Signs `call` as the development account alice and submits it; returns whether it succeeded.
 async fn submit_as_alice(client: &ac_wallet::NodeClient, call: ac_runtime::RuntimeCall) -> bool {
     use ac_crypto::SigAlg;
@@ -174,7 +184,7 @@ async fn overminting_upgrade_is_rejected() {
     wait_for_height(&node, 1, START).await;
     let client = ac_wallet::NodeClient::new(&node.rpc_url).unwrap();
 
-    let code = ac_overmint_runtime::WASM_BINARY.unwrap().to_vec();
+    let code = upgrade_code(ac_overmint_runtime::WASM_BINARY.unwrap());
     let upgrade = RuntimeCall::PoaAdmin(pallet_poa_admin::Call::dispatch_as_root {
         call: Box::new(RuntimeCall::System(frame_system::Call::set_code { code })),
     });
@@ -197,7 +207,8 @@ async fn overminting_upgrade_is_rejected() {
             .request("state_getRuntimeVersion", rpc_params![])
             .await
             .unwrap();
-        if version["specVersion"] == 4 {
+        // The faulty build is one `spec_version` above the real runtime.
+        if version["specVersion"] == ac_runtime::VERSION.spec_version + 1 {
             break;
         }
         assert!(std::time::Instant::now() < deadline, "upgrade not applied");
@@ -337,7 +348,7 @@ async fn early_switch_upgrade_is_rejected() {
     wait_for_height(&node, 1, START).await;
     let client = ac_wallet::NodeClient::new(&node.rpc_url).unwrap();
 
-    let code = ac_early_switch_runtime::WASM_BINARY.unwrap().to_vec();
+    let code = upgrade_code(ac_early_switch_runtime::WASM_BINARY.unwrap());
     let upgrade = RuntimeCall::PoaAdmin(pallet_poa_admin::Call::dispatch_as_root {
         call: Box::new(RuntimeCall::System(frame_system::Call::set_code { code })),
     });

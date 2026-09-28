@@ -68,6 +68,7 @@ sp-genesis-builder = { version = "0.24", default-features = false }
 sp-inherents = { version = "43.0", default-features = false }
 sp-npos-elections = { version = "43.0", default-features = false }
 sp-io = { version = "48.0", default-features = false }
+sp-maybe-compressed-blob = { version = "11.1", default-features = false }
 sp-offchain = { version = "43.0", default-features = false }
 sp-runtime = { version = "48.0", default-features = false }
 sp-session = { version = "45.0", default-features = false }
