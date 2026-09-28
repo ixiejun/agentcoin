@@ -182,8 +182,13 @@ mod tests {
         (path, pk)
     }
 
+    /// A fresh directory per call: tests run in parallel threads of one process and all write
+    /// `authority.json`, so a directory shared per process let one test read another's
+    /// half-written file.
     fn tmp() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("ac-node-keys-{}", std::process::id()));
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!("ac-node-keys-{}-{n}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
