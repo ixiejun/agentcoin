@@ -12,9 +12,10 @@ use sp_runtime::{
 use sp_version::RuntimeVersion;
 
 use super::{
-    AccountId, AuraPq, Balance, Block, Emission, Executive, InherentDataExt, Nonce, Offences,
-    PqAccounts, RandomnessCr, Runtime, RuntimeCall, RuntimeGenesisConfig, StakingPos, System,
-    TransactionPayment, TreasuryDual, VERSION, ValidatorSet,
+    AccountId, AuraPq, Balance, Block, BlockNumber, Emission, EvmSupport, Executive,
+    InherentDataExt, Nonce, Offences, PqAccounts, RandomnessCr, Revive, Runtime, RuntimeCall,
+    RuntimeGenesisConfig, StakingPos, System, TransactionPayment, TreasuryDual, VERSION,
+    ValidatorSet,
 };
 
 impl_runtime_apis! {
@@ -335,9 +336,249 @@ impl_runtime_apis! {
         }
     }
 
+    // Hand-written instead of `pallet_revive::impl_runtime_apis_plus_revive_traits!`, which
+    // needs the Ethereum transaction wrapper this chain does not have (m4-evm design D11):
+    // every dry run makes the queried origin the payer (design D5), PolkaVM code and
+    // secp256k1-signed payloads are refused, and tracing is disabled.
+    impl pallet_revive::ReviveApi<Block, AccountId, Balance, Nonce, BlockNumber, u64> for Runtime {
+        fn eth_block() -> pallet_revive::EthBlock {
+            Revive::eth_block()
+        }
+
+        fn eth_block_hash(number: pallet_revive::U256) -> Option<pallet_revive::H256> {
+            Revive::eth_block_hash_from_number(number)
+        }
+
+        fn eth_receipt_data() -> Vec<pallet_revive::ReceiptGasInfo> {
+            Revive::eth_receipt_data()
+        }
+
+        fn block_gas_limit() -> pallet_revive::U256 {
+            Revive::evm_block_gas_limit()
+        }
+
+        fn max_extrinsic_weight_in_gas() -> pallet_revive::U256 {
+            Revive::evm_max_extrinsic_weight_in_gas()
+        }
+
+        fn balance(address: pallet_revive::H160) -> pallet_revive::U256 {
+            Revive::evm_balance(&address)
+        }
+
+        fn gas_price() -> pallet_revive::U256 {
+            Revive::evm_base_fee()
+        }
+
+        fn nonce(address: pallet_revive::H160) -> Nonce {
+            System::account_nonce(revive_account_id(&address))
+        }
+
+        fn call(
+            origin: AccountId,
+            dest: pallet_revive::H160,
+            value: Balance,
+            weight_limit: Option<frame_support::weights::Weight>,
+            storage_deposit_limit: Option<Balance>,
+            input_data: Vec<u8>,
+        ) -> pallet_revive::ContractResult<pallet_revive::ExecReturnValue, Balance> {
+            Revive::prepare_dry_run(&origin);
+            EvmSupport::with_payer(origin.clone(), || {
+                Revive::bare_call(
+                    crate::RuntimeOrigin::signed(origin),
+                    dest,
+                    Revive::convert_native_to_evm(value),
+                    dry_run_limits(weight_limit, storage_deposit_limit),
+                    input_data,
+                    &pallet_revive::ExecConfig::new_substrate_tx().with_dry_run(Default::default()),
+                )
+            })
+        }
+
+        fn instantiate(
+            origin: AccountId,
+            value: Balance,
+            weight_limit: Option<frame_support::weights::Weight>,
+            storage_deposit_limit: Option<Balance>,
+            code: pallet_revive::Code,
+            data: Vec<u8>,
+            salt: Option<[u8; 32]>,
+        ) -> pallet_revive::ContractResult<pallet_revive::InstantiateReturnValue, Balance> {
+            // Only EVM init code, exactly like the call filter (design D3).
+            let evm_code = matches!(
+                &code,
+                pallet_revive::Code::Upload(bytes)
+                    if !bytes.starts_with(&ac_primitives::evm::POLKAVM_MAGIC)
+            );
+            if !evm_code {
+                return pallet_revive::ContractResult {
+                    result: Err(pallet_revive::Error::<Runtime>::CodeRejected.into()),
+                    ..Default::default()
+                };
+            }
+            Revive::prepare_dry_run(&origin);
+            EvmSupport::with_payer(origin.clone(), || {
+                Revive::bare_instantiate(
+                    crate::RuntimeOrigin::signed(origin),
+                    Revive::convert_native_to_evm(value),
+                    dry_run_limits(weight_limit, storage_deposit_limit),
+                    code,
+                    data,
+                    salt,
+                    &pallet_revive::ExecConfig::new_substrate_tx().with_dry_run(Default::default()),
+                )
+            })
+        }
+
+        fn eth_transact(
+            tx: pallet_revive::evm::GenericTransaction,
+        ) -> Result<pallet_revive::EthTransactInfo<Balance>, pallet_revive::EthTransactError> {
+            let payer = revive_account_id(&tx.from.unwrap_or_default());
+            EvmSupport::with_payer(payer, || Revive::dry_run_eth_transact(tx, Default::default()))
+        }
+
+        fn eth_transact_with_config(
+            tx: pallet_revive::evm::GenericTransaction,
+            config: pallet_revive::DryRunConfig<u64>,
+        ) -> Result<pallet_revive::EthTransactInfo<Balance>, pallet_revive::EthTransactError> {
+            let payer = revive_account_id(&tx.from.unwrap_or_default());
+            EvmSupport::with_payer(payer, || Revive::dry_run_eth_transact(tx, config))
+        }
+
+        fn eth_estimate_gas(
+            tx: pallet_revive::evm::GenericTransaction,
+            config: pallet_revive::DryRunConfig<u64>,
+        ) -> Result<pallet_revive::U256, pallet_revive::EthTransactError> {
+            let payer = revive_account_id(&tx.from.unwrap_or_default());
+            EvmSupport::with_payer(payer, || Revive::eth_estimate_gas(tx, config))
+        }
+
+        // Ethereum (secp256k1) transactions are never accepted (red line 1, D13).
+        fn eth_pre_dispatch_weight(
+            _tx: Vec<u8>,
+        ) -> Result<frame_support::weights::Weight, pallet_revive::EthTransactError> {
+            Err(pallet_revive::EthTransactError::Message(
+                "Ethereum-signed transactions are not supported".into(),
+            ))
+        }
+
+        // Only PolkaVM code is uploaded on its own; EVM runtime code comes from init code.
+        fn upload_code(
+            _origin: AccountId,
+            _code: Vec<u8>,
+            _storage_deposit_limit: Option<Balance>,
+        ) -> pallet_revive::CodeUploadResult<Balance> {
+            Err(pallet_revive::Error::<Runtime>::CodeRejected.into())
+        }
+
+        fn get_storage(address: pallet_revive::H160, key: [u8; 32]) -> pallet_revive::GetStorageResult {
+            Revive::get_storage(address, key)
+        }
+
+        fn get_storage_var_key(
+            address: pallet_revive::H160,
+            key: Vec<u8>,
+        ) -> pallet_revive::GetStorageResult {
+            Revive::get_storage_var_key(address, key)
+        }
+
+        // Tracing is not offered (non-goal of m4-evm).
+        fn trace_block(
+            _block: Block,
+            _config: pallet_revive::evm::TracerType,
+        ) -> Vec<(u32, pallet_revive::evm::Trace)> {
+            Vec::new()
+        }
+
+        fn trace_tx(
+            _block: Block,
+            _tx_index: u32,
+            _config: pallet_revive::evm::TracerType,
+        ) -> Option<pallet_revive::evm::Trace> {
+            None
+        }
+
+        fn trace_call(
+            _tx: pallet_revive::evm::GenericTransaction,
+            _config: pallet_revive::evm::TracerType,
+        ) -> Result<pallet_revive::evm::Trace, pallet_revive::EthTransactError> {
+            Err(pallet_revive::EthTransactError::Message("tracing is not supported".into()))
+        }
+
+        fn trace_call_with_config(
+            _tx: pallet_revive::evm::GenericTransaction,
+            _tracer_type: pallet_revive::evm::TracerType,
+            _config: pallet_revive::evm::TracingConfig,
+        ) -> Result<pallet_revive::evm::Trace, pallet_revive::EthTransactError> {
+            Err(pallet_revive::EthTransactError::Message("tracing is not supported".into()))
+        }
+
+        fn block_author() -> pallet_revive::H160 {
+            Revive::block_author()
+        }
+
+        fn address(account_id: AccountId) -> pallet_revive::H160 {
+            use pallet_revive::AddressMapper;
+            <Runtime as pallet_revive::Config>::AddressMapper::to_address(&account_id)
+        }
+
+        fn account_id(address: pallet_revive::H160) -> AccountId {
+            revive_account_id(&address)
+        }
+
+        fn runtime_pallets_address() -> pallet_revive::H160 {
+            pallet_revive::RUNTIME_PALLETS_ADDR
+        }
+
+        fn code(address: pallet_revive::H160) -> Vec<u8> {
+            Revive::code(&address)
+        }
+
+        fn new_balance_with_dust(
+            balance: pallet_revive::U256,
+        ) -> Result<(Balance, u32), pallet_revive::BalanceConversionError> {
+            Revive::new_balance_with_dust(balance)
+        }
+    }
+
     impl ac_primitives::profile::ChainProfileApi<Block> for Runtime {
         fn profile() -> ac_primitives::ChainProfile {
             ac_primitives::ChainProfile::AGENTCOIN
+        }
+    }
+}
+
+/// The account behind an EVM address (its mapped account, or its fallback account).
+fn revive_account_id(address: &pallet_revive::H160) -> AccountId {
+    use pallet_revive::AddressMapper;
+    <Runtime as pallet_revive::Config>::AddressMapper::to_account_id(address)
+}
+
+/// Limits of a dry run: the given ones, or a whole block and an unlimited deposit.
+fn dry_run_limits(
+    weight_limit: Option<frame_support::weights::Weight>,
+    storage_deposit_limit: Option<Balance>,
+) -> pallet_revive::TransactionLimits<Runtime> {
+    let block: frame_system::limits::BlockWeights =
+        <Runtime as frame_system::Config>::BlockWeights::get();
+    pallet_revive::TransactionLimits::WeightAndDeposit {
+        weight_limit: weight_limit.unwrap_or(block.max_block),
+        deposit_limit: storage_deposit_limit.unwrap_or(Balance::MAX),
+    }
+}
+
+/// Required by revive's Ethereum dry runs; only the Ethereum-context calls (never dispatched on
+/// this chain, design D3) carry a weight limit to replace.
+impl pallet_revive::evm::runtime::SetWeightLimit for RuntimeCall {
+    fn set_weight_limit(
+        &mut self,
+        new_weight_limit: frame_support::weights::Weight,
+    ) -> frame_support::weights::Weight {
+        match self {
+            RuntimeCall::Revive(
+                pallet_revive::Call::eth_call { weight_limit, .. }
+                | pallet_revive::Call::eth_instantiate_with_code { weight_limit, .. },
+            ) => core::mem::replace(weight_limit, new_weight_limit),
+            _ => frame_support::weights::Weight::default(),
         }
     }
 }

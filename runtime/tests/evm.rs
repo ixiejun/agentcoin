@@ -586,3 +586,147 @@ fn classifier_matches_runtime_encoding() {
     }
     assert!(classify_call(&common::transfer(&AccountId::new([1; 32]), 1).encode()).is_err());
 }
+
+// --- task 2.9: ReviveApi --------------------------------------------------------------------------
+
+/// Stores the first calldata word in slot 0, or returns slot 0 when called without data (a
+/// minimal "setter/getter", standing in for an ERC-20 `balanceOf`).
+const REGISTER: &[u8] = &[
+    0x36, 0x15, 0x60, 0x0c, 0x57, 0x60, 0x00, 0x35, 0x60, 0x00, 0x55, 0x00, // set
+    0x5b, 0x60, 0x00, 0x54, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3, // get
+];
+
+/// Runs a runtime API call the way the node does: its state changes are discarded. Returns the
+/// result and whether the storage root was unchanged afterwards.
+fn api<R>(f: impl FnOnce() -> R) -> (R, bool) {
+    let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+    let result = frame_support::storage::with_transaction(|| {
+        sp_runtime::TransactionOutcome::Rollback(Ok::<_, DispatchError>(f()))
+    })
+    .unwrap();
+    let after = sp_io::storage::root(sp_runtime::StateVersion::V1);
+    (result, before == after)
+}
+
+// Requirement "合约状态可只读查询" / Scenario "模拟调用": any caller, no signature, no state change.
+#[test]
+fn revive_api_dry_call_from_any_address() {
+    use pallet_revive::runtime_decl_for_revive_api::ReviveApiV1;
+    dev_ext().execute_with(|| {
+        let alice = Signer::dev("alice");
+        let register = deploy(&alice, REGISTER);
+        assert_eq!(
+            apply(signed(&alice, contract_call(register, word(42u8)))),
+            Ok(Ok(()))
+        );
+        // A caller that has never existed on chain.
+        let stranger = AccountId::new([0x5a; 32]);
+        let (result, unchanged) = api(|| {
+            <Runtime as ReviveApiV1<_, _, _, _, _, _>>::call(
+                stranger.clone(),
+                register,
+                0,
+                None,
+                None,
+                vec![],
+            )
+        });
+        assert_eq!(result.result.unwrap().data, word(42u8));
+        assert!(unchanged, "the dry run leaves no trace");
+        assert!(!System::account_exists(&stranger));
+        let store = register;
+        assert_eq!(
+            <Runtime as ReviveApiV1<_, _, _, _, _, _>>::code(store),
+            REGISTER.to_vec()
+        );
+        assert_eq!(
+            <Runtime as ReviveApiV1<_, _, _, _, _, _>>::nonce(address_of(&alice.account)),
+            System::account_nonce(&alice.account)
+        );
+        assert_eq!(
+            <Runtime as ReviveApiV1<_, _, _, _, _, _>>::account_id(address_of(&alice.account)),
+            alice.account
+        );
+    });
+}
+
+// Scenario "回滚原因".
+#[test]
+fn revive_api_reports_revert_data() {
+    use pallet_revive::runtime_decl_for_revive_api::ReviveApiV1;
+    dev_ext().execute_with(|| {
+        let alice = Signer::dev("alice");
+        let reverting = deploy(&alice, REVERT_NO);
+        let (result, unchanged) = api(|| {
+            <Runtime as ReviveApiV1<_, _, _, _, _, _>>::call(
+                alice.account.clone(),
+                reverting,
+                0,
+                None,
+                None,
+                vec![],
+            )
+        });
+        assert!(unchanged);
+        let out = result.result.unwrap();
+        assert!(out.did_revert());
+        assert_eq!(out.data[68..70], *b"no");
+    });
+}
+
+// Dry-run deployments accept EVM init code only; Ethereum payloads and code uploads are refused.
+#[test]
+fn revive_api_refuses_polkavm_and_ethereum_paths() {
+    use pallet_revive::runtime_decl_for_revive_api::ReviveApiV1;
+    dev_ext().execute_with(|| {
+        let alice = Signer::dev("alice");
+        let (evm, unchanged) = api(|| {
+            <Runtime as ReviveApiV1<_, _, _, _, _, _>>::instantiate(
+                alice.account.clone(),
+                0,
+                None,
+                None,
+                pallet_revive::Code::Upload(init_code(STORE)),
+                vec![],
+                None,
+            )
+        });
+        assert!(unchanged);
+        assert!(evm.result.is_ok());
+        assert!(evm.storage_deposit.charge_or_zero() > 0);
+        let mut pvm = POLKAVM_MAGIC.to_vec();
+        pvm.extend_from_slice(&[0; 16]);
+        for code in [
+            pallet_revive::Code::Upload(pvm.clone()),
+            pallet_revive::Code::Existing(sp_core::H256::zero()),
+        ] {
+            let (refused, _) = api(|| {
+                <Runtime as ReviveApiV1<_, _, _, _, _, _>>::instantiate(
+                    alice.account.clone(),
+                    0,
+                    None,
+                    None,
+                    code,
+                    vec![],
+                    None,
+                )
+            });
+            assert_eq!(
+                refused.result.err(),
+                Some(pallet_revive::Error::<Runtime>::CodeRejected.into())
+            );
+        }
+        assert!(
+            <Runtime as ReviveApiV1<_, _, _, _, _, _>>::upload_code(
+                alice.account.clone(),
+                pvm,
+                None
+            )
+            .is_err()
+        );
+        assert!(
+            <Runtime as ReviveApiV1<_, _, _, _, _, _>>::eth_pre_dispatch_weight(vec![0xf8])
+                .is_err()
+        );
+    });
+}
