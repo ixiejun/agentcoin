@@ -5,7 +5,7 @@
 use ac_crypto::hash::validate_context;
 
 /// The registered hashing contexts, as listed in README.md.
-const REGISTERED: [&str; 12] = [
+const REGISTERED: [&str; 14] = [
     "agentcoin 2026-09 account-id v1",
     "agentcoin 2026-09 test-rng v1",
     "agentcoin 2026-09 tx-payload v1",
@@ -18,6 +18,8 @@ const REGISTERED: [&str; 12] = [
     "agentcoin 2026-09 randomness-commit v1",
     "agentcoin 2026-09 randomness v1",
     "agentcoin 2026-09 randomness-subject v1",
+    "agentcoin 2026-09 model-id v1",
+    "agentcoin 2026-09 voucher-payload v1",
 ];
 
 #[test]
@@ -44,7 +46,7 @@ fn readme_lists_every_context() {
 }
 
 /// The registered signature contexts, as listed in README.md.
-const SIGNATURE_CONTEXTS: [&str; 7] = [
+const SIGNATURE_CONTEXTS: [&str; 8] = [
     "agentcoin/tx/v1",
     "agentcoin/aura-seal/v1",
     "agentcoin/key-rotation/v1",
@@ -52,10 +54,19 @@ const SIGNATURE_CONTEXTS: [&str; 7] = [
     "agentcoin/validator-pop/v1",
     "agentcoin/receipt/v1",
     "agentcoin/evm-verify/v1",
+    "agentcoin/voucher/v1",
 ];
 
 // A purpose's context is never reused (AGENT.md §6.2): the registry has no duplicates, so a
 // signature made under one context never verifies under another.
+#[test]
+fn hash_contexts_are_distinct() {
+    let mut seen = std::collections::BTreeSet::new();
+    for context in REGISTERED {
+        assert!(seen.insert(context), "{context} is registered twice");
+    }
+}
+
 #[test]
 fn signature_contexts_are_distinct() {
     let mut seen = std::collections::BTreeSet::new();

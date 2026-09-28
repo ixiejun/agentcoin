@@ -103,12 +103,15 @@ reused for another purpose.
 | `agentcoin 2026-09 randomness-commit v1` | hash | commitments to randomness secrets | in use from M2 (consensus-critical) |
 | `agentcoin 2026-09 randomness v1` | hash | epoch randomness: `u64_le(epoch) ‖ reveals sorted by account ID` | in use from M2 (consensus-critical) |
 | `agentcoin 2026-09 randomness-subject v1` | hash | per-subject values derived from epoch randomness | in use from M2 |
+| `agentcoin 2026-09 model-id v1` | hash | model IDs: SCALE encoding of the weight manifest | in use from M5 |
+| `agentcoin 2026-09 voucher-payload v1` | hash | 32-byte signing payload of transparent credit vouchers | in use from M5 |
 | `agentcoin/tx/v1` | signature | transaction signatures | in use from M1 (consensus-critical) |
 | `agentcoin/aura-seal/v1` | signature | Aura-PQ block seals | in use from M1 (consensus-critical) |
 | `agentcoin/key-rotation/v1` | signature | proof of possession of a rotated-in key | in use from M1 (consensus-critical) |
 | `agentcoin/bft-vote/v1` | signature | every AC-BFT message (proposals, votes, timeouts) | in use from M2 (consensus-critical) |
 | `agentcoin/validator-pop/v1` | signature | proof of possession of a validator key registered for staking | in use from M3 (consensus-critical) |
 | `agentcoin/evm-verify/v1` | signature | messages verified by contracts through the `pq_verify` precompile | in use from M4 |
+| `agentcoin/voucher/v1` | signature | transparent credit vouchers (cumulative, per channel) | in use from M5 |
 | `agentcoin/receipt/v1` | signature | inference receipts | reserved for M5 |
 
 ## Poseidon2

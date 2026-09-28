@@ -70,12 +70,15 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 | `agentcoin 2026-09 randomness-commit v1` | 哈希 | 随机数秘密值的承诺 | 自 M2 起使用（共识关键） |
 | `agentcoin 2026-09 randomness v1` | 哈希 | 纪元随机数：`u64_le(纪元) ‖ 按账户 ID 排序的揭示值` | 自 M2 起使用（共识关键） |
 | `agentcoin 2026-09 randomness-subject v1` | 哈希 | 由纪元随机数按主题派生的值 | 自 M2 起使用 |
+| `agentcoin 2026-09 model-id v1` | 哈希 | 模型 ID：权重清单的 SCALE 编码 | 自 M5 起使用 |
+| `agentcoin 2026-09 voucher-payload v1` | 哈希 | 透明额度凭证的 32 字节签名载荷 | 自 M5 起使用 |
 | `agentcoin/tx/v1` | 签名 | 交易签名 | 自 M1 起使用（共识关键） |
 | `agentcoin/aura-seal/v1` | 签名 | Aura-PQ 区块封印 | 自 M1 起使用（共识关键） |
 | `agentcoin/key-rotation/v1` | 签名 | 轮换新密钥的持有证明 | 自 M1 起使用（共识关键） |
 | `agentcoin/bft-vote/v1` | 签名 | AC-BFT 的全部消息（提议、投票、超时） | 自 M2 起使用（共识关键） |
 | `agentcoin/validator-pop/v1` | 签名 | 质押注册的验证人公钥的持有证明 | 自 M3 起使用（共识关键） |
 | `agentcoin/evm-verify/v1` | 签名 | 合约通过 `pq_verify` 预编译验证的消息 | 自 M4 起使用 |
+| `agentcoin/voucher/v1` | 签名 | 透明额度凭证（按通道累计） | 自 M5 起使用 |
 | `agentcoin/receipt/v1` | 签名 | 推理回执 | 为 M5 预留 |
 
 ## Poseidon2

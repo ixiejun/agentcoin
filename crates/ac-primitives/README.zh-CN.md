@@ -14,6 +14,7 @@ AgentCoin 的链上共享类型，供 runtime、节点和客户端使用。
 - `epoch`：纪元编号（`epoch_of`、`is_boundary`）与纪元长度下限。
 - `emission`：ATC 的排放曲线与纪元结算（方案 §5.1）。runtime、节点不变量检查器和经济模拟都使用它，因此三者算出的数完全一致。
 - `staking`：PoA→PoS 切换规则及其宪法值、最低质押额、提名解绑队列、奖励拆分和选举输入。runtime 与节点不变量检查器共用，因此两边得出同样的切换结论。
+- `market`：推理市场类型（M5）：美元金额与参考汇率及明确的取整方向（付款向下、门槛向上），模型清单与模型 ID（上下文 `agentcoin 2026-09 model-id v1`），以 `agentcoin/voucher/v1` 签名的累计式透明凭证与 `check_voucher`（兑付规则的唯一实现，链上链下共用），提供者、网关与通道记录，市场模块之间的接口（`PriceSource`、`Credit`、`ProviderPenalty` 等）以及 `MarketApi` runtime API。
 
 AC-BFT 各种格式的字节级回归向量位于 `tests/vectors/`（见 `SOURCES.md`）。
 

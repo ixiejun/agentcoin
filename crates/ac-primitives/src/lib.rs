@@ -11,6 +11,7 @@ pub mod emission;
 pub mod epoch;
 pub mod evm;
 mod hashing;
+pub mod market;
 pub mod offences;
 pub mod profile;
 pub mod randomness;

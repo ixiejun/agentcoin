@@ -25,6 +25,12 @@ Shared on-chain types for AgentCoin, used by the runtime, the node and clients.
 - `staking`: the PoA → PoS switch rule and its constitution values, minimum stakes, the
   nomination unbonding queue, reward splitting and election inputs. The runtime and the node's
   invariant checker share it, so both reach the same switch decision.
+- `market`: inference-market types (M5): dollar amounts and the reference rate with explicit
+  rounding (payments round down, thresholds up), model manifests and model IDs (context
+  `agentcoin 2026-09 model-id v1`), cumulative transparent vouchers signed with
+  `agentcoin/voucher/v1` and `check_voucher` (the one implementation of the redemption rules,
+  used on and off chain), provider / gateway / channel records, the interfaces between the
+  market pallets (`PriceSource`, `Credit`, `ProviderPenalty`, …) and the `MarketApi` runtime API.
 
 Byte-level regression vectors for the AC-BFT formats live in `tests/vectors/` (see `SOURCES.md`).
 
