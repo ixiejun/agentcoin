@@ -67,12 +67,20 @@ CI SHALL 在每次推送和每个拉取请求时运行以下检查，任一失�
 - **GPL 区**（GPL-3.0-or-later）：`node/`、`services/`、`clients/wallet-cli/`、`tests/`、`scripts/`、`contracts/acceptance/`；
 - **宽松区**（MIT OR Apache-2.0）：GPL 区以外的所有目录，新增目录默认属于宽松区。
 
+仓库 SHALL 登记一份**内部开关**清单及其**放行依赖**清单：
+- 内部开关是只用于开发者本机的 Cargo feature。打开内部开关构建出的产物 MUST NOT 对外分发。
+- 首批内部开关只有 `runtime-benchmarks`，放行依赖只有 `pallet-revive-fixtures`。
+- 两份清单的任何增删 MUST 经过 OpenSpec 变更。
+
 CI MUST 在以下任一情况下失败：
-1. 宽松区中任一 crate 的依赖闭包（常规与构建依赖，含传递依赖，也包括本仓库 GPL 区的 crate）中，出现只能以 GPL 家族许可证使用的依赖；带非 GPL 备选的表达式（如 `Apache-2.0 OR GPL-3.0`）视为允许。
-2. 任一工作区 crate 声明的许可证与其所在区不一致：宽松区必须为 `MIT OR Apache-2.0`，GPL 区必须为 `GPL-3.0-or-later`。
-3. 宽松区中的 Solidity 源文件缺少 SPDX 许可证标识，或其标识为 GPL 家族许可证；宽松区的 Solidity 文件 MUST NOT 导入 GPL 区的 Solidity 文件。
+1. **会分发的构建**中出现 GPL-only 依赖。会分发的构建指宽松区 crate 打开除内部开关以外全部 feature 时的构建。其依赖闭包（常规与构建依赖，含传递依赖，也包括本仓库 GPL 区的 crate）中不得出现只能以 GPL 家族许可证使用的依赖。带非 GPL 备选的表达式（如 `Apache-2.0 OR GPL-3.0`）视为允许。
+2. 宽松区 crate 打开全部 feature（含内部开关）时，依赖闭包中出现不在放行依赖清单里的 GPL-only 依赖。
+3. 任一工作区 crate 声明的许可证与其所在区不一致：宽松区必须为 `MIT OR Apache-2.0`，GPL 区必须为 `GPL-3.0-or-later`。
+4. 宽松区中的 Solidity 源文件缺少 SPDX 许可证标识，或其标识为 GPL 家族许可证；宽松区的 Solidity 文件 MUST NOT 导入 GPL 区的 Solidity 文件。
 
 GPL 区的 crate MAY 依赖任意 GPL 兼容许可证的依赖；GPL 区中从上游原样引入的第三方源码 SHALL 保留其原许可证，并记录来源 URL、固定版本与 SHA-256。
+
+依赖策略检查 SHALL NOT 把放行依赖的许可证加入全局白名单，只对放行依赖逐个登记例外，并写明理由。
 
 #### Scenario: 库 crate 引入 GPL 依赖
 - **WHEN** 让 `crates/` 下的某个 crate 依赖一个 GPL-3.0 许可证的 crate
@@ -106,6 +114,26 @@ GPL 区的 crate MAY 依赖任意 GPL 兼容许可证的依赖；GPL 区中从�
 - **WHEN** `contracts/acceptance/` 中包含原样引入的官方 Uniswap V2 源码（GPL-3.0），并附来源记录
 - **THEN** 许可证边界检查通过
 
+#### Scenario: 放行依赖只在内部开关下出现
+- **WHEN** 宽松区 crate 只在 `runtime-benchmarks` 开关下依赖 `pallet-revive-fixtures`（GPL-3.0-only）
+- **THEN** 许可证边界检查通过
+
+#### Scenario: 放行依赖出现在普通开关下
+- **WHEN** 宽松区 crate 在 `std` 或默认 feature 下依赖 `pallet-revive-fixtures`
+- **THEN** 许可证边界检查失败，并指出该依赖出现在会分发的构建中
+
+#### Scenario: 内部开关引入未登记的 GPL 依赖
+- **WHEN** 宽松区 crate 在 `runtime-benchmarks` 开关下依赖一个不在放行依赖清单中的 GPL-3.0 crate
+- **THEN** 许可证边界检查失败
+
+#### Scenario: 未登记的开关引入放行依赖
+- **WHEN** 宽松区 crate 在一个未登记为内部开关的 feature（例如 `try-runtime`）下依赖 `pallet-revive-fixtures`
+- **THEN** 许可证边界检查失败
+
+#### Scenario: 依赖策略检查只对放行依赖开例外
+- **WHEN** 依赖图中除放行依赖外还出现另一个 GPL-3.0-only 许可证的 crate
+- **THEN** 依赖策略检查失败
+
 ### Requirement: 安全公告例外须逐条记录
 依赖策略与安全公告审计中的任何忽略项 SHALL 逐条记录公告编号、受影响的依赖路径、不受影响或无法修复的理由，以及复查期限（不超过 90 天）；超过复查期限的忽略项 MUST 使 CI 失败，直到被复查更新或移除。
 
@@ -116,3 +144,18 @@ GPL 区的 crate MAY 依赖任意 GPL 兼容许可证的依赖；GPL 区中从�
 #### Scenario: 缺少理由的忽略项
 - **WHEN** 新增一个没有理由或复查期限的忽略项
 - **THEN** CI 失败
+
+### Requirement: 正式 runtime 不含内部开关
+CI SHALL 以正式配置（release、默认 feature）构建 runtime 的 WASM 产物，并检查该产物导出的 runtime API 清单。清单中出现基准测试 API 时，CI MUST 失败。检查工具 SHALL 带自测，证明它能识别出含基准测试 API 的 runtime。
+
+#### Scenario: 正式 runtime 通过
+- **WHEN** CI 以正式配置构建 runtime 并运行检查
+- **THEN** 检查通过，产物的 runtime API 清单中没有基准测试 API
+
+#### Scenario: 基准开关混入正式构建
+- **WHEN** 一个改动使正式配置构建出的 runtime 含有基准测试 API（例如把 `runtime-benchmarks` 加入默认 feature）
+- **THEN** CI 的正式 runtime 检查失败
+
+#### Scenario: 自测识别带基准接口的 runtime
+- **WHEN** 对一个在 runtime API 清单中声明了基准测试 API 的 WASM 产物运行检查工具的自测
+- **THEN** 检查工具判定该产物含基准测试 API 并返回失败；对清单中没有该 API 的产物则返回通过

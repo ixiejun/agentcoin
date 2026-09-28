@@ -1,6 +1,6 @@
 > 🌐 [English](decisions.md) | **简体中文**
 
-# AgentCoin 决策记录（D1–D52）
+# AgentCoin 决策记录（D1–D53）
 
 > 本文件是需求讨论的最终结论汇总。讨论过程见 `docs/research/01–07`（`*.zh-CN.md`），技术方案见 `docs/design/`。
 
@@ -58,3 +58,4 @@
 | D50 | 发行 | 合约执行永不增发（D9）：每个新合约账户的存在性押金由交易签名者转入（`SetEvmPayer` 交易扩展 + `ReviveCurrency` 封装），没有付款人时铸币失败。合约销毁经 `OnBurn` 计入 `Emission::TotalBurned`；节点的发行量检查不变，照常 fail-closed。由此 revive 自带的基准（要铸币来准备账户）无法运行，runtime 使用 revive 的上游权重，并有测试断言最重的调用与部署放得进一笔普通交易 | m4-evm、license-internal-features |
 | D51 | 工具 | 自写 eth-RPC 适配器 `ac-eth-rpc`（GPL 区，D47）置于节点前：以太坊 JSON-RPC 的只读方法（按 AC-BFT 终局性给出区块、余额、代码、存储、模拟调用、gas 估算、回执、日志）来自节点 RPC 与 runtime API，并在内存中建索引；`eth_sendRawTransaction` 只接受 PQ 签名的原生合约交易。Foundry 通过钱包这个外部签名器使用（`ac-wallet evm deploy / send / broadcast`）；适配器从不记录参数与结果 | m4-evm |
 | D52 | 密码学 | Poseidon2 = Plonky3 默认的 Goldilocks 宽 12 实例（`p3-goldilocks` 0.8：x^7，外部轮 8 + 内部轮 22），海绵速率 8、容量 4，输出 32 字节，字节编码单射（先写字节长度，再把输入加 `0x01` 与补零后按 7 字节小端组成元素）。调研门控没有找到实现 Poseidon2 作者参考实例、经过审阅的 no_std 库；用户接受 Plonky3 的实例，用 Plonky3 公布的置换向量代替作者向量核对（见 `ac-crypto` README） | m4-evm |
+| D53 | 许可证 | 许可证边界（D47）约束的是会分发的构建。登记的内部开关（首批 `runtime-benchmarks`）可以引入登记的 GPL-only 依赖（首批 `pallet-revive-fixtures`，上游的基准合约）；打开内部开关构建的产物不得分发，谁分发谁按 GPL 分发。CI 检查两次闭包（去掉内部开关时不得有任何 GPL-only crate；打开全部 feature 时只允许登记的依赖），并检查正式 runtime 不含基准 API | license-internal-features |
