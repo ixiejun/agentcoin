@@ -51,7 +51,7 @@ jobs:
         run: |
           for crate in ac-crypto ac-primitives ac-invariants pallet-pq-accounts pallet-aura-pq \
             pallet-validator-set pallet-ac-offences pallet-randomness-cr pallet-emission \
-            pallet-treasury-dual pallet-poa-admin pallet-staking-pos; do
+            pallet-treasury-dual pallet-poa-admin pallet-staking-pos pallet-evm-support; do
             cargo build -p "$crate" --no-default-features --target wasm32-unknown-unknown
           done
 
@@ -72,10 +72,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-substrate
-      - run: cargo build -p ac-node -p ac-wallet
+      - run: cargo build -p ac-node -p ac-wallet -p ac-eth-rpc
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
+      - uses: actions/cache@v4
+        with:
+          path: ~/.svm
+          key: solc-0.5.16-0.6.6-0.8.28
       # One network at a time: each test runs four to six debug nodes.
       - name: Four-node network, finality, fault tolerance, double signing, randomness, transfers, key rotation, emission, the PoA multisig, the PoA-to-PoS switch, elections, rewards and slashing
-        run: cargo test -p ac-e2e -- --test-threads 1
+        run: >-
+          cargo test -p ac-e2e --test local_testnet --test finality --test economics --test pos
+          -- --test-threads 1
+      - name: EVM contracts through the wallet, the eth-RPC adapter and Foundry
+        run: cargo test -p ac-e2e --test evm -- --test-threads 1
       - name: Local testnet script
         run: AC_TESTNET_DIR="$AC_E2E_LOGS/testnet" scripts/run-local-testnet.sh --check
       - name: Wallet README commands
@@ -87,6 +98,28 @@ jobs:
           name: e2e-node-logs
           path: target/e2e-logs
           if-no-files-found: ignore
+
+  contracts:
+    # Both Foundry projects (m4-evm): the permissive examples and the Uniswap V2 acceptance
+    # project, whose vendored upstream sources must reproduce byte for byte.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.7.1
+      - uses: actions/cache@v4
+        with:
+          path: ~/.svm
+          key: solc-0.5.16-0.6.6-0.8.28
+      - name: Example contracts
+        working-directory: contracts
+        run: forge test
+      - name: Uniswap V2 acceptance project
+        working-directory: contracts/acceptance
+        run: forge test
+      - name: Vendored Uniswap V2 sources are reproducible
+        run: scripts/vendor-uniswap-v2.sh --check
 
   license-boundary:
     runs-on: ubuntu-latest
