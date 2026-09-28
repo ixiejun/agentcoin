@@ -113,6 +113,12 @@ async fn transfer_and_rotation_across_nodes() {
     let bob = NodeClient::new(&net.nodes[1].url).unwrap();
     let charlie = NodeClient::new(&net.nodes[2].url).unwrap();
 
+    // Other nodes must have imported what alice's node included before they are read from.
+    let synced = || async {
+        let height = net.nodes[0].height().await.unwrap();
+        net.wait_all(&[1, 2], height, START).await.unwrap();
+    };
+
     let dev = Wallet::import(DEV_MNEMONIC, SigAlg::MlDsa44, b"pw").unwrap();
     let mut fresh = Wallet::create(SigAlg::MlDsa44, b"pw").unwrap().wallet;
     let me = fresh.account().unwrap();
@@ -123,6 +129,7 @@ async fn transfer_and_rotation_across_nodes() {
             .unwrap()
             .success
     );
+    synced().await;
 
     // First transfer from the fresh ML-DSA-44 account.
     let sink = dev.account().unwrap();
@@ -140,6 +147,7 @@ async fn transfer_and_rotation_across_nodes() {
         .unwrap();
     assert_eq!(fresh.address(), address);
     assert_eq!(fresh.account().unwrap(), me);
+    synced().await;
     let (key, rotations) = charlie.current_key(&me).await.unwrap().unwrap();
     assert_eq!((key.alg(), rotations), (SigAlg::MlDsa65, 1));
 
