@@ -4,6 +4,13 @@
 # - GPL zone (`GPL-3.0-or-later`): node/, services/, clients/wallet-cli/, tests/, scripts/.
 # - Permissive zone (`MIT OR Apache-2.0`): everything else, including any new directory.
 #
+# Solidity sources follow the same zones, with contracts/acceptance/ also in the GPL zone:
+# 3. A permissive-zone `.sol` file carries an SPDX identifier that is not GPL-only, and imports
+#    nothing from the GPL zone.
+# 4. Third-party sources copied into a GPL-zone `lib/` directory are recorded in a `SOURCE.md`
+#    in that directory that lists each file's SHA-256 (they keep their upstream licence and need
+#    no SPDX line).
+#
 # Two rules are checked for every workspace crate:
 # 1. A permissive-zone crate's normal + build dependency closure contains no crate that can only
 #    be used under a GPL-family licence — this includes AgentCoin's own GPL-zone crates. A
@@ -23,6 +30,8 @@ manifest="$repo_root/Cargo.toml"
 
 # Directories (relative to the workspace root) that form the GPL zone.
 GPL_ZONES="node services clients/wallet-cli tests scripts"
+# Solidity-only GPL zone (design D13 of m4-evm).
+SOL_GPL_ZONES="$GPL_ZONES contracts/acceptance"
 PERMISSIVE_LICENSE="MIT OR Apache-2.0"
 GPL_LICENSE="GPL-3.0-or-later"
 
@@ -72,6 +81,78 @@ print("\n".join(sorted(bad)))
     fi
   done < <(list_packages "$manifest")
   return "$failed"
+}
+
+# Checks every Solidity source under "$1" (build output and caches excluded).
+check_solidity() {
+  local root="$1"
+  find "$root" \( -name .git -o -name target -o -name out -o -name cache -o -name node_modules \
+    -o -name broadcast \) -prune -o -name '*.sol' -print0 |
+    python3 -c '
+import hashlib, os, re, sys
+root = os.path.realpath(sys.argv[1])
+zones = sys.argv[2].split()
+files = [f for f in sys.stdin.read().split("\0") if f]
+
+def rel(path):
+    return os.path.relpath(os.path.realpath(path), root)
+
+def gpl_zone(path):
+    r = rel(path)
+    return next((z for z in zones if r == z or r.startswith(z + "/")), None)
+
+def project_root(path):
+    d = os.path.dirname(os.path.realpath(path))
+    while d.startswith(root):
+        if os.path.exists(os.path.join(d, "foundry.toml")):
+            return d
+        if d == root:
+            break
+        d = os.path.dirname(d)
+    return root
+
+failed = False
+def fail(message):
+    global failed
+    failed = True
+    print(message, file=sys.stderr)
+
+spdx = re.compile(r"SPDX-License-Identifier:\s*([^\s*][^*\n]*?)\s*(?:\*/)?\s*$", re.M)
+imports = re.compile(r"^\s*import\s+(?:[^;]*?\s+from\s+)?[\x22\x27]([^\x22\x27]+)[\x22\x27]", re.M)
+for f in sorted(files):
+    text = open(f, encoding="utf-8", errors="replace").read()
+    zone = gpl_zone(f)
+    if zone is None:
+        m = spdx.search(text)
+        if not m:
+            fail(f"licence zone violated: {rel(f)} (permissive zone) has no SPDX-License-Identifier")
+        else:
+            expr = m.group(1).strip()
+            alternatives = re.split(r"\s+OR\s+", expr.strip("()"))
+            if all("GPL" in alt for alt in alternatives):
+                fail(f"licence zone violated: {rel(f)} (permissive zone) is licensed \"{expr}\"")
+        for target in imports.findall(text):
+            if target.startswith("."):
+                candidates = [os.path.join(os.path.dirname(f), target)]
+            else:
+                candidates = [os.path.join(project_root(f), target), os.path.join(root, target)]
+            for c in candidates:
+                if gpl_zone(c) is not None:
+                    fail(f"licence boundary violated: {rel(f)} (permissive zone) imports {target} from the GPL zone")
+                    break
+    else:
+        parts = rel(f).split("/")
+        if "lib" in parts:
+            lib_dir = os.path.join(root, *parts[: parts.index("lib") + 1])
+            source = os.path.join(lib_dir, "SOURCE.md")
+            if not os.path.exists(source):
+                fail(f"licence record missing: {rel(f)} is vendored under {rel(lib_dir)} without a SOURCE.md")
+                continue
+            digest = hashlib.sha256(open(f, "rb").read()).hexdigest()
+            if digest not in open(source, encoding="utf-8").read():
+                fail(f"licence record out of date: {rel(source)} lacks the SHA-256 of {rel(f)} ({digest})")
+sys.exit(1 if failed else 0)
+' "$root" "$SOL_GPL_ZONES"
 }
 
 # --- self-test ---------------------------------------------------------------------------------
@@ -128,6 +209,26 @@ expect_fail() {
   fi
 }
 
+# Adds Solidity sources to the fixture workspace in "$1": a permissive contract (MIT OR
+# Apache-2.0) and the acceptance project with an upstream GPL file (no SPDX line) recorded in
+# lib/SOURCE.md, as with the official Uniswap V2.
+fixture_solidity() {
+  local ws="$1"
+  rm -rf "$ws/contracts"
+  mkdir -p "$ws/contracts/src" "$ws/contracts/acceptance/lib/v2-core" "$ws/contracts/acceptance/script"
+  touch "$ws/contracts/foundry.toml" "$ws/contracts/acceptance/foundry.toml"
+  printf '// SPDX-License-Identifier: MIT OR Apache-2.0\npragma solidity 0.8.28;\nimport {B} from "./B.sol";\ncontract A {}\n' \
+    >"$ws/contracts/src/A.sol"
+  printf '/* SPDX-License-Identifier: MIT OR Apache-2.0 */\npragma solidity 0.8.28;\ncontract B {}\n' \
+    >"$ws/contracts/src/B.sol"
+  printf 'pragma solidity =0.5.16;\ncontract Pair {}\n' >"$ws/contracts/acceptance/lib/v2-core/Pair.sol"
+  printf '// SPDX-License-Identifier: GPL-3.0-or-later\nimport "../lib/v2-core/Pair.sol";\n' \
+    >"$ws/contracts/acceptance/script/Deploy.s.sol"
+  printf '# Sources\n\n| File | SHA-256 |\n|---|---|\n| v2-core/Pair.sol | %s |\n' \
+    "$(sha256sum "$ws/contracts/acceptance/lib/v2-core/Pair.sol" | cut -d' ' -f1)" \
+    >"$ws/contracts/acceptance/lib/SOURCE.md"
+}
+
 self_test() {
   local tmp
   tmp="$(mktemp -d)"
@@ -166,6 +267,42 @@ self_test() {
   fixture_crate "$ws" crates/lib "$GPL_LICENSE"
   expect_fail "a crates/ crate declaring GPL-3.0-or-later" "$ws" "fixture-crates-lib (permissive zone) declares \"GPL-3.0-or-later\""
 
+  # Scenario: a permissive-zone contract with a GPL identifier, without one, or importing from
+  # the acceptance project.
+  fixture_solidity "$ws"
+  if ! check_solidity "$ws"; then
+    echo "self-test failed: the Solidity baseline was rejected" >&2
+    return 1
+  fi
+  expect_sol_fail() {
+    local what="$1" pattern="$2" err
+    if err="$(check_solidity "$ws" 2>&1 >/dev/null)"; then
+      echo "self-test failed: $what was not detected" >&2
+      return 1
+    fi
+    if ! grep -q "$pattern" <<<"$err"; then
+      echo "self-test failed: $what failed for an unexpected reason:" >&2
+      echo "$err" | sed 's/^/  /' >&2
+      return 1
+    fi
+  }
+  fixture_solidity "$ws"
+  printf '// SPDX-License-Identifier: GPL-3.0\npragma solidity 0.8.28;\n' >"$ws/contracts/src/Bad.sol"
+  expect_sol_fail "a GPL-3.0 contract under contracts/src" 'contracts/src/Bad.sol (permissive zone) is licensed "GPL-3.0"'
+  fixture_solidity "$ws"
+  printf 'pragma solidity 0.8.28;\n' >"$ws/contracts/src/Bad.sol"
+  expect_sol_fail "a contract without SPDX under contracts/src" "contracts/src/Bad.sol (permissive zone) has no SPDX"
+  fixture_solidity "$ws"
+  printf '// SPDX-License-Identifier: MIT\npragma solidity 0.8.28;\nimport {Pair} from "../acceptance/lib/v2-core/Pair.sol";\n' \
+    >"$ws/contracts/src/Bad.sol"
+  expect_sol_fail "a contract importing from contracts/acceptance" "imports ../acceptance/lib/v2-core/Pair.sol from the GPL zone"
+  fixture_solidity "$ws"
+  printf 'contract Changed {}\n' >>"$ws/contracts/acceptance/lib/v2-core/Pair.sol"
+  expect_sol_fail "a vendored file that differs from its record" "lacks the SHA-256 of contracts/acceptance/lib/v2-core/Pair.sol"
+  fixture_solidity "$ws"
+  rm "$ws/contracts/acceptance/lib/SOURCE.md"
+  expect_sol_fail "vendored sources without SOURCE.md" "without a SOURCE.md"
+
   echo "licence boundary self-test passed"
 }
 
@@ -184,6 +321,7 @@ check_pure_protocol() {
 case "${1:-}" in
   --self-test) self_test ;;
   --manifest-path) check "$2" && echo "licence boundary ok" ;;
-  "") check "$manifest" && check_pure_protocol && echo "licence boundary ok" ;;
+  "") check "$manifest" && check_solidity "$repo_root" && check_pure_protocol &&
+    echo "licence boundary ok" ;;
   *) echo "usage: $0 [--manifest-path <Cargo.toml>] [--self-test]" >&2; exit 2 ;;
 esac
