@@ -51,7 +51,11 @@ static NEXT_PORT: AtomicU32 = AtomicU32::new(0);
 
 /// A port in [`PORT_RANGE`] that is free now and was not handed out before by this process.
 /// Each process starts at a pid-dependent offset, so concurrent test processes rarely overlap.
-fn free_port() -> std::io::Result<u16> {
+///
+/// # Errors
+///
+/// No free port in the range.
+pub fn free_port() -> std::io::Result<u16> {
     let span = u32::from(PORT_RANGE.end - PORT_RANGE.start);
     let start = (std::process::id() % 97) * 100 + 1;
     let _ = NEXT_PORT.compare_exchange(0, start, Ordering::SeqCst, Ordering::SeqCst);
