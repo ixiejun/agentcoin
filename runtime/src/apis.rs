@@ -389,7 +389,7 @@ impl_runtime_apis! {
                     Revive::convert_native_to_evm(value),
                     dry_run_limits(weight_limit, storage_deposit_limit),
                     input_data,
-                    &pallet_revive::ExecConfig::new_substrate_tx().with_dry_run(Default::default()),
+                    &pallet_revive::ExecConfig::new_substrate_tx().with_dry_run(pending_block()),
                 )
             })
         }
@@ -424,7 +424,7 @@ impl_runtime_apis! {
                     code,
                     data,
                     salt,
-                    &pallet_revive::ExecConfig::new_substrate_tx().with_dry_run(Default::default()),
+                    &pallet_revive::ExecConfig::new_substrate_tx().with_dry_run(pending_block()),
                 )
             })
         }
@@ -551,6 +551,18 @@ impl_runtime_apis! {
 fn revive_account_id(address: &pallet_revive::H160) -> AccountId {
     use pallet_revive::AddressMapper;
     <Runtime as pallet_revive::Config>::AddressMapper::to_account_id(address)
+}
+
+/// Dry runs execute as in the next block (number + 1, timestamp at least one 1 s slot later), where
+/// the transaction they size will land. With the current block's timestamp, contracts that act
+/// on elapsed time were sized too small: Uniswap V2's first swap after adding liquidity writes
+/// its price accumulators only when time has passed, so its storage deposit was estimated at
+/// zero and the real swap reverted.
+fn pending_block() -> pallet_revive::DryRunConfig<u64> {
+    pallet_revive::DryRunConfig {
+        timestamp_override: Some(pallet_timestamp::Now::<Runtime>::get()),
+        ..Default::default()
+    }
 }
 
 /// Limits of a dry run: the given ones, or a whole block and an unlimited deposit.

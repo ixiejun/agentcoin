@@ -48,6 +48,11 @@ cd contracts/acceptance
 forge test          # deploy, createPair (CREATE2 at pairFor's address), add liquidity, swap
 ```
 
-`script/DeployV2.s.sol` runs the same flow; simulate it with
-`forge script script/DeployV2.s.sol --sender <ac-wallet evm address> --rpc-url <ac-eth-rpc>` and
-send the result with `ac-wallet evm broadcast`.
+`script/DeployV2.s.sol` runs the same flow on the chain in stages: Foundry simulates each stage
+(`forge script script/DeployV2.s.sol --sig "stageWeth()" --sender <ac-wallet evm address>
+--rpc-url <ac-eth-rpc>`) and `ac-wallet evm broadcast` signs and sends it. A native deployment
+advances the sender's nonce by two (once for the transaction, once by `pallet-revive`), so a
+simulation predicts only its first contract creation: each stage creates at most one contract
+(`stageWeth`, `stageFactory`, `stageRouter`, `stageToken` twice) and later stages take earlier
+addresses as arguments; `stageExercise` then creates the pair, adds liquidity and swaps. The
+EVM end-to-end test runs exactly these steps.

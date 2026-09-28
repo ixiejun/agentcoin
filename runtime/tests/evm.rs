@@ -650,6 +650,38 @@ fn revive_api_dry_call_from_any_address() {
     });
 }
 
+/// Returns block.timestamp and block.number as two words.
+const BLOCK_ENV: &[u8] = &[
+    0x42, 0x60, 0x00, 0x52, // TIMESTAMP, MSTORE at 0
+    0x43, 0x60, 0x20, 0x52, // NUMBER, MSTORE at 32
+    0x60, 0x40, 0x60, 0x00, 0xf3, // RETURN 64 bytes
+];
+
+// Requirement "模拟调用与估算" (估算足够): a dry run executes as in the next block, where the
+// transaction it sizes will land, so time-dependent storage writes are counted.
+#[test]
+fn revive_api_dry_runs_in_the_next_block() {
+    use pallet_revive::runtime_decl_for_revive_api::ReviveApiV1;
+    dev_ext().execute_with(|| {
+        let alice = Signer::dev("alice");
+        let env = deploy(&alice, BLOCK_ENV);
+        let (result, _) = api(|| {
+            <Runtime as ReviveApiV1<_, _, _, _, _, _>>::call(
+                alice.account.clone(),
+                env,
+                0,
+                None,
+                None,
+                vec![],
+            )
+        });
+        let data = result.result.unwrap().data;
+        let now_ms = pallet_timestamp::Now::<Runtime>::get();
+        assert_eq!(data[..32], word((now_ms + 1_000) / 1_000)[..]);
+        assert_eq!(data[32..], word(u64::from(System::block_number()) + 1)[..]);
+    });
+}
+
 // Scenario "回滚原因".
 #[test]
 fn revive_api_reports_revert_data() {

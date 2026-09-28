@@ -79,17 +79,29 @@ abstract contract UniswapV2Flow {
         route[1] = address(tokenB);
     }
 
-    /// @dev `owner` receives the tokens, the liquidity and the swap output.
-    function runFlow(address owner) internal {
-        weth = deploy("lib/v2-periphery/contracts/test/WETH9.sol:WETH9", "");
-        factory = IFactory(deploy("lib/v2-core/contracts/UniswapV2Factory.sol:UniswapV2Factory", abi.encode(owner)));
-        router = IRouter(
+    function deployWeth() internal returns (address) {
+        return deploy("lib/v2-periphery/contracts/test/WETH9.sol:WETH9", "");
+    }
+
+    function deployFactory(address feeToSetter) internal returns (IFactory) {
+        return IFactory(deploy("lib/v2-core/contracts/UniswapV2Factory.sol:UniswapV2Factory", abi.encode(feeToSetter)));
+    }
+
+    function deployRouter(IFactory factory_, address weth_) internal returns (IRouter) {
+        return IRouter(
             deploy(
-                "lib/v2-periphery/contracts/UniswapV2Router02.sol:UniswapV2Router02", abi.encode(address(factory), weth)
+                "lib/v2-periphery/contracts/UniswapV2Router02.sol:UniswapV2Router02", abi.encode(address(factory_), weth_)
             )
         );
-        tokenA = IToken(deploy("lib/v2-core/contracts/test/ERC20.sol:ERC20", abi.encode(SUPPLY)));
-        tokenB = IToken(deploy("lib/v2-core/contracts/test/ERC20.sol:ERC20", abi.encode(SUPPLY)));
+    }
+
+    function deployToken() internal returns (IToken) {
+        return IToken(deploy("lib/v2-core/contracts/test/ERC20.sol:ERC20", abi.encode(SUPPLY)));
+    }
+
+    /// @dev Creates the pair through the factory (CREATE2 inside the call), adds liquidity and swaps;
+    /// `owner` receives the liquidity and the swap output. Calls only, no contract creation.
+    function exercise(address owner) internal {
         pair = factory.createPair(address(tokenA), address(tokenB));
         tokenA.approve(address(router), type(uint256).max);
         tokenB.approve(address(router), type(uint256).max);
@@ -97,5 +109,15 @@ abstract contract UniswapV2Flow {
             address(tokenA), address(tokenB), LIQUIDITY, LIQUIDITY, 0, 0, owner, type(uint256).max
         );
         router.swapExactTokensForTokens(SWAP_IN, 0, path(), owner, type(uint256).max);
+    }
+
+    /// @dev The whole flow in one EVM (Foundry tests).
+    function runFlow(address owner) internal {
+        weth = deployWeth();
+        factory = deployFactory(owner);
+        router = deployRouter(factory, weth);
+        tokenA = deployToken();
+        tokenB = deployToken();
+        exercise(owner);
     }
 }

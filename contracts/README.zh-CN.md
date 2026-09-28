@@ -36,4 +36,4 @@ cd contracts/acceptance
 forge test          # 部署、createPair（以 CREATE2 创建在 pairFor 计算的地址上）、添加流动性、兑换
 ```
 
-`script/DeployV2.s.sol` 执行同样的流程：用 `forge script script/DeployV2.s.sol --sender <ac-wallet evm 地址> --rpc-url <ac-eth-rpc>` 模拟，再用 `ac-wallet evm broadcast` 发送模拟结果。
+`script/DeployV2.s.sol` 分阶段在链上执行同样的流程：Foundry 模拟每个阶段（`forge script script/DeployV2.s.sol --sig "stageWeth()" --sender <ac-wallet evm 地址> --rpc-url <ac-eth-rpc>`），再由 `ac-wallet evm broadcast` 签名并发送。原生部署会使发送者的 nonce 增加 2（交易本身一次，`pallet-revive` 一次），因此一次模拟只能正确预测其中第一笔合约创建：每个阶段至多创建一个合约（`stageWeth`、`stageFactory`、`stageRouter`、两次 `stageToken`），后续阶段以参数接收先前的地址；最后 `stageExercise` 创建配对、添加流动性并兑换。EVM 端到端测试正是按这些步骤执行。

@@ -564,3 +564,197 @@ async fn contracts_through_the_wallet_and_the_adapter() {
     assert!(!log.contains("rejecting block"), "a block was rejected");
     assert!(!log.contains("constitution invariant violated"));
 }
+
+/// Simulates one stage of `DeployV2.s.sol` against the adapter and returns the path of the
+/// broadcast file Foundry wrote.
+fn forge_stage(env: &Env, project: &Path, sig: &str, args: &[&str]) -> PathBuf {
+    let mut cmd = Command::new(tool("FORGE", "forge"));
+    cmd.current_dir(project)
+        .args(["script", "script/DeployV2.s.sol", "--sig", sig])
+        .args(args)
+        .args(["--sender", &env.me, "--rpc-url", &env.rpc_url]);
+    if std::env::var("AC_FORGE_OFFLINE").is_ok_and(|v| v == "1") {
+        cmd.arg("--offline");
+    }
+    let out = run(&mut cmd);
+    let saved = out
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("Transactions saved to: "))
+        .unwrap_or_else(|| panic!("no broadcast file in:\n{out}"));
+    PathBuf::from(saved.trim())
+}
+
+/// Sends a stage's transactions with `ac-wallet evm broadcast`; returns the contracts its
+/// `CREATE` transactions made (as predicted by Foundry and checked by the wallet).
+fn broadcast(env: &Env, file: &Path) -> Vec<String> {
+    let out = run(&mut env.evm(&["broadcast"], &["--file", &file.display().to_string()]));
+    assert!(out.contains("broadcast complete"), "{out}");
+    let json: Value = serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+    json["transactions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|t| t["transactionType"] == "CREATE")
+        .map(|t| t["contractAddress"].as_str().unwrap().to_string())
+        .collect()
+}
+
+fn word(data: &str, index: usize) -> sp_core::U256 {
+    let hex = data.trim_start_matches("0x");
+    let start = index * 64;
+    sp_core::U256::from_str_radix(&hex[start..start + 64], 16).unwrap()
+}
+
+// Scenario "broadcast 地址不一致时中止" in its passing form and the official Uniswap V2 acceptance
+// (design D14): forge script simulations sent by `ac-wallet evm broadcast` deploy WETH9,
+// UniswapV2Factory, UniswapV2Router02 and two tokens; the factory creates their pair with
+// CREATE2 at pairFor's address; liquidity and a swap move reserves and balances by the
+// constant-product formula, and the pair's Sync and Swap events read back through eth_getLogs.
+#[tokio::test(flavor = "multi_thread")]
+async fn official_uniswap_v2_through_broadcast() {
+    require_e2e!();
+    let project = repo().join("contracts/acceptance");
+    forge_build(&project);
+    let config = TestnetConfig {
+        label: "uniswap".to_string(),
+        chain: "dev".to_string(),
+        authorities: 1,
+        args: Vec::new(),
+    };
+    let net = Testnet::start_with(config, START).await.unwrap();
+    net.wait_all(&[0], 1, START).await.unwrap();
+    let (env, _adapter) = start(&net).await;
+
+    // One contract creation per simulation: a native deployment advances the nonce by two, so
+    // Foundry predicts only a simulation's first creation.
+    let created = |sig: &str, args: &[&str]| {
+        let file = forge_stage(&env, &project, sig, args);
+        let contracts = broadcast(&env, &file);
+        assert_eq!(contracts.len(), 1, "{sig}");
+        contracts[0].clone()
+    };
+    let weth = created("stageWeth()", &[]);
+    let factory = created("stageFactory()", &[]);
+    let router = created("stageRouter(address,address)", &[&factory, &weth]);
+    let token_a = created("stageToken()", &[]);
+    let token_b = created("stageToken()", &[]);
+    for (contract, _) in [
+        (&weth, 0),
+        (&factory, 1),
+        (&router, 2),
+        (&token_a, 3),
+        (&token_b, 4),
+    ] {
+        assert!(
+            env.cast(&["code", contract]).len() > 2,
+            "no code at {contract}"
+        );
+    }
+    let file = forge_stage(
+        &env,
+        &project,
+        "stageExercise(address,address,address,address)",
+        &[&factory, &router, &token_a, &token_b],
+    );
+    assert!(broadcast(&env, &file).is_empty());
+
+    // The pair sits at the CREATE2 address UniswapV2Library.pairFor computes.
+    let pair = env.call(
+        &factory,
+        "getPair(address,address)(address)",
+        &[&token_a, &token_b],
+    );
+    let (t0, t1) = if token_a.to_lowercase() < token_b.to_lowercase() {
+        (&token_a, &token_b)
+    } else {
+        (&token_b, &token_a)
+    };
+    let salt = env.cast_offline(&["keccak", &env.cast_offline(&["concat-hex", t0, t1])]);
+    let artifact: Value = serde_json::from_str(
+        &std::fs::read_to_string(project.join("out/UniswapV2Pair.sol/UniswapV2Pair.json")).unwrap(),
+    )
+    .unwrap();
+    let init_code_hash =
+        env.cast_offline(&["keccak", artifact["bytecode"]["object"].as_str().unwrap()]);
+    let computed = env.cast_offline(&[
+        "compute-address",
+        &factory,
+        "--salt",
+        &salt,
+        "--init-code-hash",
+        &init_code_hash,
+    ]);
+    assert!(
+        computed.to_lowercase().ends_with(&pair.to_lowercase()),
+        "pair {pair}, CREATE2 {computed}"
+    );
+
+    // Reserves and balances after addLiquidity(10,000 each) and a 100-token swap A -> B.
+    let e18 = sp_core::U256::from(10u64).pow(18.into());
+    let (supply, liquidity, swap_in) = (e18 * 1_000_000, e18 * 10_000, e18 * 100);
+    let out = swap_in * 997 * liquidity / (liquidity * 1000 + swap_in * 997);
+    let reserves = env.cast(&["call", &pair, "getReserves()(uint112,uint112,uint32)"]);
+    let reserves: Vec<sp_core::U256> = reserves
+        .lines()
+        .take(2)
+        .map(|l| sp_core::U256::from_dec_str(l.split_whitespace().next().unwrap()).unwrap())
+        .collect();
+    let a_is_token0 = t0 == &token_a;
+    let (reserve_a, reserve_b) = if a_is_token0 {
+        (reserves[0], reserves[1])
+    } else {
+        (reserves[1], reserves[0])
+    };
+    assert_eq!(reserve_a, liquidity + swap_in);
+    assert_eq!(reserve_b, liquidity - out);
+    let balance_b = env.call(&token_b, "balanceOf(address)(uint256)", &[&env.me]);
+    assert_eq!(
+        sp_core::U256::from_dec_str(&balance_b).unwrap(),
+        supply - liquidity + out
+    );
+
+    // Sync (after the mint and after the swap) and Swap events of the pair.
+    let sync_topic = env.cast_offline(&["keccak", "Sync(uint112,uint112)"]);
+    let swap_topic = env.cast_offline(&[
+        "keccak",
+        "Swap(address,uint256,uint256,uint256,uint256,address)",
+    ]);
+    let syncs = env
+        .eth(
+            "eth_getLogs",
+            json!([{"fromBlock": "earliest", "address": pair, "topics": [sync_topic]}]),
+        )
+        .await
+        .unwrap();
+    let syncs = syncs.as_array().unwrap();
+    assert_eq!(syncs.len(), 2, "{syncs:?}");
+    let last = syncs[1]["data"].as_str().unwrap();
+    assert_eq!((word(last, 0), word(last, 1)), (reserves[0], reserves[1]));
+    let swaps = env
+        .eth(
+            "eth_getLogs",
+            json!([{"fromBlock": "earliest", "address": pair, "topics": [swap_topic]}]),
+        )
+        .await
+        .unwrap();
+    let swaps = swaps.as_array().unwrap();
+    assert_eq!(swaps.len(), 1, "{swaps:?}");
+    let swap = swaps[0]["data"].as_str().unwrap();
+    let (a_in, b_out) = if a_is_token0 {
+        (word(swap, 0), word(swap, 3))
+    } else {
+        (word(swap, 1), word(swap, 2))
+    };
+    assert_eq!((a_in, b_out), (swap_in, out));
+
+    // Finality reaches the last block and the node refused none.
+    let last = net.nodes[0].height().await.unwrap();
+    let deadline = Instant::now() + START;
+    while net.nodes[0].finalized().await.unwrap().0 < last {
+        assert!(Instant::now() < deadline, "not finalized");
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    let log = std::fs::read_to_string(net.nodes[0].log_path()).unwrap();
+    assert!(!log.contains("rejecting block"), "a block was rejected");
+    assert!(!log.contains("constitution invariant violated"));
+}
