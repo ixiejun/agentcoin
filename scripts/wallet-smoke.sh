@@ -32,6 +32,8 @@ echo "abandon abandon abandon abandon abandon abandon abandon abandon abandon ab
 dev_addr="$("$wallet" address --wallet "$work/dev.json")"
 fresh_addr="$("$wallet" address --wallet "$work/fresh.json")"
 "$wallet" key-info --wallet "$work/dev.json" "${pw[@]}"
+# The dev account's EVM address (EIP-55; keccak256(account)[12..], m4-evm 6.6).
+[[ "$("$wallet" evm address --wallet "$work/dev.json")" == "0x05a036924C72687962e062f30378CD17907b9F70" ]]
 
 # 2. Transfers: dev wallet -> fresh wallet (first transaction of the dev wallet), then back.
 "$wallet" transfer --wallet "$work/dev.json" "${pw[@]}" --node "$url" --to "$fresh_addr" --amount 5
