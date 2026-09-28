@@ -21,6 +21,8 @@ stake).
 | 11 | `PoaCouncil` | `pallet-collective` instance of the PoA multisig; name published (`PoaCouncil::Members`) |
 | 12 | `PoaAdmin` | threshold origin, `dispatch_as_root`, members and threshold |
 | 13 | `StakingPos` | candidates, nominations, unbonding queue, elections, rewards, slashing; name published (`Ledger`, `Candidates`) |
+| 14 | `Revive` | `pallet-revive`: EVM bytecode contracts only, chain ID 4403, 1 wei = 1 smallest ATC unit; index published (`ac_primitives::evm::REVIVE_PALLET_INDEX`) |
+| 15 | `EvmSupport` | contract fee payer, the non-minting currency adapter for `Revive`, PQ precompiles |
 
 Transactions are v5 `General` extrinsics whose first extension is `PqAuthorize` (D36); the legacy
 `Signed` form cannot be decoded. The `transaction` module builds signed transactions for wallets
@@ -38,7 +40,17 @@ Live chains use the constitution values (10%, 21, 63,115,200 and 604,800 blocks)
 
 The security budget of emission goes to `StakingPos` (paid only in PoS), and double signing is
 slashed through it. Runtime APIs: `StakingApi` (stake, candidates, latest election, switch
-progress) besides the M1–M3 ones. `spec_version` 3, `transaction_version` 3.
+progress) besides the M1–M3 ones.
+
+EVM contracts (m4-evm) are deployed and called with ordinary ML-DSA-signed transactions
+(`Revive::instantiate_with_code`, `Revive::call`). The call filter `RuntimeCallFilter`
+(`HolderTreasuryLock` and `EvmOnly`) refuses the Ethereum transaction entry points, every PolkaVM
+path and address-mapping changes; every account gets its EVM address (`keccak256(account)[12..]`)
+when it is created. Contracts never create issuance: the existential deposit revive would mint
+into a new contract is paid by the transaction signer (`SetEvmPayer` extension), and revive's own
+account exists through a provider reference. `ReviveApi` offers dry runs, storage and code
+queries; Ethereum-signed payloads, code uploads and tracing are refused. The development runtime
+WASM is 4.8 MB before compression. `spec_version` 4, `transaction_version` 4.
 
 The administration origin is a `PoaCouncil` motion approved by at least the threshold of members
 (`PoaAdmin::dispatch_as_root` runs calls as Root, e.g. `System::set_code`). The holder treasury
