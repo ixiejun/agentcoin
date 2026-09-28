@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import {ERC20} from "../src/ERC20.sol";
-import {IBlake3, IPqVerify, PqPrecompiles} from "../src/IPqPrecompiles.sol";
+import {IBlake3, IPoseidon2, IPqVerify, PqPrecompiles} from "../src/IPqPrecompiles.sol";
 
 /// @dev A second account for transferFrom tests.
 contract Spender {
@@ -67,8 +67,10 @@ contract ERC20Test {
         );
         require(keccak256(call) == keccak256(expected));
         require(IBlake3.hash.selector == bytes4(keccak256("hash(bytes)")));
+        require(IPoseidon2.hash.selector == bytes4(keccak256("hash(bytes)")));
         require(address(PqPrecompiles.PQ_VERIFY) == address(uint160(0x0A01) << 16));
         require(address(PqPrecompiles.BLAKE3) == address(uint160(0x0A02) << 16));
+        require(address(PqPrecompiles.POSEIDON2) == address(uint160(0x0A03) << 16));
         require(PqPrecompiles.STARK_VERIFY == address(uint160(0x0A10) << 16));
     }
 }

@@ -48,6 +48,7 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 | `getrandom` | `OsRng`：由操作系统播种的密码学安全随机源，从不 panic | 节点、钱包 |
 | `mnemonic` | 钱包熵的 24 词 BIP-39（英文）编码（`no_std`） | 钱包 |
 | `keystore` | 口令加密的私钥文件（同时启用 `std`、`rand` 与 `getrandom`） | 节点、钱包 |
+| `poseidon2` | Goldilocks 域上的 Poseidon2-256（`no_std`），见下文 | EVM 预编译（runtime） |
 
 密钥种子派生（`wallet_key_seed`、`dev_seed`）始终可用：种子为 `derive_key(上下文, 输入)`，上下文见下表。开发种子是**公开的**，只能用于开发链和本地链。
 
@@ -77,6 +78,17 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 | `agentcoin/evm-verify/v1` | 签名 | 合约通过 `pq_verify` 预编译验证的消息 | 自 M4 起使用 |
 | `agentcoin/receipt/v1` | 签名 | 推理回执 | 为 M5 预留 |
 
+## Poseidon2
+
+`poseidon2::hash`（功能 `poseidon2`）是 256 位的 Poseidon2 哈希，供合约（位于 `0x…0a030000` 的 `poseidon2` 预编译）以及将来的 STARK 工作使用。它包装 Plonky3（`p3-goldilocks` 0.8，`MIT OR Apache-2.0`）：置换和海绵结构都来自 Plonky3，不自行实现任何部分。
+
+- **实例**：Plonky3 默认的 Goldilocks 实例（p = 2^64 − 2^32 + 1），宽度 12，S-box x^7，外部轮 8、内部轮 22，采用 Plonky3 固定的轮常数和内部对角矩阵。它不是 Poseidon2 作者参考实现的实例，因此用 Plonky3 公布的已知答案向量校验，而不是作者向量（用户决定，m4-evm）。
+- **海绵**：速率 8、容量 4，初始状态全零；每 8 个元素一组覆盖速率部分后置换；输出前 4 个元素，每个按小端 8 字节拼接（32 字节，128 位安全）。
+- **编码（单射）**：先是输入的字节长度（最多 2^32 − 1，否则返回 `Error::InputTooLong`），随后是输入加一个 `0x01` 字节、再补零到 7 字节的倍数，按小端每 7 字节一个元素，最后补零元素到 8 的倍数。
+- **上下文**：该函数是不带域分离上下文的原始哈希，这符合合约的使用习惯；协议内部使用 Poseidon2 时仍须加上已登记的上下文前缀（见上表）。
+
+示例代码见英文版 [README.md](README.md)（作为 doctest 运行）：空输入的哈希与回归向量一致，末尾多一个零字节会改变哈希。
+
 ## 加密私钥文件（格式 v1）
 
 JSON 文档，字段包括：`version`（1）、`kind`（`signing-seed` 或 `wallet-entropy`）、`alg` 与 `public_key`（规范编码的十六进制，仅签名种子有）、`kdf`（`argon2id`，含 `m_kib`、`t`、`p` 和 16 字节 `salt`）、`cipher`（`xchacha20poly1305`，含 24 字节 `nonce` 和 `ciphertext`）。附加认证数据为对全部元数据字段计算的 `derive_key("agentcoin 2026-09 keystore-aad v1", …)`，因此篡改任一字段都会导致解密失败。KDF 参数低于 64 MiB / 3 轮 / 1 路并行的文件会被拒绝。
@@ -91,4 +103,4 @@ JSON 文档，字段包括：`version`（1）、`kind`（`signing-seed` 或 `wal
 
 ## 测试向量
 
-`tests/vectors/` 存放筛选后的 NIST ACVP（ML-DSA、ML-KEM-768）、X-Wing、Argon2id（RFC 9106）、XChaCha20-Poly1305（draft-irtf-cfrg-xchacha-03）和 BIP-39 向量（可通过 `scripts/fetch-test-vectors.sh` 复现），以及本仓库生成的回归向量，详见 `tests/vectors/SOURCES.md`。
+`tests/vectors/` 存放筛选后的 NIST ACVP（ML-DSA、ML-KEM-768）、X-Wing、Argon2id（RFC 9106）、XChaCha20-Poly1305（draft-irtf-cfrg-xchacha-03）、BIP-39 向量和 Plonky3 的 Poseidon2 置换向量（可通过 `scripts/fetch-test-vectors.sh` 复现），以及本仓库生成的回归向量（含 Poseidon2 哈希），详见 `tests/vectors/SOURCES.md`。

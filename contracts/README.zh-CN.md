@@ -14,7 +14,7 @@
 ## 示例
 
 - `ERC20.sol`：最小的 ERC-20，初始供应量归部署者。
-- `IPqPrecompiles.sol`：`IPqVerify`（`0x…0A010000`，在 `agentcoin/evm-verify/v1` 下验证 ML-DSA 签名）、`IBlake3`（`0x…0A020000`），以及预留的 `STARK_VERIFY` 地址（`0x…0A100000`）。
+- `IPqPrecompiles.sol`：`IPqVerify`（`0x…0A010000`，在 `agentcoin/evm-verify/v1` 下验证 ML-DSA 签名）、`IBlake3`（`0x…0A020000`）、`IPoseidon2`（`0x…0a030000`），以及预留的 `STARK_VERIFY` 地址（`0x…0A100000`）。
 - `PqVerifyDemo.sol`：检查用 `ac-wallet evm sign-message` 生成的签名，计算 BLAKE3 哈希，并记录签名验证通过的消息。
 
 ```bash

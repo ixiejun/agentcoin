@@ -97,5 +97,16 @@ mod benchmarks {
         assert_ne!(digest, [0; 32]);
     }
 
+    #[benchmark]
+    fn poseidon2(n: Linear<0, { 4 * MAX_MESSAGE }>) {
+        let data = vec![0xa5; n as usize];
+        let digest;
+        #[block]
+        {
+            digest = ac_crypto::poseidon2::hash(&data);
+        }
+        assert!(digest.is_ok());
+    }
+
     impl_benchmark_test_suite!(Pallet, crate::mock::new_test_ext(), crate::mock::Test);
 }

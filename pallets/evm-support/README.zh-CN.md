@@ -13,9 +13,10 @@ AgentCoin runtime 的 EVM 支持（m4-evm）。`pallet-revive` 负责运行 EVM 
   |---|---|---|
   | `pq_verify` | `0x000000000000000000000000000000000a010000` | `verify(uint8 alg, bytes publicKey, bytes message, bytes signature) returns (bool)`——ML-DSA-44/65/87，固定上下文 `agentcoin/evm-verify/v1`；任何失败都返回 `false` |
   | `blake3` | `0x000000000000000000000000000000000a020000` | `hash(bytes data) returns (bytes32)` |
+  | `poseidon2` | `0x000000000000000000000000000000000a030000` | `hash(bytes data) returns (bytes32)`（Goldilocks，Plonky3 实例；见 `ac-crypto` README） |
   | `stark_verify` | `0x000000000000000000000000000000000a100000` | 保留（D27）：任何调用都回滚 |
 
-  地址 `0x…0a030000` 留给 `poseidon2`，待其调研门控有结论。
+  `poseidon2` 无法编码的输入（超过 2^32 − 1 字节）会回滚。
 
 ## 内置预编译（非后量子）
 

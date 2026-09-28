@@ -26,6 +26,8 @@ const CAROL: &str = "0x00000000000000000000000000000000000000c0";
 const TRANSFER_TOPIC: &str = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 /// BLAKE3 of the empty input (official test vector).
 const BLAKE3_EMPTY: &str = "0xaf1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262";
+/// Poseidon2 of the empty input (`crates/ac-crypto/tests/vectors/poseidon2_hash.json`).
+const POSEIDON2_EMPTY: &str = "0x8123ae34399789658198a68ca55edcf1844916aaed41203d484b1ead30f3670e";
 /// Foundry's first development key (public test key; any Ethereum key is refused).
 const ETHEREUM_TEST_KEY: &str =
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
@@ -492,6 +494,11 @@ async fn contracts_through_the_wallet_and_the_adapter() {
     assert_eq!(
         env.call(&demo, "digest(bytes)(bytes32)", &["0x"]),
         BLAKE3_EMPTY
+    );
+    // Poseidon2 in the node's WASM runtime equals the native regression vector.
+    assert_eq!(
+        env.call(&demo, "poseidonDigest(bytes)(bytes32)", &["0x"]),
+        POSEIDON2_EMPTY
     );
     let accepted = run(&mut env.evm(
         &["send"],

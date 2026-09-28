@@ -8,7 +8,8 @@
 )]
 
 use crate::precompiles::{
-    IBlake3, IPqVerify, IStarkVerify, blake3_output, pq_verify, pq_verify_output, pq_verify_weight,
+    IBlake3, IPoseidon2, IPqVerify, IStarkVerify, blake3_output, poseidon2_output, pq_verify,
+    pq_verify_output, pq_verify_weight,
 };
 use crate::weights::WeightInfo;
 use ac_crypto::SigAlg;
@@ -210,6 +211,35 @@ fn blake3_official_vectors() {
         let IBlake3::IBlake3Calls::hash(decoded) = decoded;
         assert_eq!(blake3_output(&decoded.data), out);
     }
+}
+
+// Requirement "poseidon2 预编译" / Scenario "向量一致": the regression vectors of
+// `crypto/hashing` (input byte i = i mod 251) through the ABI, equal to `ac-crypto`.
+#[test]
+fn poseidon2_vectors() {
+    let vectors: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../crates/ac-crypto/tests/vectors/poseidon2_hash.json"
+    ))
+    .unwrap();
+    let input = |n: usize| {
+        (0..n)
+            .map(|i| u8::try_from(i % 251).unwrap())
+            .collect::<Vec<u8>>()
+    };
+    for case in vectors["cases"].as_array().unwrap() {
+        let n = usize::try_from(case["input_len"].as_u64().unwrap()).unwrap();
+        let call = IPoseidon2::hashCall {
+            data: input(n).into(),
+        };
+        let IPoseidon2::IPoseidon2Calls::hash(decoded) =
+            IPoseidon2::IPoseidon2Calls::abi_decode(&call.abi_encode()).unwrap();
+        let out = poseidon2_output(&decoded.data).unwrap();
+        assert_eq!(hex::encode(&out), case["hash"].as_str().unwrap(), "len {n}");
+        assert_eq!(out, ac_crypto::poseidon2::hash(&input(n)).unwrap().to_vec());
+    }
+    // Charged per input byte.
+    type W = crate::weights::SubstrateWeight<crate::mock::Test>;
+    assert!(W::poseidon2(1_000).ref_time() > W::poseidon2(0).ref_time());
 }
 
 proptest! {

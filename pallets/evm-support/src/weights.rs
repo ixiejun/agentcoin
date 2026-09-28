@@ -24,51 +24,61 @@ pub trait WeightInfo {
     fn pq_verify_rejected() -> Weight;
     /// Benchmarked weight of `blake3`.
     fn blake3(n: u32) -> Weight;
+    /// Benchmarked weight of `poseidon2`.
+    fn poseidon2(n: u32) -> Weight;
 }
 
 /// Weights measured on the reference machine, with the runtime's database weights.
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     fn pq_verify_ml_dsa_44(m: u32) -> Weight {
-        Weight::from_parts(463_561_310, 0)
-            .saturating_add(Weight::from_parts(6_810, 0).saturating_mul(m.into()))
+        Weight::from_parts(459_980_294, 0)
+            .saturating_add(Weight::from_parts(8_366, 0).saturating_mul(m.into()))
     }
     fn pq_verify_ml_dsa_65(m: u32) -> Weight {
-        Weight::from_parts(769_340_318, 0)
-            .saturating_add(Weight::from_parts(11_429, 0).saturating_mul(m.into()))
+        Weight::from_parts(707_030_626, 0)
+            .saturating_add(Weight::from_parts(17_718, 0).saturating_mul(m.into()))
     }
     fn pq_verify_ml_dsa_87(m: u32) -> Weight {
-        Weight::from_parts(1_165_122_576, 0)
-            .saturating_add(Weight::from_parts(10_160, 0).saturating_mul(m.into()))
+        Weight::from_parts(1_248_328_536, 0)
+            .saturating_add(Weight::from_parts(2_072, 0).saturating_mul(m.into()))
     }
     fn pq_verify_rejected() -> Weight {
-        Weight::from_parts(481_000, 0)
+        Weight::from_parts(523_000, 0)
     }
     fn blake3(n: u32) -> Weight {
-        Weight::from_parts(568_888, 0)
-            .saturating_add(Weight::from_parts(3_127, 0).saturating_mul(n.into()))
+        Weight::from_parts(576_000, 0)
+            .saturating_add(Weight::from_parts(3_174, 0).saturating_mul(n.into()))
+    }
+    fn poseidon2(n: u32) -> Weight {
+        Weight::from_parts(17_655_844, 0)
+            .saturating_add(Weight::from_parts(60_603, 0).saturating_mul(n.into()))
     }
 }
 
 /// Same weights with RocksDB database weights, for tests and mocks.
 impl WeightInfo for () {
     fn pq_verify_ml_dsa_44(m: u32) -> Weight {
-        Weight::from_parts(463_561_310, 0)
-            .saturating_add(Weight::from_parts(6_810, 0).saturating_mul(m.into()))
+        Weight::from_parts(459_980_294, 0)
+            .saturating_add(Weight::from_parts(8_366, 0).saturating_mul(m.into()))
     }
     fn pq_verify_ml_dsa_65(m: u32) -> Weight {
-        Weight::from_parts(769_340_318, 0)
-            .saturating_add(Weight::from_parts(11_429, 0).saturating_mul(m.into()))
+        Weight::from_parts(707_030_626, 0)
+            .saturating_add(Weight::from_parts(17_718, 0).saturating_mul(m.into()))
     }
     fn pq_verify_ml_dsa_87(m: u32) -> Weight {
-        Weight::from_parts(1_165_122_576, 0)
-            .saturating_add(Weight::from_parts(10_160, 0).saturating_mul(m.into()))
+        Weight::from_parts(1_248_328_536, 0)
+            .saturating_add(Weight::from_parts(2_072, 0).saturating_mul(m.into()))
     }
     fn pq_verify_rejected() -> Weight {
-        Weight::from_parts(481_000, 0)
+        Weight::from_parts(523_000, 0)
     }
     fn blake3(n: u32) -> Weight {
-        Weight::from_parts(568_888, 0)
-            .saturating_add(Weight::from_parts(3_127, 0).saturating_mul(n.into()))
+        Weight::from_parts(576_000, 0)
+            .saturating_add(Weight::from_parts(3_174, 0).saturating_mul(n.into()))
+    }
+    fn poseidon2(n: u32) -> Weight {
+        Weight::from_parts(17_655_844, 0)
+            .saturating_add(Weight::from_parts(60_603, 0).saturating_mul(n.into()))
     }
 }

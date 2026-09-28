@@ -17,7 +17,8 @@ imports nothing from `contracts/acceptance/`.
 
 - `ERC20.sol`: a minimal ERC-20; the initial supply goes to the deployer.
 - `IPqPrecompiles.sol`: `IPqVerify` (`0x…0A010000`, ML-DSA verification under
-  `agentcoin/evm-verify/v1`), `IBlake3` (`0x…0A020000`) and the reserved `STARK_VERIFY`
+  `agentcoin/evm-verify/v1`), `IBlake3` (`0x…0A020000`), `IPoseidon2` (`0x…0a030000`) and the
+  reserved `STARK_VERIFY`
   address (`0x…0A100000`).
 - `PqVerifyDemo.sol`: checks a signature made with `ac-wallet evm sign-message`, hashes with
   BLAKE3, and records messages whose signature verifies.

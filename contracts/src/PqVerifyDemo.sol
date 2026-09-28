@@ -24,6 +24,11 @@ contract PqVerifyDemo {
         return PqPrecompiles.BLAKE3.hash(data);
     }
 
+    /// @notice Poseidon2-256 of `data`.
+    function poseidonDigest(bytes calldata data) external pure returns (bytes32) {
+        return PqPrecompiles.POSEIDON2.hash(data);
+    }
+
     /// @notice Records `message` for the signer if the signature verifies; reverts otherwise.
     function accept(uint8 alg, bytes calldata publicKey, bytes calldata message, bytes calldata signature)
         external

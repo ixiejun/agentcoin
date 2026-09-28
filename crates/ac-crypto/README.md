@@ -77,6 +77,7 @@ Unknown AlgIds, reserved AlgIds, wrong lengths and trailing bytes are rejected w
 | `getrandom` | `OsRng`: CSPRNG seeded from the operating system, never panics | nodes, wallets |
 | `mnemonic` | 24-word BIP-39 (English) encoding of wallet entropy (`no_std`) | wallets |
 | `keystore` | password-encrypted secret files (implies `std`, `rand` and `getrandom`) | nodes, wallets |
+| `poseidon2` | Poseidon2-256 over Goldilocks (`no_std`), see below | EVM precompile (runtime) |
 
 Key-seed derivation (`wallet_key_seed`, `dev_seed`) is always available: a seed is
 `derive_key(context, input)` with the contexts below. Development seeds are **public** and only
@@ -110,6 +111,37 @@ reused for another purpose.
 | `agentcoin/evm-verify/v1` | signature | messages verified by contracts through the `pq_verify` precompile | in use from M4 |
 | `agentcoin/receipt/v1` | signature | inference receipts | reserved for M5 |
 
+## Poseidon2
+
+`poseidon2::hash` (feature `poseidon2`) is a 256-bit Poseidon2 hash for contracts (the
+`poseidon2` precompile at `0x…0a030000`) and later STARK work. It wraps Plonky3 (`p3-goldilocks`
+0.8, `MIT OR Apache-2.0`); the permutation and the sponge are Plonky3's, nothing is
+re-implemented.
+
+- **Instance**: Plonky3's default Goldilocks instance (p = 2^64 − 2^32 + 1), width 12, S-box
+  x^7, 8 external and 22 internal rounds, Plonky3's fixed round constants and internal diagonal.
+  This is not the instance of the Poseidon2 authors' reference implementation, so it is checked
+  against Plonky3's published known-answer vector, not author vectors (a user decision, m4-evm).
+- **Sponge**: rate 8, capacity 4, all-zero initial state; each block of 8 elements overwrites
+  the rate before a permutation; the output is the first 4 elements, as little-endian 8-byte
+  words (32 bytes, 128-bit security).
+- **Encoding (injective)**: the input's byte length (at most 2^32 − 1, otherwise
+  `Error::InputTooLong`), then the input followed by `0x01` and zeros up to a multiple of 7 bytes,
+  as little-endian 7-byte elements, then zero elements up to a multiple of 8.
+- **Contexts**: the function is a raw primitive with no domain-separation context, as contracts
+  expect; protocol uses of Poseidon2 must still prefix a registered context (see above).
+
+```rust
+# #[cfg(feature = "poseidon2")] {
+use ac_crypto::poseidon2;
+
+let digest = poseidon2::hash(b"")?;
+assert_eq!(digest[..4], [0x81, 0x23, 0xae, 0x34]); // tests/vectors/poseidon2_hash.json
+assert_ne!(poseidon2::hash(b"abc")?, poseidon2::hash(b"abc\0")?);
+# }
+# Ok::<(), ac_crypto::Error>(())
+```
+
 ## Encrypted secret files (format v1)
 
 A JSON document with `version` (1), `kind` (`signing-seed` or `wallet-entropy`), `alg` and
@@ -134,6 +166,6 @@ so tampering with any field makes decryption fail. Files whose KDF parameters ar
 ## Test vectors
 
 `tests/vectors/` holds filtered NIST ACVP (ML-DSA, ML-KEM-768), X-Wing, Argon2id (RFC 9106),
-XChaCha20-Poly1305 (draft-irtf-cfrg-xchacha-03) and BIP-39 vectors, reproducible with
-`scripts/fetch-test-vectors.sh`, plus repository regression vectors; see
-`tests/vectors/SOURCES.md`.
+XChaCha20-Poly1305 (draft-irtf-cfrg-xchacha-03) and BIP-39 vectors and Plonky3's Poseidon2
+permutation vector, reproducible with `scripts/fetch-test-vectors.sh`, plus repository
+regression vectors (including Poseidon2 hashes); see `tests/vectors/SOURCES.md`.

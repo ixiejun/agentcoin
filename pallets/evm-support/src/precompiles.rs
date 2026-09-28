@@ -4,6 +4,7 @@
 //! |---|---|---|
 //! | [`PqVerify`] | `0x…0a010000` | `verify(uint8 alg, bytes publicKey, bytes message, bytes signature) returns (bool)` |
 //! | [`Blake3`] | `0x…0a020000` | `hash(bytes data) returns (bytes32)` |
+//! | [`Poseidon2`] | `0x…0a030000` | `hash(bytes data) returns (bytes32)` |
 //! | [`StarkVerifyReserved`] | `0x…0a100000` | reserved (D27): every call reverts |
 //!
 //! All of them are pure: they read and write no storage, create no account (`HAS_CONTRACT_INFO`
@@ -12,7 +13,9 @@
 
 use crate::weights::WeightInfo;
 use ac_crypto::{PqPublicKey, PqSignature, SigAlg};
-use ac_primitives::evm::{BLAKE3_ID, EVM_VERIFY_CONTEXT, PQ_VERIFY_ID, STARK_VERIFY_ID};
+use ac_primitives::evm::{
+    BLAKE3_ID, EVM_VERIFY_CONTEXT, POSEIDON2_ID, PQ_VERIFY_ID, STARK_VERIFY_ID,
+};
 use alloc::vec::Vec;
 use alloy_core::sol_types::SolValue;
 use core::{marker::PhantomData, num::NonZero};
@@ -27,6 +30,12 @@ alloy_core::sol! {
 
     /// `blake3`: the 32-byte BLAKE3 hash (plain mode).
     interface IBlake3 {
+        function hash(bytes calldata data) external pure returns (bytes32);
+    }
+
+    /// `poseidon2`: the 32-byte Poseidon2 hash over Goldilocks (Plonky3's width-12 instance,
+    /// `ac_crypto::poseidon2`).
+    interface IPoseidon2 {
         function hash(bytes calldata data) external pure returns (bytes32);
     }
 
@@ -46,7 +55,8 @@ const fn fixed(id: u16) -> AddressMatcher {
     }
 }
 
-const _: () = assert!(PQ_VERIFY_ID != 0 && BLAKE3_ID != 0 && STARK_VERIFY_ID != 0);
+const _: () =
+    assert!(PQ_VERIFY_ID != 0 && BLAKE3_ID != 0 && POSEIDON2_ID != 0 && STARK_VERIFY_ID != 0);
 
 /// Weight `pq_verify` charges for a call with algorithm `alg` and a message of `message_len`
 /// bytes. Unknown and reserved algorithms cost the smallest verification weight: they are
@@ -131,6 +141,34 @@ pub fn blake3_output(data: &[u8]) -> Vec<u8> {
     alloy_core::primitives::FixedBytes::<32>(ac_crypto::hash::blake3_256(data)).abi_encode()
 }
 
+/// The `poseidon2` precompile at `0x…0a030000`.
+pub struct Poseidon2<T>(PhantomData<T>);
+
+impl<T: crate::Config> Precompile for Poseidon2<T> {
+    type T = T;
+    type Interface = IPoseidon2::IPoseidon2Calls;
+    const MATCHER: AddressMatcher = fixed(POSEIDON2_ID);
+    const HAS_CONTRACT_INFO: bool = false;
+
+    fn call(
+        _address: &[u8; 20],
+        input: &Self::Interface,
+        env: &mut impl Ext<T = Self::T>,
+    ) -> Result<Vec<u8>, Error> {
+        let IPoseidon2::IPoseidon2Calls::hash(call) = input;
+        let n = u32::try_from(call.data.len()).unwrap_or(u32::MAX);
+        env.charge(<T as crate::Config>::WeightInfo::poseidon2(n))?;
+        poseidon2_output(&call.data).ok_or_else(|| Error::Revert("input too long".into()))
+    }
+}
+
+/// ABI-encoded `bytes32` Poseidon2 hash of `data`; `None` for inputs the encoding cannot take
+/// (longer than 2^32 - 1 bytes), which revert.
+pub fn poseidon2_output(data: &[u8]) -> Option<Vec<u8>> {
+    let digest = ac_crypto::poseidon2::hash(data).ok()?;
+    Some(alloy_core::primitives::FixedBytes::<32>(digest).abi_encode())
+}
+
 /// Reserves `0x…0a100000` for `stark_verify` (D27): the address is occupied, every call reverts.
 pub struct StarkVerifyReserved<T>(PhantomData<T>);
 
@@ -151,4 +189,4 @@ impl<T: crate::Config> Precompile for StarkVerifyReserved<T> {
 }
 
 /// The AgentCoin precompiles, for `pallet_revive::Config::Precompiles`.
-pub type PqPrecompiles<T> = (PqVerify<T>, Blake3<T>, StarkVerifyReserved<T>);
+pub type PqPrecompiles<T> = (PqVerify<T>, Blake3<T>, Poseidon2<T>, StarkVerifyReserved<T>);

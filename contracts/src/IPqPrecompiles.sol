@@ -20,9 +20,16 @@ interface IBlake3 {
     function hash(bytes calldata data) external pure returns (bytes32);
 }
 
+/// @dev Poseidon2-256 of `data` over Goldilocks (Plonky3's width-12 instance; the byte encoding
+/// is in the AgentCoin `ac-crypto` README).
+interface IPoseidon2 {
+    function hash(bytes calldata data) external pure returns (bytes32);
+}
+
 library PqPrecompiles {
     IPqVerify internal constant PQ_VERIFY = IPqVerify(0x000000000000000000000000000000000a010000);
     IBlake3 internal constant BLAKE3 = IBlake3(0x000000000000000000000000000000000A020000);
+    IPoseidon2 internal constant POSEIDON2 = IPoseidon2(0x000000000000000000000000000000000a030000);
     /// @dev Reserved for STARK verification; every call reverts for now.
     address internal constant STARK_VERIFY = 0x000000000000000000000000000000000A100000;
 }

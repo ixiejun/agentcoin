@@ -829,10 +829,11 @@ fn proxied(target: [u8; 20], inner: &[u8]) -> Vec<u8> {
 #[test]
 fn precompiles_answer_contracts() {
     use ac_primitives::evm::{
-        BLAKE3_ADDRESS, EVM_VERIFY_CONTEXT, PQ_VERIFY_ADDRESS, STARK_VERIFY_ADDRESS,
+        BLAKE3_ADDRESS, EVM_VERIFY_CONTEXT, POSEIDON2_ADDRESS, PQ_VERIFY_ADDRESS,
+        STARK_VERIFY_ADDRESS,
     };
     use alloy_core::sol_types::SolCall;
-    use pallet_evm_support::precompiles::{IBlake3, IPqVerify, IStarkVerify};
+    use pallet_evm_support::precompiles::{IBlake3, IPoseidon2, IPqVerify, IStarkVerify};
     dev_ext().execute_with(|| {
         let alice = Signer::dev("alice");
         let proxy = deploy(&alice, PROXY);
@@ -891,6 +892,21 @@ fn precompiles_answer_contracts() {
         );
         assert_eq!(out.data, ac_crypto::hash::blake3_256(&data).to_vec());
 
+        // poseidon2 equals the off-chain hash.
+        let call = IPoseidon2::hashCall {
+            data: data.clone().into(),
+        };
+        let out = dry_call(
+            &alice.account,
+            proxy,
+            proxied(POSEIDON2_ADDRESS, &call.abi_encode()),
+        );
+        assert!(!out.did_revert());
+        assert_eq!(
+            out.data,
+            ac_crypto::poseidon2::hash(&data).unwrap().to_vec()
+        );
+
         // The reserved stark_verify address reverts, as does undecodable input.
         let call = IStarkVerify::verifyCall {
             data: vec![].into(),
@@ -913,7 +929,9 @@ fn precompiles_answer_contracts() {
 // Spec evm/precompiles: "首次调用不创建账户" and "保留地址不可部署"; with a real transaction.
 #[test]
 fn precompile_calls_create_nothing() {
-    use ac_primitives::evm::{BLAKE3_ADDRESS, PQ_VERIFY_ADDRESS, STARK_VERIFY_ADDRESS};
+    use ac_primitives::evm::{
+        BLAKE3_ADDRESS, POSEIDON2_ADDRESS, PQ_VERIFY_ADDRESS, STARK_VERIFY_ADDRESS,
+    };
     use alloy_core::sol_types::SolCall;
     use pallet_evm_support::precompiles::IBlake3;
     dev_ext().execute_with(|| {
@@ -931,7 +949,12 @@ fn precompile_calls_create_nothing() {
             Ok(Ok(()))
         );
         assert_eq!(gross(), before);
-        for address in [PQ_VERIFY_ADDRESS, BLAKE3_ADDRESS, STARK_VERIFY_ADDRESS] {
+        for address in [
+            PQ_VERIFY_ADDRESS,
+            BLAKE3_ADDRESS,
+            POSEIDON2_ADDRESS,
+            STARK_VERIFY_ADDRESS,
+        ] {
             let account = account_of(H160::from(address));
             assert!(!System::account_exists(&account), "{address:02x?}");
             // No contract lives at a precompile address: a plain call to it with value fails

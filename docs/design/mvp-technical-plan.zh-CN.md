@@ -155,7 +155,7 @@ pub struct AccountId([u8; 32]);
 - **预编译**（地址一经发布永不更改）：
   - `0x000000000000000000000000000000000A010000` `pq_verify(uint8 alg, bytes publicKey, bytes message, bytes signature) -> bool`：在固定上下文 `agentcoin/evm-verify/v1` 下验证 ML-DSA-44/65/87 签名，任何未通过验证的输入都返回 false；
   - `0x000000000000000000000000000000000A020000` `blake3(bytes) -> bytes32`；
-  - `0x000000000000000000000000000000000A030000` `poseidon2`：等待 m4-evm 调研门控（任务 4.1）的结论；
+  - `0x000000000000000000000000000000000A030000` `poseidon2(bytes) -> bytes32`：Goldilocks 域上的 Poseidon2，Plonky3 的宽 12 实例（m4-evm 中的用户决定：没有经过审查、支持 `no_std` 的库实现作者参考实例，因此使用 Plonky3 自己的向量）；编码见 [ac-crypto README](../../crates/ac-crypto/README.zh-CN.md)；
   - **[预留]** `0x000000000000000000000000000000000A100000` `stark_verify(vk_id, proof, public_inputs)`：为 L2 通用私有合约预留（D27），目前任何调用都回滚。
 - `pallet-revive` 内置的以太坊预编译仍对应用开放，但**不是后量子的**：`ecrecover`（0x01）、`bn128` 加法/乘法/配对（0x06–0x08）、`point_eval`（0x0a，KZG）和 `p256_verify`（0x100）。它们仅为应用兼容而保留，永远不能用于账户授权，不建议使用。
 - **eth-RPC 适配器**（`ac-eth-rpc`，[README](../../services/eth-rpc/README.zh-CN.md)）：为 Foundry 等工具提供以太坊 JSON-RPC：`web3_clientVersion`、`net_version`、`eth_chainId`、`eth_syncing`、`eth_blockNumber`、`eth_accounts`、`eth_gasPrice`、`eth_maxPriorityFeePerGas`、`eth_feeHistory`、`eth_getBalance`、`eth_getTransactionCount`、`eth_getCode`、`eth_getStorageAt`、`eth_call`、`eth_estimateGas`、`eth_getBlockByNumber`、`eth_getBlockByHash`、`eth_getTransactionByHash`、`eth_getTransactionReceipt`、`eth_getLogs`、`eth_sendRawTransaction`。`safe`/`finalized` 即 AC-BFT 终局性。`eth_sendRawTransaction` 只转发 ML-DSA 签名的 AgentCoin 合约交易；`ac-wallet evm` 是外部签名器（部署、调用、raw、广播 `forge script` 模拟结果、为 `pq_verify` 签名消息）。

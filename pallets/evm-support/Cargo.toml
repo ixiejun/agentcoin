@@ -9,7 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-ac-crypto = { workspace = true }
+ac-crypto = { workspace = true, features = ["poseidon2"] }
 ac-primitives = { workspace = true }
 alloy-core = { workspace = true }
 frame-benchmarking = { workspace = true, optional = true }

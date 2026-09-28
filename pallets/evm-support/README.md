@@ -27,9 +27,10 @@ keeps it inside AgentCoin's rules:
   |---|---|---|
   | `pq_verify` | `0x000000000000000000000000000000000a010000` | `verify(uint8 alg, bytes publicKey, bytes message, bytes signature) returns (bool)` — ML-DSA-44/65/87 under the fixed context `agentcoin/evm-verify/v1`; any failure is `false` |
   | `blake3` | `0x000000000000000000000000000000000a020000` | `hash(bytes data) returns (bytes32)` |
+  | `poseidon2` | `0x000000000000000000000000000000000a030000` | `hash(bytes data) returns (bytes32)` (Goldilocks, Plonky3 instance; see the `ac-crypto` README) |
   | `stark_verify` | `0x000000000000000000000000000000000a100000` | reserved (D27): every call reverts |
 
-  Address `0x…0a030000` is kept for `poseidon2`, pending the outcome of its research gate.
+  Inputs `poseidon2` cannot encode (longer than 2^32 − 1 bytes) revert.
 
 ## Built-in precompiles (not post-quantum)
 
