@@ -20,6 +20,14 @@ scripts are copyleft.
   `scripts/check-license-boundary.sh` enforces the zones in CI.
 - Third-party snapshots keep their upstream licence
   (docs/rust-guidelines/ is MIT, see its own notice).
+- Internal features: the zones apply to what can be distributed. A few Cargo
+  features are internal (registered in scripts/check-license-boundary.sh;
+  today only `runtime-benchmarks`) and may pull in registered GPL-only
+  dependencies (today only `pallet-revive-fixtures`, GPL-3.0-only, the
+  upstream benchmark contracts). AgentCoin never distributes builds with an
+  internal feature enabled, and CI checks that the release runtime exposes no
+  benchmarking API. If you build with an internal feature and distribute the
+  result, that result is subject to the GPL.
 
 Contributions: a contribution to a directory is licensed under that
 directory's licence (inbound = outbound). There is no separate CLA.

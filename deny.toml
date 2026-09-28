@@ -48,6 +48,14 @@ allow = [
     "Zlib",
 ]
 
+# pallet-revive-fixtures (GPL-3.0-only) is pulled in only by `runtime-benchmarks`, an internal
+# feature whose artefacts are never distributed (change license-internal-features; the
+# registered list is INTERNAL_GPL_ALLOW in scripts/check-license-boundary.sh). GPL-3.0-only stays
+# off the global allow-list, so any other crate under it still fails this check.
+[[licenses.exceptions]]
+crate = "pallet-revive-fixtures"
+allow = ["GPL-3.0-only"]
+
 # These crates are dual licensed Apache-2.0 / GPL-3.0 but use deprecated SPDX identifiers;
 # AgentCoin uses them under Apache-2.0.
 [[licenses.clarify]]

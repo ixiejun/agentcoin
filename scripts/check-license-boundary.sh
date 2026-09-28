@@ -11,11 +11,14 @@
 #    in that directory that lists each file's SHA-256 (they keep their upstream licence and need
 #    no SPDX line).
 #
-# Two rules are checked for every workspace crate:
-# 1. A permissive-zone crate's normal + build dependency closure contains no crate that can only
-#    be used under a GPL-family licence — this includes AgentCoin's own GPL-zone crates. A
-#    licence expression with a non-GPL alternative (e.g. "Apache-2.0 OR GPL-3.0") is accepted.
-# 2. Every crate declares exactly its zone's licence expression in `Cargo.toml`.
+# Three rules are checked for every workspace crate:
+# 1. The distributed build of a permissive-zone crate (every feature except the internal ones in
+#    INTERNAL_FEATURES) has a normal + build dependency closure with no crate that can only be
+#    used under a GPL-family licence — this includes AgentCoin's own GPL-zone crates. A licence
+#    expression with a non-GPL alternative (e.g. "Apache-2.0 OR GPL-3.0") is accepted.
+# 2. With every feature enabled, internal ones included, the only GPL-only crates allowed in that
+#    closure are those listed in INTERNAL_GPL_ALLOW.
+# 3. Every crate declares exactly its zone's licence expression in `Cargo.toml`.
 #
 # It also checks that the AC-BFT protocol core (node/consensus/ac-bft/src/protocol*) uses no
 # node-client (`sc-*`) crate, so it stays a pure state machine that light clients and formal
@@ -34,8 +37,15 @@ GPL_ZONES="node services clients/wallet-cli tests scripts"
 SOL_GPL_ZONES="$GPL_ZONES contracts/acceptance"
 PERMISSIVE_LICENSE="MIT OR Apache-2.0"
 GPL_LICENSE="GPL-3.0-or-later"
+# Cargo features that only developers build; their artefacts are never distributed
+# (change license-internal-features, design D1). Changing either list needs an OpenSpec change.
+INTERNAL_FEATURES="runtime-benchmarks"
+# GPL-only crates allowed in a permissive-zone closure, and only behind INTERNAL_FEATURES.
+INTERNAL_GPL_ALLOW="pallet-revive-fixtures"
 
-# Prints "<name>\t<zone>\t<declared licence>" for every workspace crate.
+# Prints "<name>\t<zone>\t<declared licence>\t<distributed features>" for every workspace crate;
+# the distributed features are all of the crate's features except INTERNAL_FEATURES, comma
+# separated.
 list_packages() {
   local manifest="$1"
   cargo metadata --format-version 1 --no-deps --manifest-path "$manifest" |
@@ -43,39 +53,67 @@ list_packages() {
 import json, os, sys
 root = os.path.realpath(sys.argv[1])
 zones = sys.argv[2].split()
+internal = set(sys.argv[3].split())
 meta = json.load(sys.stdin)
 for p in meta["packages"]:
     rel = os.path.relpath(os.path.realpath(os.path.dirname(p["manifest_path"])), root)
     gpl = any(rel == z or rel.startswith(z + "/") for z in zones)
-    print(p["name"], "gpl" if gpl else "permissive", p.get("license") or "", sep="\t")
-' "$(dirname "$manifest")" "$GPL_ZONES"
+    features = ",".join(sorted(f for f in p["features"] if f not in internal))
+    print(p["name"], "gpl" if gpl else "permissive", p.get("license") or "", features, sep="\t")
+' "$(dirname "$manifest")" "$GPL_ZONES" "$INTERNAL_FEATURES"
+}
+
+# Reads `cargo tree --format "{p}|{l}"` output and prints each GPL-only crate not named in "$1"
+# (a space-separated list), as "<crate> v<version>  [<licence>]".
+gpl_offenders() {
+  python3 -c '
+import re, sys
+allowed = set(sys.argv[1].split())
+bad = set()
+for line in sys.stdin:
+    name, _, lic = line.strip().partition("|")
+    alternatives = re.split(r"\s+OR\s+|/", lic.strip())
+    package = name.split(" (")[0]
+    if lic and all("GPL" in alt for alt in alternatives) and package.split(" v")[0] not in allowed:
+        bad.add(package + "  [" + lic + "]")
+print("\n".join(sorted(bad)))
+' "$1"
+}
+
+# Prints the dependency closure of package "$2" as "{p}|{l}" lines; further arguments select
+# features.
+closure() {
+  local manifest="$1" name="$2"
+  shift 2
+  cargo tree --manifest-path "$manifest" -p "$name" "$@" -e normal,build --target all \
+    --prefix none --format '{p}|{l}'
 }
 
 check() {
   local manifest="$1"
   local failed=0
-  local name zone license expected offenders
-  while IFS=$'\t' read -r name zone license; do
+  local name zone license features expected offenders
+  local -a selection
+  while IFS=$'\t' read -r name zone license features; do
     if [[ "$zone" == gpl ]]; then expected="$GPL_LICENSE"; else expected="$PERMISSIVE_LICENSE"; fi
     if [[ "$license" != "$expected" ]]; then
       echo "licence zone violated: $name ($zone zone) declares \"$license\", expected \"$expected\"" >&2
       failed=1
     fi
     [[ "$zone" == permissive ]] || continue
-    offenders="$(cargo tree --manifest-path "$manifest" -p "$name" --all-features -e normal,build \
-      --target all --prefix none --format '{p}|{l}' |
-      python3 -c '
-import re, sys
-bad = set()
-for line in sys.stdin:
-    name, _, lic = line.strip().partition("|")
-    alternatives = re.split(r"\s+OR\s+|/", lic.strip())
-    if lic and all("GPL" in alt for alt in alternatives):
-        bad.add(name.split(" (")[0] + "  [" + lic + "]")
-print("\n".join(sorted(bad)))
-')"
+    # Rule 1: the distributed build, where not even INTERNAL_GPL_ALLOW is accepted.
+    selection=()
+    [[ -z "$features" ]] || selection=(--features "$features")
+    offenders="$(closure "$manifest" "$name" "${selection[@]}" | gpl_offenders "")"
     if [[ -n "$offenders" ]]; then
-      echo "licence boundary violated: $name (permissive zone) depends on GPL-licensed crates:" >&2
+      echo "licence boundary violated: $name (permissive zone) depends on GPL-licensed crates in the distributed build (features other than: $INTERNAL_FEATURES):" >&2
+      echo "$offenders" | sed 's/^/  /' >&2
+      failed=1
+    fi
+    # Rule 2: internal features may add only the registered crates.
+    offenders="$(closure "$manifest" "$name" --all-features | gpl_offenders "$INTERNAL_GPL_ALLOW")"
+    if [[ -n "$offenders" ]]; then
+      echo "licence boundary violated: $name (permissive zone) depends on GPL-licensed crates not registered in INTERNAL_GPL_ALLOW:" >&2
       echo "$offenders" | sed 's/^/  /' >&2
       failed=1
     fi
@@ -175,6 +213,25 @@ fixture_crate() {
   echo "" >"$ws/$dir/src/lib.rs"
 }
 
+# Writes a crate outside the fixture workspace that stands in for a third-party dependency:
+# fixture_external <dir> <name> <licence>
+fixture_external() {
+  local dir="$1" name="$2" license="$3"
+  mkdir -p "$dir/src"
+  printf '[package]\nname = "%s"\nversion = "0.1.0"\nedition = "2024"\nlicense = "%s"\n' \
+    "$name" "$license" >"$dir/Cargo.toml"
+  echo "" >"$dir/src/lib.rs"
+}
+
+# Makes crates/lib in workspace "$1" depend on the external crate at "$2" (named "$3") only
+# through feature "$4".
+fixture_feature_dep() {
+  local ws="$1" dir="$2" name="$3" feature="$4"
+  fixture_crate "$ws" crates/lib "$PERMISSIVE_LICENSE" \
+    "$name = { path = \"$dir\", optional = true }" \
+    "" "[features]" "$feature = [\"dep:$name\"]"
+}
+
 # Builds a passing baseline workspace in "$1": a library, a pallet, the node and a service; the
 # node and the service use a GPL SDK crate. `sc-chain-spec-derive`
 # (GPL-3.0-or-later WITH Classpath-exception-2.0) is a small SDK crate.
@@ -266,6 +323,35 @@ self_test() {
   fixture_baseline "$ws"
   fixture_crate "$ws" crates/lib "$GPL_LICENSE"
   expect_fail "a crates/ crate declaring GPL-3.0-or-later" "$ws" "fixture-crates-lib (permissive zone) declares \"GPL-3.0-or-later\""
+
+  # Internal features (change license-internal-features): a registered GPL-only crate is
+  # accepted behind a registered internal feature only.
+  local internal="${INTERNAL_FEATURES%% *}" allowed="${INTERNAL_GPL_ALLOW%% *}"
+  fixture_external "$tmp/ext/allowed" "$allowed" "GPL-3.0-only"
+  fixture_external "$tmp/ext/other" "fixture-gpl-other" "GPL-3.0-only"
+
+  # Scenario: the registered crate appears only behind the internal feature.
+  fixture_baseline "$ws"
+  fixture_feature_dep "$ws" "$tmp/ext/allowed" "$allowed" "$internal"
+  if ! check "$ws/Cargo.toml"; then
+    echo "self-test failed: $allowed behind $internal was rejected" >&2
+    return 1
+  fi
+
+  # Scenario: the registered crate appears behind an ordinary feature.
+  fixture_baseline "$ws"
+  fixture_feature_dep "$ws" "$tmp/ext/allowed" "$allowed" "std"
+  expect_fail "$allowed behind std" "$ws" "depends on GPL-licensed crates in the distributed build"
+
+  # Scenario: the internal feature brings in an unregistered GPL crate.
+  fixture_baseline "$ws"
+  fixture_feature_dep "$ws" "$tmp/ext/other" "fixture-gpl-other" "$internal"
+  expect_fail "an unregistered GPL crate behind $internal" "$ws" "fixture-gpl-other v0.1.0  \\[GPL-3.0-only\\]"
+
+  # Scenario: an unregistered feature brings in the registered crate.
+  fixture_baseline "$ws"
+  fixture_feature_dep "$ws" "$tmp/ext/allowed" "$allowed" "try-runtime"
+  expect_fail "$allowed behind try-runtime" "$ws" "depends on GPL-licensed crates in the distributed build"
 
   # Scenario: a permissive-zone contract with a GPL identifier, without one, or importing from
   # the acceptance project.
