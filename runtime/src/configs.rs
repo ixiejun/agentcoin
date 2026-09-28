@@ -19,7 +19,14 @@ use super::{
     RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, StakingPos, Timestamp,
     TreasuryDual, VERSION, ValidatorSet,
 };
+use crate::evm_filter::EvmOnly;
 use crate::holder_lock::HolderTreasuryLock;
+use frame_support::traits::InsideBoth;
+
+/// The runtime's call filter: the holder-treasury lock (D42) and the EVM-only rule (m4-evm).
+/// Used as the base filter and as the filter of `PoaAdmin::dispatch_as_root`, because Root
+/// bypasses the base filter.
+pub type RuntimeCallFilter = InsideBoth<HolderTreasuryLock, EvmOnly>;
 use ac_primitives::Blake3Hasher;
 use ac_primitives::emission::{FLOOR_BATCH_BLOCKS, FLOOR_VESTING_BLOCKS};
 use frame_support::traits::EitherOfDiverse;
@@ -60,7 +67,7 @@ impl frame_system::Config for Runtime {
     type MaxConsumers = ConstU32<16>;
     /// The holder treasury is locked (decision D42); Root bypasses this filter, so
     /// `PoaAdmin::dispatch_as_root` applies it again.
-    type BaseCallFilter = HolderTreasuryLock;
+    type BaseCallFilter = RuntimeCallFilter;
     // Every account gets its EVM address mapping when it is created (m4-evm design D4).
     type OnNewAccount = pallet_revive::AutoMapper<Runtime>;
     type OnKilledAccount = pallet_revive::AutoMapper<Runtime>;
@@ -258,7 +265,7 @@ impl pallet_poa_admin::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type RuntimeCall = RuntimeCall;
     type AdminOrigin = AdminOrigin;
-    type RootCallFilter = HolderTreasuryLock;
+    type RootCallFilter = RuntimeCallFilter;
     type WeightInfo = pallet_poa_admin::weights::SubstrateWeight<Runtime>;
 }
 

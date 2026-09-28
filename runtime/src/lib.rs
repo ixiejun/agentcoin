@@ -29,6 +29,8 @@ pub struct ReadmeDoctests;
 mod benchmarks;
 mod apis;
 mod configs;
+pub use configs::RuntimeCallFilter;
+pub mod evm_filter;
 pub mod genesis_config_presets;
 pub mod holder_lock;
 pub mod transaction;
