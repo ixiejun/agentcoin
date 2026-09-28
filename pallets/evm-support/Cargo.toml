@@ -17,6 +17,13 @@ parity-scale-codec = { workspace = true, features = ["derive", "max-encoded-len"
 scale-info = { workspace = true, features = ["derive"] }
 sp-runtime = { workspace = true }
 
+[dev-dependencies]
+pallet-balances = { workspace = true, features = ["std"] }
+pallet-timestamp = { workspace = true, features = ["std"] }
+proptest = { workspace = true, features = ["std"] }
+sp-core = { workspace = true, features = ["std"] }
+sp-io = { workspace = true, features = ["std"] }
+
 [features]
 default = ["std"]
 std = [

@@ -7283,9 +7283,14 @@ dependencies = [
  "ac-primitives",
  "frame-support",
  "frame-system",
+ "pallet-balances",
  "pallet-revive",
+ "pallet-timestamp",
  "parity-scale-codec",
+ "proptest",
  "scale-info",
+ "sp-core",
+ "sp-io",
  "sp-runtime",
 ]
 
