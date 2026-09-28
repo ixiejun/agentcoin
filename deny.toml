@@ -25,11 +25,14 @@ version = 2
 confidence-threshold = 0.93
 # The allow-list anticipates future dependencies; do not warn about unused entries.
 unused-allowed-license = "allow"
-# Permissive licenses, plus the Polkadot SDK client licence (decision D37 of m1-pq-chain):
-# `GPL-3.0-or-later WITH Classpath-exception-2.0` is allowed here globally because cargo-deny
-# cannot scope a licence to a directory; `scripts/check-license-boundary.sh` enforces that only
-# `node/` (and the node-driven e2e tests) may depend on it.
+# Permissive licenses, plus the GPL family used by the GPL licence zone (decision D47, which
+# supersedes D37): AgentCoin's own programs, services, tests and scripts are `GPL-3.0-or-later`
+# and the Polkadot SDK client crates are `GPL-3.0-or-later WITH Classpath-exception-2.0`. Both
+# are allowed here globally because cargo-deny cannot scope a licence to a directory;
+# `scripts/check-license-boundary.sh` enforces that only the GPL zone (node/, services/,
+# clients/wallet-cli/, tests/, scripts/) may depend on them.
 allow = [
+    "GPL-3.0-or-later",
     "GPL-3.0-or-later WITH Classpath-exception-2.0",
     # Data licence of the webpki root-certificate bundle (via the jsonrpsee HTTP client).
     "CDLA-Permissive-2.0",

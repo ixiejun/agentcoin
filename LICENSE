@@ -1,21 +1,38 @@
-MIT License
+AgentCoin licensing (decision D47)
+==================================
 
-Copyright (c) 2026 ixiejun
+AgentCoin is licensed by directory. Reusable libraries are permissive so that
+wallets, SDKs and other chains can embed them; programs, services, tests and
+scripts are copyleft.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+| Zone       | Directories                                                      | SPDX expression      |
+|------------|------------------------------------------------------------------|----------------------|
+| GPL        | node/ (including node/consensus/*), services/,                   | GPL-3.0-or-later     |
+|            | clients/wallet-cli/, tests/, scripts/                            |                      |
+| Permissive | everything else, including crates/, pallets/, runtime/, docs/,   | MIT OR Apache-2.0    |
+|            | openspec/, the repository root and any new directory             |                      |
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+- Permissive zone: you may use it under either the MIT licence (LICENSE-MIT)
+  or the Apache License 2.0 (LICENSE-APACHE), at your option.
+- GPL zone: GNU General Public License v3.0 or (at your option) any later
+  version (LICENSE-GPL).
+- Each Cargo package declares its zone's expression in its `license` field;
+  `scripts/check-license-boundary.sh` enforces the zones in CI.
+- Third-party snapshots keep their upstream licence
+  (docs/rust-guidelines/ is MIT, see its own notice).
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Contributions: a contribution to a directory is licensed under that
+directory's licence (inbound = outbound). There is no separate CLA.
+
+Earlier versions: commits made before this licence split (up to and including
+commit 117712b) were released under the MIT licence alone and remain
+available under it.
+
+Licence texts:
+
+| File           | Source                                                           | SHA-256                                                          |
+|----------------|------------------------------------------------------------------|------------------------------------------------------------------|
+| LICENSE-MIT    | the project's original MIT licence                               | -                                                                |
+| LICENSE-APACHE | https://www.apache.org/licenses/LICENSE-2.0.txt                  | cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30 |
+| LICENSE-GPL    | https://www.gnu.org/licenses/gpl-3.0.txt (verbatim; retrieved    | 3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986 |
+|                | via the GNU coreutils COPYING file, which is byte-identical)     |                                                                  |
