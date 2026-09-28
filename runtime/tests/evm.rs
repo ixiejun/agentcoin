@@ -730,3 +730,40 @@ fn revive_api_refuses_polkavm_and_ethereum_paths() {
         );
     });
 }
+
+// --- task 2.10: contract calls fit in a block ------------------------------------------------------
+
+#[test]
+fn contract_call_weight_fits_the_block_budget() {
+    use frame_support::dispatch::{DispatchClass, GetDispatchInfo};
+    dev_ext().execute_with(|| {
+        let alice = Signer::dev("alice");
+        let block = <Runtime as frame_system::Config>::BlockWeights::get();
+        let max_extrinsic = block.get(DispatchClass::Normal).max_extrinsic.unwrap();
+        // The fixed part of a call and of a deployment of the largest EVM init code leave room
+        // for execution inside one extrinsic.
+        let base_call = contract_call(H160::zero(), vec![]).get_dispatch_info().call_weight
+            - weight_limit();
+        assert!(base_call.all_lt(max_extrinsic), "{base_call:?}");
+        let largest = deploy_call(vec![0u8; 48 * 1024]);
+        let base_deploy = largest.get_dispatch_info().call_weight - weight_limit();
+        assert!(base_deploy.all_lt(max_extrinsic), "{base_deploy:?}");
+        // Revive's own per-extrinsic ceiling stays inside the block's.
+        assert!(Revive::evm_max_extrinsic_weight().all_lte(max_extrinsic));
+
+        // A call asking for more than an extrinsic may use is refused before it runs.
+        let too_big = RuntimeCall::Revive(pallet_revive::Call::call {
+            dest: H160::zero(),
+            value: 0,
+            weight_limit: max_extrinsic,
+            storage_deposit_limit: DEPOSIT_LIMIT,
+            data: vec![],
+        });
+        assert_eq!(
+            apply(signed(&alice, too_big)),
+            Err(sp_runtime::transaction_validity::TransactionValidityError::Invalid(
+                sp_runtime::transaction_validity::InvalidTransaction::ExhaustsResources
+            ))
+        );
+    });
+}
