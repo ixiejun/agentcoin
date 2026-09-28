@@ -121,6 +121,9 @@ runtime-benchmarks = [
     "pallet-staking-pos/runtime-benchmarks",
     "pallet-evm-support/runtime-benchmarks",
     "pallet-randomness-cr/runtime-benchmarks",
+    # Brings in pallet-revive-fixtures (GPL-3.0-only): allowed only because runtime-benchmarks
+    # is a registered internal feature whose builds are never distributed.
+    "pallet-revive/runtime-benchmarks",
     "pallet-timestamp/runtime-benchmarks",
     "pallet-transaction-payment/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",

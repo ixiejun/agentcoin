@@ -38,7 +38,9 @@ EVM 合约（m4-evm）通过普通的 ML-DSA 签名交易部署和调用（`Revi
 | Feature | 默认 | 用途 |
 |---|---|---|
 | `std` | 是 | 原生 runtime 与 WASM 构建器。 |
-| `runtime-benchmarks` | 否 | 所含模块的基准测试。 |
+| `runtime-benchmarks` | 否 | 所含模块的基准测试，包括 `pallet_revive`。 |
+
+`runtime-benchmarks` 是内部开关（见 `LICENSE`）：它会引入 `pallet-revive-fixtures`（GPL-3.0-only），因此打开它构建的 runtime 只用于在开发者本机生成权重，从不分发；CI 会检查正式 runtime 不含基准测试 API（`scripts/check-release-runtime.sh`）。编译这些测试合约需要 nightly RISC-V 工具链、`solc` 与 `resolc`；没有这些工具时，设置 `SKIP_PALLET_REVIVE_FIXTURES=1` 即可用 `--all-features` 构建或测试（此时无法运行 revive 的基准，其他不受影响）。
 
 ## 示例
 

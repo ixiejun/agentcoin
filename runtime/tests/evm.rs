@@ -970,3 +970,34 @@ fn precompile_calls_create_nothing() {
         assert!(matches!(result, Ok(Err(_))), "{result:?}");
     });
 }
+
+// license-internal-features 5.4 (m4-evm 2.10): with the weights the runtime actually uses, the
+// fixed part of the heaviest contract call and deployment fits a normal extrinsic, with room left
+// for the caller's execution weight limit. Worst case sizes are revive 0.19.1's own limits (its
+// `limits` module is private): 1 MiB of code (`code::BLOB_BYTES`) and 128 KiB of call data
+// (`CALLDATA_BYTES`).
+#[test]
+fn heaviest_contract_transaction_fits_a_normal_extrinsic() {
+    use frame_support::dispatch::DispatchClass;
+    use pallet_revive::WeightInfo as _;
+    type Weights = <Runtime as pallet_revive::Config>::WeightInfo;
+    const CODE_BYTES: u32 = 1024 * 1024;
+    const CALLDATA_BYTES: u32 = 128 * 1024;
+
+    let block = <Runtime as frame_system::Config>::BlockWeights::get();
+    let normal = block
+        .get(DispatchClass::Normal)
+        .max_extrinsic
+        .expect("normal extrinsics are bounded");
+    let heaviest = [
+        Weights::call(),
+        Weights::instantiate(CALLDATA_BYTES),
+        Weights::instantiate_with_code(CODE_BYTES, CALLDATA_BYTES),
+    ];
+    for fixed in heaviest {
+        assert!(fixed.all_lt(normal), "{fixed:?} does not fit {normal:?}");
+    }
+    // The limit the wallet and the tests give contracts still fits next to the heaviest part.
+    let deploy = Weights::instantiate_with_code(CODE_BYTES, CALLDATA_BYTES);
+    assert!(deploy.saturating_add(weight_limit()).all_lte(normal));
+}

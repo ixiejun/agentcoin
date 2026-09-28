@@ -1,5 +1,0 @@
-[env]
-# pallet-revive's `runtime-benchmarks` feature builds its benchmark fixtures (PolkaVM programs
-# and Solidity contracts), which needs a RISC-V `build-std` toolchain, `solc` and `resolc`.
-# AgentCoin runs EVM bytecode only, so the fixtures are skipped (m4-evm design D2).
-SKIP_PALLET_REVIVE_FIXTURES = "1"

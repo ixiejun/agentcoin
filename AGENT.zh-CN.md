@@ -304,14 +304,17 @@ scripts/     工具脚本
 ```bash
 # 质量检查（与 CI 一致）
 cargo fmt --all -- --check
-SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
+#（--all-features 会打开 revive 的基准；SKIP_PALLET_REVIVE_FIXTURES 跳过其测试合约的编译，
+#  编译它们需要 RISC-V 工具链与 resolc，见 runtime/README.zh-CN.md）
+SKIP_WASM_BUILD=1 SKIP_PALLET_REVIVE_FIXTURES=1 cargo clippy --workspace --all-targets --all-features -- -D warnings
+SKIP_PALLET_REVIVE_FIXTURES=1 cargo test --workspace --all-features
 cargo build -p ac-crypto --no-default-features --target wasm32-unknown-unknown
 cargo deny check
 cargo audit
 
 # 供应链、许可证与安全公告
-scripts/check-license-boundary.sh [--self-test]     # 许可证分区（D47）
+scripts/check-license-boundary.sh [--self-test]     # 许可证分区（D47）与内部开关
+scripts/check-release-runtime.sh <wasm>|--self-test # 正式 runtime 不含基准测试 API
 scripts/sync-audit-exceptions.py [--write]        # 安全公告例外（编辑 audit-exceptions.toml）
 scripts/benchmark-pallet.sh <pallet> <weights.rs> # 重新生成基准权重
 

@@ -63,7 +63,14 @@ always changes by exactly minted minus burned.
 | Feature | Default | Purpose |
 |---|---|---|
 | `std` | yes | Native runtime and the WASM builder. |
-| `runtime-benchmarks` | no | Benchmarks of the included pallets. |
+| `runtime-benchmarks` | no | Benchmarks of the included pallets, `pallet_revive` among them. |
+
+`runtime-benchmarks` is an internal feature (see `LICENSE`): it pulls in `pallet-revive-fixtures`
+(GPL-3.0-only), so a runtime built with it is only for generating weights on a developer machine
+and is never distributed; CI checks that the release runtime exposes no benchmarking API
+(`scripts/check-release-runtime.sh`). Compiling those fixtures needs a nightly RISC-V toolchain,
+`solc` and `resolc`; set `SKIP_PALLET_REVIVE_FIXTURES=1` to build or test with `--all-features`
+without them (revive's benchmarks then cannot run, nothing else changes).
 
 ## Example
 

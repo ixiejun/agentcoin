@@ -10,4 +10,5 @@ frame_benchmarking::define_benchmarks!(
     [pallet_poa_admin, PoaAdmin]
     [pallet_staking_pos, StakingPos]
     [pallet_evm_support, EvmSupport]
+    [pallet_revive, Revive]
 );

@@ -304,14 +304,17 @@ A task / change is done only when all of the following hold:
 ```bash
 # Quality checks (same as CI)
 cargo fmt --all -- --check
-SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
+# (--all-features enables revive's benchmarks; SKIP_PALLET_REVIVE_FIXTURES skips compiling its
+#  test contracts, which need a RISC-V toolchain and resolc — see runtime/README.md)
+SKIP_WASM_BUILD=1 SKIP_PALLET_REVIVE_FIXTURES=1 cargo clippy --workspace --all-targets --all-features -- -D warnings
+SKIP_PALLET_REVIVE_FIXTURES=1 cargo test --workspace --all-features
 cargo build -p ac-crypto --no-default-features --target wasm32-unknown-unknown
 cargo deny check
 cargo audit
 
 # Supply chain, licences and advisories
-scripts/check-license-boundary.sh [--self-test]     # licence zones (D47)
+scripts/check-license-boundary.sh [--self-test]     # licence zones (D47) and internal features
+scripts/check-release-runtime.sh <wasm>|--self-test # the release runtime has no benchmarking API
 scripts/sync-audit-exceptions.py [--write]        # advisory exceptions (edit audit-exceptions.toml)
 scripts/benchmark-pallet.sh <pallet> <weights.rs> # regenerate benchmarked weights
 

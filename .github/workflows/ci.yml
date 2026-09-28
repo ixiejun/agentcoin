@@ -25,6 +25,9 @@ jobs:
     env:
       # The runtime WASM blob is built and checked by the `runtime-wasm` job.
       SKIP_WASM_BUILD: "1"
+      # `--all-features` turns on pallet-revive's benchmarks; skip compiling its test contracts,
+      # which needs a nightly RISC-V toolchain and resolc (license-internal-features D5).
+      SKIP_PALLET_REVIVE_FIXTURES: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-substrate
@@ -32,6 +35,9 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    env:
+      # As in `clippy`: no test runs revive's benchmarks, so its test contracts are not needed.
+      SKIP_PALLET_REVIVE_FIXTURES: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-substrate
@@ -63,6 +69,10 @@ jobs:
       - run: cargo build -p ac-runtime --release
       - name: Runtime blob exists
         run: ls -l target/release/wbuild/ac-runtime/ac_runtime.compact.compressed.wasm
+      - name: The release runtime exposes no benchmarking API
+        run: |
+          scripts/check-release-runtime.sh target/release/wbuild/ac-runtime/ac_runtime.compact.wasm
+          scripts/check-release-runtime.sh --self-test
 
   e2e:
     runs-on: ubuntu-latest

@@ -50,6 +50,9 @@ runtime-benchmarks = [
     "frame-benchmarking/runtime-benchmarks",
     "frame-support/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
+    # Brings in pallet-revive-fixtures (GPL-3.0-only): allowed only because runtime-benchmarks
+    # is a registered internal feature whose builds are never distributed.
+    "pallet-revive/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",
 ]
 try-runtime = [
