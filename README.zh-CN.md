@@ -62,3 +62,14 @@ curl -s -H 'Content-Type: application/json' http://127.0.0.1:9944 \
 # 4、7、10 个本地验证人的终局性延迟（release 构建，至少 4 核）
 scripts/measure-finality.sh
 ```
+
+## 许可证
+
+AgentCoin 按目录划分许可证（决策 D47，详见 [`LICENSE`](LICENSE)）：
+
+| 目录 | 许可证 |
+|---|---|
+| `node/`、`services/`、`clients/wallet-cli/`、`tests/`、`scripts/` | `GPL-3.0-or-later`（[`LICENSE-GPL`](LICENSE-GPL)） |
+| 其余全部：`crates/`、`pallets/`、`runtime/`、`docs/` 等 | `MIT OR Apache-2.0`（[`LICENSE-MIT`](LICENSE-MIT)、[`LICENSE-APACHE`](LICENSE-APACHE)） |
+
+供钱包、SDK 和其他链嵌入的库采用宽松许可；程序和服务采用 copyleft 许可。贡献按其所在目录的许可证授权。`scripts/check-license-boundary.sh` 在 CI 中强制执行这一划分。

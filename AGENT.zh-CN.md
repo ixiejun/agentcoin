@@ -28,7 +28,7 @@ AgentCoin（代币 **ATC**）是一个**抗量子、天生隐私、无许可**�
 
 | 文档 | 作用 | 何时读 |
 |---|---|---|
-| `docs/decisions.md`（中文：`.zh-CN.md`） | **全部已确认决策 D1–D46（最高设计依据）** | 每次开始新任务 |
+| `docs/decisions.md`（中文：`.zh-CN.md`） | **全部已确认决策 D1–D47（最高设计依据）** | 每次开始新任务 |
 | `docs/design/mvp-technical-plan.md` | MVP 架构、模块、数据结构、里程碑 | 做 MVP 任务时 |
 | `docs/design/full-technical-plan.md` | 全量版架构与 MVP 必须预留的接口（§11） | 设计任何接口时 |
 | `docs/research/01–07` | 决策的调研依据与讨论过程 | 需要理解“为什么”时 |
@@ -105,6 +105,7 @@ tests/       e2e、经济仿真
 scripts/     工具脚本
 ```
 
+- **许可证分区（D47）**：`node/`、`services/`、`clients/wallet-cli/`、`tests/`、`scripts/` 采用 `GPL-3.0-or-later`；其余部分（包括任何新目录）采用 `MIT OR Apache-2.0`，不得依赖 GPL，包括本仓库自己的 GPL crate。每个 crate 在 `Cargo.toml` 中声明所在区的许可证，详见 `LICENSE`。
 - **目录按需创建**：不要为未来模块预先建空目录或空 crate。
 - **依赖方向**：`crates/*` 不依赖 `node`/`runtime`/`pallets`/`services`；`pallets` 只依赖 `crates` 与 Polkadot SDK；`services`/`clients` 不依赖 `node` 内部实现，只通过 RPC / 公共类型交互。
 - **密码学只在 `ac-crypto`**；共享数据类型只在 `ac-primitives`；节点不变式是 `ac-invariants` 中的**纯函数**（便于形式化验证）。
@@ -310,7 +311,7 @@ cargo deny check
 cargo audit
 
 # 供应链、许可证与安全公告
-scripts/check-license-boundary.sh                 # 只有 node/ 可以依赖 GPL（D37）
+scripts/check-license-boundary.sh [--self-test]     # 许可证分区（D47）
 scripts/sync-audit-exceptions.py [--write]        # 安全公告例外（编辑 audit-exceptions.toml）
 scripts/benchmark-pallet.sh <pallet> <weights.rs> # 重新生成基准权重
 

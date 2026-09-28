@@ -85,6 +85,8 @@ production and seal double-signing warnings), `ac-offences` (double-signing repo
 
 ## License
 
-Only `node/` may depend on the Polkadot SDK client crates licensed
-`GPL-3.0-or-later WITH Classpath-exception-2.0` (decision D37); the node's own source is MIT.
-Distributing an `ac-node` binary must honour the GPL terms of those components.
+`node/` is in the GPL licence zone (decision D47): the node's source, including
+`node/consensus/*`, is `GPL-3.0-or-later`, and it may depend on the Polkadot SDK client crates
+licensed `GPL-3.0-or-later WITH Classpath-exception-2.0`. Distributing an `ac-node` binary
+requires offering its complete corresponding source under the GPL. See the repository
+[`LICENSE`](../LICENSE) for the zone table.

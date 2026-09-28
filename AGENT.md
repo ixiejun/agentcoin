@@ -28,7 +28,7 @@ AgentCoin (token **ATC**) is a **post-quantum, privacy-native, permissionless** 
 
 | Document | Purpose | When to read |
 |---|---|---|
-| `docs/decisions.md` (Chinese: `.zh-CN.md`) | **All confirmed decisions D1–D46 (highest design authority)** | At the start of every task |
+| `docs/decisions.md` (Chinese: `.zh-CN.md`) | **All confirmed decisions D1–D47 (highest design authority)** | At the start of every task |
 | `docs/design/mvp-technical-plan.md` | MVP architecture, modules, data structures, milestones | For MVP tasks |
 | `docs/design/full-technical-plan.md` | Full-version architecture and interfaces the MVP must reserve (§11) | When designing any interface |
 | `docs/research/01–07` | Research and discussion behind the decisions | When you need the "why" |
@@ -105,6 +105,7 @@ tests/       e2e, economic simulation
 scripts/     tooling scripts
 ```
 
+- **Licence zones (D47)**: `node/`, `services/`, `clients/wallet-cli/`, `tests/` and `scripts/` are `GPL-3.0-or-later`; everything else (including any new directory) is `MIT OR Apache-2.0` and must stay GPL-free, including toward the repository's own GPL crates. Each crate declares its zone's licence in `Cargo.toml`; see `LICENSE`.
 - **Create directories on demand**: never pre-create empty directories or crates for future modules.
 - **Dependency direction**: `crates/*` never depend on `node` / `runtime` / `pallets` / `services`; `pallets` depend only on `crates` and the Polkadot SDK; `services` / `clients` never depend on `node` internals and interact only through RPC / shared types.
 - **Cryptography lives only in `ac-crypto`**; shared data types only in `ac-primitives`; node invariants are **pure functions** in `ac-invariants` (to enable formal verification).
@@ -310,7 +311,7 @@ cargo deny check
 cargo audit
 
 # Supply chain, licences and advisories
-scripts/check-license-boundary.sh                 # GPL only under node/ (D37)
+scripts/check-license-boundary.sh [--self-test]     # licence zones (D47)
 scripts/sync-audit-exceptions.py [--write]        # advisory exceptions (edit audit-exceptions.toml)
 scripts/benchmark-pallet.sh <pallet> <weights.rs> # regenerate benchmarked weights
 

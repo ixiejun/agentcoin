@@ -54,4 +54,4 @@ target/release/ac-node --chain my-spec.json --validator \
 
 ## 许可证
 
-只有 `node/` 可以依赖许可证为 `GPL-3.0-or-later WITH Classpath-exception-2.0` 的 Polkadot SDK 客户端 crate（决策 D37）；节点自身的源码为 MIT 许可证。分发 `ac-node` 二进制时须遵守这些组件的 GPL 条款。
+`node/` 属于 GPL 许可证区（决策 D47）：节点源码（含 `node/consensus/*`）采用 `GPL-3.0-or-later`，可以依赖许可证为 `GPL-3.0-or-later WITH Classpath-exception-2.0` 的 Polkadot SDK 客户端 crate。分发 `ac-node` 二进制时，须按 GPL 提供完整的对应源码。分区表见仓库根目录的 [`LICENSE`](../LICENSE)。

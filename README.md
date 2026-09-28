@@ -62,3 +62,16 @@ curl -s -H 'Content-Type: application/json' http://127.0.0.1:9944 \
 # Finality latency on 4, 7 and 10 local authorities (release build, >= 4 cores)
 scripts/measure-finality.sh
 ```
+
+## License
+
+AgentCoin is licensed by directory (decision D47; details in [`LICENSE`](LICENSE)):
+
+| Directories | License |
+|---|---|
+| `node/`, `services/`, `clients/wallet-cli/`, `tests/`, `scripts/` | `GPL-3.0-or-later` ([`LICENSE-GPL`](LICENSE-GPL)) |
+| Everything else — `crates/`, `pallets/`, `runtime/`, `docs/`, … | `MIT OR Apache-2.0` ([`LICENSE-MIT`](LICENSE-MIT), [`LICENSE-APACHE`](LICENSE-APACHE)) |
+
+Libraries meant to be embedded by wallets, SDKs and other chains are permissive; programs and
+services are copyleft. Contributions are licensed under the licence of the directory they land
+in. `scripts/check-license-boundary.sh` enforces the zones in CI.
