@@ -7489,6 +7489,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-model-registry"
+version = "0.1.0"
+dependencies = [
+ "ac-primitives",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-poa-admin"
 version = "0.1.0"
 dependencies = [
