@@ -97,7 +97,11 @@ pub fn start_node_with(args: &[&str], opts: &NodeOpts<'_>) -> Node {
         .spawn()
         .unwrap();
     let rpc_url = format!("http://127.0.0.1:{rpc_port}");
-    let rpc = HttpClientBuilder::default().build(&rpc_url).unwrap();
+    // The genesis runtime code alone can exceed the 10 MiB default (benchmark builds).
+    let rpc = HttpClientBuilder::default()
+        .max_response_size(64 * 1024 * 1024)
+        .build(&rpc_url)
+        .unwrap();
     Node {
         child,
         rpc,

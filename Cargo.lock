@@ -7387,7 +7387,6 @@ dependencies = [
  "polkavm",
  "polkavm-common 0.33.0",
  "rand 0.8.8",
- "rand_pcg 0.3.1",
  "revm",
  "ripemd",
  "rlp 0.6.1",

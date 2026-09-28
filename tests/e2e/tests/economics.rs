@@ -189,8 +189,14 @@ async fn multisig_spends_community_grants() {
         value: 10 * ATC,
     });
     assert!(submit_as(&alice, "dave", fund).await);
+    // Charlie's node must have imported what alice's node included before we read from it.
+    let synced = || async {
+        let height = net.nodes[0].height().await.unwrap();
+        net.wait_all(&[2], height, START).await.unwrap();
+    };
 
     let recipient = ac_runtime::genesis_config_presets::dev_account("dave").unwrap();
+    synced().await;
     let before = charlie.free_balance(&recipient).await.unwrap();
     let spend = RuntimeCall::TreasuryDual(pallet_treasury_dual::Call::spend {
         to: recipient.clone(),
@@ -220,12 +226,14 @@ async fn multisig_spends_community_grants() {
         length_bound,
     });
     assert!(submit_as(&alice, "alice", close.clone()).await);
+    synced().await;
     assert_eq!(
         charlie.free_balance(&recipient).await.unwrap(),
         before + 3 * ATC
     );
     // Closing again fails: the motion ran once.
     assert!(!submit_as(&alice, "alice", close).await);
+    synced().await;
     assert_eq!(
         charlie.free_balance(&recipient).await.unwrap(),
         before + 3 * ATC

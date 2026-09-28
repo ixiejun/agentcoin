@@ -119,7 +119,6 @@ runtime-benchmarks = [
     "pallet-ac-offences/runtime-benchmarks",
     "pallet-validator-set/runtime-benchmarks",
     "pallet-staking-pos/runtime-benchmarks",
-    "pallet-revive/runtime-benchmarks",
     "pallet-evm-support/runtime-benchmarks",
     "pallet-randomness-cr/runtime-benchmarks",
     "pallet-timestamp/runtime-benchmarks",
