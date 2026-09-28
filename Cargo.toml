@@ -16,6 +16,10 @@ ml-dsa = { version = "0.1", default-features = false }
 ml-kem = { version = "0.3", default-features = false }
 x-wing = { version = "0.1", default-features = false }
 blake3 = { version = "1.8", default-features = false }
+# Poseidon2 over Goldilocks (Plonky3; m4-evm design D7). Only `ac-crypto` may depend on these.
+p3-field = { version = "0.8", default-features = false }
+p3-goldilocks = { version = "0.8", default-features = false }
+p3-symmetric = { version = "0.8", default-features = false }
 sha3 = { version = "0.12", default-features = false }
 zeroize = { version = "1.9", default-features = false }
 subtle = { version = "2.6", default-features = false }

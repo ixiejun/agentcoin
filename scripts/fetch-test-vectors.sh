@@ -23,6 +23,9 @@ xwing_url="https://raw.githubusercontent.com/dconnolly/draft-connolly-cfrg-xwing
 argon2_url="https://raw.githubusercontent.com/P-H-C/phc-winner-argon2/f57e61e19229e23c4445b85494dbf7c07de721cb/kats/argon2id"
 xchacha_url="https://raw.githubusercontent.com/bikeshedders/xchacha-rfc/9c1dfb870155223360ef7c4818fdbbd41daaaf1c/draft-irtf-cfrg-xchacha-rfc-03.txt"
 bip39_url="https://raw.githubusercontent.com/trezor/python-mnemonic/b57a5ad77a981e743f4167ab2f7927a55c1e82a8/vectors.json"
+# Poseidon2: Plonky3's known-answer vector for its default Goldilocks width-12 instance, taken
+# from the published crate (the instance has no vectors from the Poseidon2 authors; m4-evm D7).
+p3_goldilocks_url="https://static.crates.io/crates/p3-goldilocks/p3-goldilocks-0.8.0.crate"
 
 # name|url|sha256 of the upstream file
 sources=(
@@ -35,6 +38,7 @@ sources=(
   "argon2id|$argon2_url|ba05643e504fc5778dda99e2d9f42ebe7d22ebb3923cc719fd591b1b14a8d28d"
   "xchacha|$xchacha_url|fa796b50265eeee383d40e82fed880267c7835e1b3d64c50c4f06162adaa1cfd"
   "bip39|$bip39_url|fa3b937b7cff9c9b8ecd3aa011faeb8d6dd67993174b72326e83f4de8fdb30f8"
+  "p3-goldilocks|$p3_goldilocks_url|325a854e1232dd1ce270245d9c978b71897c286f072d2fa31740956a800e70c5"
 )
 
 fetch() {
@@ -136,6 +140,21 @@ PY
 # BIP-39: English vectors with 256-bit entropy (entropy <-> mnemonic only; the PBKDF2 seed is not used).
 jq -S '[.english[] | select((.[0] | length) == 64) | {entropy: .[0], mnemonic: .[1]}]' \
   "$tmp/bip39.json" >"$out/bip39_english_256.json"
+
+# Poseidon2 (Goldilocks, width 12): the input and expected output of Plonky3's
+# `test_default_goldilocks_poseidon2_width_12` in src/poseidon2.rs of the pinned crate.
+mkdir -p "$tmp/p3"
+tar xzf "$tmp/p3-goldilocks.json" -C "$tmp/p3"
+python3 - "$tmp/p3/p3-goldilocks-0.8.0/src/poseidon2.rs" <<'PY' | jq -S '.' >"$out/poseidon2_goldilocks_12.json"
+import json, re, sys
+text = open(sys.argv[1]).read()
+body = text.split("fn test_default_goldilocks_poseidon2_width_12()", 1)[1].split("\n    }\n", 1)[0]
+arrays = re.findall(r"new_array\(\[(.*?)\]\)", body, re.S)
+def values(src):
+    return [format(int(v.strip(), 0), "016x") for v in src.split(",") if v.strip()]
+source = "p3-goldilocks 0.8.0 src/poseidon2.rs test_default_goldilocks_poseidon2_width_12"
+print(json.dumps({"source": source, "input": values(arrays[0]), "output": values(arrays[1])}))
+PY
 
 echo "test vectors written to $out"
 du -ch "$out"/*.json | tail -1

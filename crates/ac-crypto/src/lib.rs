@@ -20,6 +20,8 @@ pub mod keystore;
 pub mod mnemonic;
 #[cfg(feature = "getrandom")]
 mod os_rng;
+#[cfg(feature = "poseidon2")]
+pub mod poseidon2;
 pub mod sig;
 mod tagged;
 

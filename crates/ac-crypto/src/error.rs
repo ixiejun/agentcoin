@@ -40,6 +40,8 @@ pub enum Error {
     WeakKdfParams,
     /// An encrypted secret file is malformed or uses an unsupported version.
     InvalidKeystore,
+    /// A hash input exceeds the length the encoding supports.
+    InputTooLong,
 }
 
 /// Why a mnemonic was rejected.
@@ -82,6 +84,7 @@ impl fmt::Display for Error {
             Self::DecryptionFailed => f.write_str("decryption failed"),
             Self::WeakKdfParams => f.write_str("KDF parameters below the accepted minimum"),
             Self::InvalidKeystore => f.write_str("malformed or unsupported encrypted secret file"),
+            Self::InputTooLong => f.write_str("hash input too long"),
         }
     }
 }

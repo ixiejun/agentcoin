@@ -28,6 +28,8 @@ serde = ["dep:serde", "dep:hex"]
 keystore = ["std", "rand", "getrandom", "serde", "dep:argon2", "dep:chacha20poly1305", "dep:serde_json"]
 # 24-word BIP-39 encoding of wallet entropy.
 mnemonic = ["dep:bip39"]
+# Poseidon2 over Goldilocks (Plonky3's instance), for the EVM precompile and future STARK use.
+poseidon2 = ["dep:p3-field", "dep:p3-goldilocks", "dep:p3-symmetric"]
 
 [dependencies]
 ml-dsa = { workspace = true, features = ["zeroize", "alloc"] }
@@ -46,6 +48,9 @@ getrandom = { workspace = true, optional = true }
 serde = { workspace = true, optional = true, features = ["derive", "alloc"] }
 serde_json = { workspace = true, optional = true, features = ["alloc"] }
 hex = { workspace = true, optional = true, features = ["alloc"] }
+p3-field = { workspace = true, optional = true }
+p3-goldilocks = { workspace = true, optional = true }
+p3-symmetric = { workspace = true, optional = true }
 
 # Crate-local lints: the workspace set plus `indexing_slicing` for crypto code (AGENT.md §5.2).
 # Cargo cannot extend `[lints] workspace = true`, so the full set is repeated here.
@@ -82,3 +87,7 @@ subtle = { workspace = true }
 [[example]]
 name = "gen_wallet_key_vectors"
 required-features = ["mnemonic"]
+
+[[example]]
+name = "gen_poseidon2_vectors"
+required-features = ["poseidon2"]

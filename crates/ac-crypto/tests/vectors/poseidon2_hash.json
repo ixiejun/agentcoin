@@ -1,0 +1,9 @@
+{
+  "input": "byte i = i mod 251",
+  "cases": [
+    { "input_len": 0, "hash": "8123ae34399789658198a68ca55edcf1844916aaed41203d484b1ead30f3670e" },
+    { "input_len": 31, "hash": "17e1a3c1c8a0ca1ce9a7112c8e2f3311fc6b1882d831b4e53de20ca974d2c6a6" },
+    { "input_len": 32, "hash": "41a78fd4ac0559b0914496890b4eda7eebf062781abf9175510dfaea16486fa1" },
+    { "input_len": 1000, "hash": "4acc91f21f980f6c0c4d23778ecac2b53fe402121f4ef51a346fd01f063a8eb1" }
+  ]
+}
