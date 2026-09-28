@@ -79,6 +79,17 @@ fn runtime_apis_are_declared() {
     ));
 }
 
+// license-internal-features 3.1: `scripts/check-release-runtime.sh` recognises the benchmarking
+// API by this ID (BLAKE2b-64 of the trait name), and a benchmark build does expose it.
+#[cfg(feature = "runtime-benchmarks")]
+#[test]
+fn benchmarking_api_id_matches_the_release_check() {
+    use sp_api::RuntimeApiInfo;
+    let id = <dyn frame_benchmarking::Benchmark<ac_runtime::Block>>::ID;
+    assert_eq!(id, [0x67, 0xf4, 0xb8, 0xfb, 0xa8, 0x58, 0x78, 0x2a]);
+    assert!(VERSION.apis.iter().any(|(api, _)| *api == id));
+}
+
 // The functions behind the APIs answer on the dev chain.
 #[test]
 fn api_backing_functions_answer() {
