@@ -58,15 +58,39 @@ CI SHALL 在每次推送和每个拉取请求时运行以下检查，任一失�
 - **THEN** 生成的文件与仓库中提交的文件逐字节相同，且上游校验和匹配
 
 ### Requirement: 按目录划分的许可证边界
-带 Classpath 例外的 GPL-3.0 许可证 SHALL 只允许出现在节点客户端（`node/`）的依赖闭包中；`crates/`、`pallets/`、`runtime/`、`clients/` 下任一 crate 的依赖闭包（含传递依赖）中出现 GPL 家族许可证的依赖时，CI MUST 失败。
+仓库 SHALL 按目录分为两个许可证区：
+- **GPL 区**（GPL-3.0-or-later）：`node/`、`services/`、`clients/wallet-cli/`、`tests/`、`scripts/`；
+- **宽松区**（MIT OR Apache-2.0）：GPL 区以外的所有目录，新增目录默认属于宽松区。
+
+CI MUST 在以下任一情况下失败：
+1. 宽松区中任一 crate 的依赖闭包（常规与构建依赖，含传递依赖，也包括本仓库 GPL 区的 crate）中，出现只能以 GPL 家族许可证使用的依赖；带非 GPL 备选的表达式（如 `Apache-2.0 OR GPL-3.0`）视为允许。
+2. 任一工作区 crate 声明的许可证与其所在区不一致：宽松区必须为 `MIT OR Apache-2.0`，GPL 区必须为 `GPL-3.0-or-later`。
+
+GPL 区的 crate MAY 依赖任意 GPL 兼容许可证的依赖。
 
 #### Scenario: 库 crate 引入 GPL 依赖
 - **WHEN** 让 `crates/` 下的某个 crate 依赖一个 GPL-3.0 许可证的 crate
 - **THEN** 许可证边界检查失败
 
+#### Scenario: 库 crate 依赖本仓库的 GPL crate
+- **WHEN** 让 `pallets/` 下的某个 crate 依赖 `clients/wallet-cli`
+- **THEN** 许可证边界检查失败
+
+#### Scenario: 新目录默认宽松
+- **WHEN** 在新建的顶层目录中加入一个依赖 GPL-3.0 crate 的 crate
+- **THEN** 许可证边界检查失败
+
+#### Scenario: 声明与目录不一致
+- **WHEN** `node/` 下的 crate 声明 `license = "MIT"`，或 `crates/` 下的 crate 声明 `license = "GPL-3.0-or-later"`
+- **THEN** 许可证边界检查失败
+
 #### Scenario: 节点使用 GPL 依赖
-- **WHEN** 节点客户端依赖带 Classpath 例外的 GPL-3.0 许可证的 SDK 客户端 crate
+- **WHEN** 节点客户端或 `services/` 下的服务依赖 GPL-3.0 许可证的 crate
 - **THEN** 许可证边界检查通过
+
+#### Scenario: 当前仓库通过
+- **WHEN** 在本变更完成后的主干上运行许可证边界检查
+- **THEN** 检查通过
 
 ### Requirement: 安全公告例外须逐条记录
 依赖策略与安全公告审计中的任何忽略项 SHALL 逐条记录公告编号、受影响的依赖路径、不受影响或无法修复的理由，以及复查期限（不超过 90 天）；超过复查期限的忽略项 MUST 使 CI 失败，直到被复查更新或移除。
