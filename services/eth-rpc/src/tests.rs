@@ -200,10 +200,12 @@ impl Node for MockNode {
     async fn storage(&self, _key: Vec<u8>, at: H256) -> Result<Option<Vec<u8>>> {
         let mut state = self.state();
         state.storage_reads += 1;
+        // Like a node: storage without events (genesis) is absent, not an empty list.
         Ok(state
             .chain
             .iter()
             .find(|b| b.hash == at)
+            .filter(|b| !b.events.is_empty())
             .map(|b| b.events.encode()))
     }
 

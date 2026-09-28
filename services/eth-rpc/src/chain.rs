@@ -119,7 +119,10 @@ impl<N: Node> Chain<N> {
             sp_io::hashing::twox_128(b"Events"),
         ]
         .concat();
-        let raw = self.node.storage(key, at).await?.unwrap_or_default();
+        // Absent (not empty) when a block has no events, e.g. genesis.
+        let Some(raw) = self.node.storage(key, at).await? else {
+            return Ok(Events::new());
+        };
         Ok(Events::decode(&mut &raw[..])?)
     }
 
