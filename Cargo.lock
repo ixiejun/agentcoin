@@ -122,6 +122,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "ac-eth-rpc"
+version = "0.1.0"
+dependencies = [
+ "ac-crypto",
+ "ac-primitives",
+ "ac-runtime",
+ "anyhow",
+ "async-trait",
+ "clap",
+ "frame-system",
+ "hex",
+ "jsonrpsee",
+ "log",
+ "pallet-balances",
+ "pallet-pq-accounts",
+ "pallet-revive",
+ "pallet-transaction-payment",
+ "parity-scale-codec",
+ "serde",
+ "serde_json",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "tokio",
+]
+
+[[package]]
 name = "ac-invariants"
 version = "0.1.0"
 dependencies = [

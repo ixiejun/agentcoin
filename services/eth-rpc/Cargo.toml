@@ -1,0 +1,42 @@
+[package]
+name = "ac-eth-rpc"
+description = "AgentCoin Ethereum JSON-RPC adapter: reads contract state, blocks, receipts and logs from a node and relays ML-DSA-signed contract transactions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "GPL-3.0-or-later"
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "ac-eth-rpc"
+path = "src/main.rs"
+
+[dependencies]
+ac-primitives = { workspace = true, features = ["std"] }
+ac-runtime = { workspace = true, features = ["std"] }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true }
+frame-system = { workspace = true, features = ["std"] }
+hex = { workspace = true, features = ["std"] }
+jsonrpsee = { workspace = true, features = ["server", "http-client"] }
+log = { workspace = true, features = ["std"] }
+pallet-pq-accounts = { workspace = true, features = ["std"] }
+pallet-revive = { workspace = true, features = ["std"] }
+pallet-transaction-payment = { workspace = true, features = ["std"] }
+parity-scale-codec = { workspace = true, features = ["std"] }
+serde = { workspace = true, features = ["std", "derive"] }
+serde_json = { workspace = true, features = ["std"] }
+sp-core = { workspace = true, features = ["std"] }
+sp-io = { workspace = true, features = ["std"] }
+sp-runtime = { workspace = true, features = ["std"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "sync", "signal"] }
+
+[dev-dependencies]
+ac-crypto = { workspace = true, features = ["std", "deterministic", "getrandom"] }
+pallet-balances = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true
