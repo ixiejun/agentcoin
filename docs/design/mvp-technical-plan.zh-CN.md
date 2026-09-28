@@ -149,14 +149,16 @@ pub struct AccountId([u8; 32]);
 
 ### 3.4 EVM 集成（D13：100% PQ）
 
-- **禁用**以太坊原生交易格式（RLP + secp256k1）。`pallet-revive` 只接受链原生 extrinsic。
-- EVM 地址 = `AccountId` 的某个 20 字节投影（沿用 `pallet-revive` 的账户映射机制）；合约中需要唯一性的场景（例如 CREATE2 冲突检测）以 32 字节为准。
-- **预编译**：
-  - `0x…0A01 pq_verify(alg, pk, msg, sig) -> bool`：合约内做 PQ 验签；
-  - `0x…0A02 blake3(data)`、`0x…0A03 poseidon2(data)`；
-  - **[预留]** `0x…0A10 stark_verify(vk_id, proof, public_inputs)`：为 L2 通用私有合约预留（D27）。
-- `ecrecover` 保留，但只作为应用层工具，**不能**用于账户授权。
-- **eth-RPC 适配器**（`ac-eth-rpc`）：对外暴露以太坊 JSON-RPC（`eth_call`、`eth_getLogs`、`eth_estimateGas` 等只读接口）；`eth_sendRawTransaction` 改为接收“未签名的交易 + 外部 PQ 签名”，由 `ac-wallet` 作为 Foundry / Hardhat 的外部签名器。
+- **禁用**以太坊原生交易格式（RLP + secp256k1）：runtime 的调用过滤器拒绝 `eth_transact` 及所有以太坊签名路径，RLP 字节也永远无法解码为 AgentCoin 交易。
+- **交易格式**：合约交易就是由 `PqAuthorize`（ML-DSA）授权的普通 AgentCoin v5 交易，其调用为 `Revive::call`，或携带 EVM 字节码的 `Revive::instantiate_with_code`（构造参数附加在初始化代码之后）；`SetEvmPayer` 扩展让签名者支付合约账户的费用，因此部署永不增发。EVM 链 ID 为 4403。
+- EVM 地址 = `keccak256(AccountId)[12..]`（`pallet-revive` 的账户映射，自动建立）；合约中需要唯一性的场景（例如 CREATE2 冲突检测）以 32 字节为准。
+- **预编译**（地址一经发布永不更改）：
+  - `0x000000000000000000000000000000000A010000` `pq_verify(uint8 alg, bytes publicKey, bytes message, bytes signature) -> bool`：在固定上下文 `agentcoin/evm-verify/v1` 下验证 ML-DSA-44/65/87 签名，任何未通过验证的输入都返回 false；
+  - `0x000000000000000000000000000000000A020000` `blake3(bytes) -> bytes32`；
+  - `0x000000000000000000000000000000000A030000` `poseidon2`：等待 m4-evm 调研门控（任务 4.1）的结论；
+  - **[预留]** `0x000000000000000000000000000000000A100000` `stark_verify(vk_id, proof, public_inputs)`：为 L2 通用私有合约预留（D27），目前任何调用都回滚。
+- `pallet-revive` 内置的以太坊预编译仍对应用开放，但**不是后量子的**：`ecrecover`（0x01）、`bn128` 加法/乘法/配对（0x06–0x08）、`point_eval`（0x0a，KZG）和 `p256_verify`（0x100）。它们仅为应用兼容而保留，永远不能用于账户授权，不建议使用。
+- **eth-RPC 适配器**（`ac-eth-rpc`，[README](../../services/eth-rpc/README.zh-CN.md)）：为 Foundry 等工具提供以太坊 JSON-RPC：`web3_clientVersion`、`net_version`、`eth_chainId`、`eth_syncing`、`eth_blockNumber`、`eth_accounts`、`eth_gasPrice`、`eth_maxPriorityFeePerGas`、`eth_feeHistory`、`eth_getBalance`、`eth_getTransactionCount`、`eth_getCode`、`eth_getStorageAt`、`eth_call`、`eth_estimateGas`、`eth_getBlockByNumber`、`eth_getBlockByHash`、`eth_getTransactionByHash`、`eth_getTransactionReceipt`、`eth_getLogs`、`eth_sendRawTransaction`。`safe`/`finalized` 即 AC-BFT 终局性。`eth_sendRawTransaction` 只转发 ML-DSA 签名的 AgentCoin 合约交易；`ac-wallet evm` 是外部签名器（部署、调用、raw、广播 `forge script` 模拟结果、为 `pq_verify` 签名消息）。
 
 ### 3.5 共识密钥
 
@@ -552,6 +554,8 @@ agentcoin/
 | **🚩 β 测试网** | 15 | 完整 MVP | 30 天稳定运行；激励测试（邀请外部矿工） |
 | **M9 审计** | 15–18 | 外部安全审计（电路、共识、经济），修复问题 | 无未修复的严重 / 高危问题 |
 | **🚀 主网 Beta** | ≈18 | 创世（PoA，无预挖），网关只接受匿名凭证 | §0.4 的全部指标达标 |
+
+**状态**（2026-09）：M0–M3 已完成。M4 进行中：带 PQ 预编译的 `pallet-revive`、eth-RPC 适配器和 Foundry 外部签名器已完成，并已用 ERC-20 做过端到端测试；Uniswap V2 验收尚待完成。
 
 **关键路径**：M1 → M2 → M5 → M7 → M9。M7（STARK 电路）风险最高，因此 M7 与 M5 / M6 并行启动，并在第 9 个月前完成选型。
 

@@ -16,7 +16,7 @@
 
 文档语言约定：每份项目文档都有英文版（主版本，位于规范路径）和简体中文版（`*.zh-CN.md`），两者在页首互相链接。
 
-状态：M0（工作区、CI 与抗量子密码库 `ac-crypto`，[crates/ac-crypto](crates/ac-crypto/README.zh-CN.md)）和 M1（抗量子链，[node](node/README.zh-CN.md)）已完成；M2（AC-BFT 终局性、双签证据、commit–reveal 随机数）已完成；M3 经济部分（计划排放、双国库、80/20 手续费分配、PoA 多签、节点执行的供应量不变量）已完成；M3 PoS 部分（质押、Phragmén 选举、按工作量发放奖励、罚没，以及节点强制执行的单向 PoA→PoS 切换）已完成。规范见 `openspec/specs/`。
+状态：M0（工作区、CI 与抗量子密码库 `ac-crypto`，[crates/ac-crypto](crates/ac-crypto/README.zh-CN.md)）和 M1（抗量子链，[node](node/README.zh-CN.md)）已完成；M2（AC-BFT 终局性、双签证据、commit–reveal 随机数）已完成；M3 经济部分（计划排放、双国库、80/20 手续费分配、PoA 多签、节点执行的供应量不变量）已完成；M3 PoS 部分（质押、Phragmén 选举、按工作量发放奖励、罚没，以及节点强制执行的单向 PoA→PoS 切换）已完成；M4 EVM（带抗量子预编译的 `pallet-revive`、[eth-RPC 适配器](services/eth-rpc/README.zh-CN.md)、作为 Foundry 的 ML-DSA 签名器的 `ac-wallet evm`、[合约](contracts/README.zh-CN.md)）进行中。规范见 `openspec/specs/`。
 
 ## 本地开发
 
@@ -29,7 +29,7 @@ SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets --all-features -- -D wa
 cargo test --workspace --all-features
 for c in ac-crypto ac-primitives ac-invariants pallet-pq-accounts pallet-aura-pq \
   pallet-validator-set pallet-ac-offences pallet-randomness-cr pallet-emission \
-  pallet-treasury-dual pallet-poa-admin pallet-staking-pos; do
+  pallet-treasury-dual pallet-poa-admin pallet-staking-pos pallet-evm-support; do
   cargo build -p $c --no-default-features --target wasm32-unknown-unknown
 done
 cargo install --locked cargo-deny cargo-audit   # 仅需一次
@@ -61,6 +61,21 @@ curl -s -H 'Content-Type: application/json' http://127.0.0.1:9944 \
   -d '{"id":1,"jsonrpc":"2.0","method":"state_call","params":["StakingApi_transition","0x"]}'
 # 4、7、10 个本地验证人的终局性延迟（release 构建，至少 4 核）
 scripts/measure-finality.sh
+```
+
+用 Foundry 开发 EVM 合约（M4）：链只接受 ML-DSA 签名的 AgentCoin 交易，所以由 Foundry 负责编译和读取，由 `ac-wallet evm` 负责签名（见 [ac-wallet](clients/wallet-cli/README.zh-CN.md)）。
+
+```bash
+cargo build -p ac-node -p ac-wallet -p ac-eth-rpc
+target/debug/ac-node --dev --tmp &
+target/debug/ac-eth-rpc --node-url http://127.0.0.1:9944 &      # 以太坊 JSON-RPC，端口 8545
+(cd contracts && forge build && forge test)
+ac-wallet evm deploy --wallet dev.json --artifact contracts/out/ERC20.sol/ERC20.json \
+  --constructor "constructor(string,string,uint256)" Token TKN 1000000000000000000000
+cast call <合约地址> "balanceOf(address)(uint256)" "$(ac-wallet evm address --wallet dev.json)" \
+  --rpc-url http://127.0.0.1:8545
+# 验收：同样的流程及更多检查（需安装 Foundry）
+AC_E2E=1 cargo test -p ac-e2e --test evm -- --test-threads 1
 ```
 
 ## 许可证

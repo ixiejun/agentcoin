@@ -31,6 +31,14 @@ keeps it inside AgentCoin's rules:
 
   Address `0x…0a030000` is kept for `poseidon2`, pending the outcome of its research gate.
 
+## Built-in precompiles (not post-quantum)
+
+`pallet-revive` also provides the standard Ethereum precompiles. These are among them, and none
+is post-quantum: `ecrecover` (0x01, secp256k1), `bn128` add/mul/pairing (0x06–0x08, BN254),
+`point_eval` (0x0a, KZG over BLS12-381) and `p256_verify` (0x100, P-256). They remain for
+application compatibility only: they are not post-quantum, never authorize accounts, and are
+not recommended; use `pq_verify` for signatures.
+
 ## Features
 
 | Feature | Default | Purpose |

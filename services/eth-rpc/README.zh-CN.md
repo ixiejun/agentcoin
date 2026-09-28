@@ -46,7 +46,7 @@ cast chain-id --rpc-url http://127.0.0.1:8545      # 4403
 
 ## 交易
 
-只转发调用为合约调用或 EVM 部署、且由 ML-DSA 签名的 AgentCoin 原生交易；返回的哈希就是节点的（BLAKE3）交易哈希。任何类型的 RLP 以太坊交易、其他调用和无法解码的字节都在到达节点前被拒绝。合约交易用 `ac-wallet evm deploy|send` 构造并签名，或用 `ac-wallet evm raw` 离线签名后把字节提交到这里。
+只转发调用为合约调用或 EVM 部署、且由 ML-DSA 签名的 AgentCoin 原生交易；返回的哈希就是节点的（BLAKE3）交易哈希。任何类型的 RLP 以太坊交易、其他调用和无法解码的字节都在到达节点前被拒绝。合约交易用 `ac-wallet evm deploy|send` 构造并签名，或用 `ac-wallet evm raw deploy|send` 签名后把字节提交到这里。
 
 交易对象中的 `v`、`r`、`s` 为零：授权来自 ML-DSA 签名。回执的 `status` 取自 `ExtrinsicSuccess`/`ExtrinsicFailed`，`contractAddress` 取自 `Instantiated`，日志取自 `ContractEmitted`；`gasUsed = ceil(手续费 / gasPrice)`，`effectiveGasPrice = gasPrice`，因此 `gasUsed × effectiveGasPrice` 比实付手续费多出的部分小于一个 gas 单位的价格。
 

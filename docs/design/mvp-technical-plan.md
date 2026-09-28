@@ -151,14 +151,16 @@ pub struct AccountId([u8; 32]);
 
 ### 3.4 EVM integration (D13: 100% PQ)
 
-- The native Ethereum transaction format (RLP + secp256k1) is **disabled**. `pallet-revive` only accepts chain-native extrinsics.
-- EVM address = a 20-byte projection of the `AccountId` (reusing `pallet-revive`'s account mapping); contract logic that needs uniqueness (e.g. CREATE2 collision checks) relies on the 32-byte form.
-- **Precompiles**:
-  - `0x…0A01 pq_verify(alg, pk, msg, sig) -> bool`: PQ signature verification inside contracts;
-  - `0x…0A02 blake3(data)`, `0x…0A03 poseidon2(data)`;
-  - **[reserved]** `0x…0A10 stark_verify(vk_id, proof, public_inputs)`: reserved for L2 general private contracts (D27).
-- `ecrecover` stays as an application-level tool but can **never** be used for account authorization.
-- **eth-RPC adapter** (`ac-eth-rpc`): exposes Ethereum JSON-RPC (read-only calls such as `eth_call`, `eth_getLogs`, `eth_estimateGas`); `eth_sendRawTransaction` instead accepts "unsigned transaction + external PQ signature", with `ac-wallet` acting as an external signer for Foundry / Hardhat.
+- The native Ethereum transaction format (RLP + secp256k1) is **disabled**: `eth_transact` and every Ethereum-signed path are refused by the runtime's call filter, and RLP bytes never decode as an AgentCoin transaction.
+- **Transaction format**: a contract transaction is an ordinary AgentCoin v5 transaction authorized by `PqAuthorize` (ML-DSA) whose call is `Revive::call` or `Revive::instantiate_with_code` with EVM bytecode (constructor arguments appended to the init code); the `SetEvmPayer` extension makes the signer pay for contract accounts, so deployments never mint. EVM chain ID 4403.
+- EVM address = `keccak256(AccountId)[12..]` (`pallet-revive`'s account mapping, automatic); contract logic that needs uniqueness (e.g. CREATE2 collision checks) relies on the 32-byte form.
+- **Precompiles** (addresses fixed forever):
+  - `0x000000000000000000000000000000000A010000` `pq_verify(uint8 alg, bytes publicKey, bytes message, bytes signature) -> bool`: ML-DSA-44/65/87 under the fixed context `agentcoin/evm-verify/v1`; anything that does not verify returns false;
+  - `0x000000000000000000000000000000000A020000` `blake3(bytes) -> bytes32`;
+  - `0x000000000000000000000000000000000A030000` `poseidon2`: pending the research gate of m4-evm (task 4.1);
+  - **[reserved]** `0x000000000000000000000000000000000A100000` `stark_verify(vk_id, proof, public_inputs)`: reserved for L2 general private contracts (D27); every call reverts for now.
+- `pallet-revive`'s built-in Ethereum precompiles stay available to applications but are **not post-quantum**: `ecrecover` (0x01), `bn128` add/mul/pairing (0x06–0x08), `point_eval` (0x0a, KZG) and `p256_verify` (0x100). They are for application compatibility only, never for account authorization, and not recommended.
+- **eth-RPC adapter** (`ac-eth-rpc`, [README](../../services/eth-rpc/README.md)): Ethereum JSON-RPC for Foundry and other tools: `web3_clientVersion`, `net_version`, `eth_chainId`, `eth_syncing`, `eth_blockNumber`, `eth_accounts`, `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `eth_feeHistory`, `eth_getBalance`, `eth_getTransactionCount`, `eth_getCode`, `eth_getStorageAt`, `eth_call`, `eth_estimateGas`, `eth_getBlockByNumber`, `eth_getBlockByHash`, `eth_getTransactionByHash`, `eth_getTransactionReceipt`, `eth_getLogs`, `eth_sendRawTransaction`. `safe`/`finalized` are AC-BFT finality. `eth_sendRawTransaction` relays only ML-DSA-signed AgentCoin contract transactions; `ac-wallet evm` is the external signer (deploy, send, raw, broadcast of `forge script` simulations, sign-message for `pq_verify`).
 
 ### 3.5 Consensus keys
 
@@ -555,6 +557,8 @@ agentcoin/
 | **🚩 β testnet** | 15 | Complete MVP | 30 days of stable operation; incentivized test (external miners invited) |
 | **M9 Audit** | 15–18 | External security audit (circuits, consensus, economics) and fixes | No unresolved critical / high findings |
 | **🚀 Mainnet Beta** | ≈18 | Genesis (PoA, no premine); gateways accept only anonymous vouchers | All §0.4 targets met |
+
+**Status** (2026-09): M0–M3 complete. M4 in progress: `pallet-revive` with the PQ precompiles, the eth-RPC adapter and the Foundry external signer are done and tested end to end with an ERC-20; the Uniswap V2 acceptance run is pending.
 
 **Critical path**: M1 → M2 → M5 → M7 → M9. M7 (STARK circuits) is the riskiest, so it starts in parallel with M5 / M6 and completes its technology selection before month 9.
 

@@ -17,6 +17,10 @@ AgentCoin runtime 的 EVM 支持（m4-evm）。`pallet-revive` 负责运行 EVM 
 
   地址 `0x…0a030000` 留给 `poseidon2`，待其调研门控有结论。
 
+## 内置预编译（非后量子）
+
+`pallet-revive` 还提供标准的以太坊预编译。下列预编译都不是后量子的：`ecrecover`（0x01，secp256k1）、`bn128` 加法/乘法/配对（0x06–0x08，BN254）、`point_eval`（0x0a，基于 BLS12-381 的 KZG）和 `p256_verify`（0x100，P-256）。它们仅为应用兼容而保留：非后量子，永远不用于账户授权，不建议使用；签名验证请用 `pq_verify`。
+
 ## Feature
 
 | Feature | 默认 | 用途 |

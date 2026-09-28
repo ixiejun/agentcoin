@@ -16,7 +16,7 @@ Primary language: Rust. Development method: spec-driven development (SDD) with [
 
 Documentation language policy: every project document has an English version (primary, at the canonical path) and a Simplified Chinese version (`*.zh-CN.md`), each linking to the other at the top.
 
-Status: M0 (workspace, CI and the `ac-crypto` post-quantum library, [crates/ac-crypto](crates/ac-crypto/README.md)) and M1 (post-quantum chain, [node](node/README.md)) complete; M2 (AC-BFT finality, double-signing evidence, commit–reveal randomness) complete; M3 economics (scheduled emission, dual treasury, 80/20 fee distribution, PoA multisig, node-enforced supply invariants) complete; M3 PoS (staking, Phragmén elections, rewards by work, slashing, and the node-enforced one-way PoA → PoS switch) complete. Specs in `openspec/specs/`.
+Status: M0 (workspace, CI and the `ac-crypto` post-quantum library, [crates/ac-crypto](crates/ac-crypto/README.md)) and M1 (post-quantum chain, [node](node/README.md)) complete; M2 (AC-BFT finality, double-signing evidence, commit–reveal randomness) complete; M3 economics (scheduled emission, dual treasury, 80/20 fee distribution, PoA multisig, node-enforced supply invariants) complete; M3 PoS (staking, Phragmén elections, rewards by work, slashing, and the node-enforced one-way PoA → PoS switch) complete; M4 EVM (`pallet-revive` with post-quantum precompiles, the [eth-RPC adapter](services/eth-rpc/README.md), `ac-wallet evm` as the ML-DSA signer for Foundry, [contracts](contracts/README.md)) in progress. Specs in `openspec/specs/`.
 
 ## Local development
 
@@ -29,7 +29,7 @@ SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets --all-features -- -D wa
 cargo test --workspace --all-features
 for c in ac-crypto ac-primitives ac-invariants pallet-pq-accounts pallet-aura-pq \
   pallet-validator-set pallet-ac-offences pallet-randomness-cr pallet-emission \
-  pallet-treasury-dual pallet-poa-admin pallet-staking-pos; do
+  pallet-treasury-dual pallet-poa-admin pallet-staking-pos pallet-evm-support; do
   cargo build -p $c --no-default-features --target wasm32-unknown-unknown
 done
 cargo install --locked cargo-deny cargo-audit   # once
@@ -61,6 +61,22 @@ curl -s -H 'Content-Type: application/json' http://127.0.0.1:9944 \
   -d '{"id":1,"jsonrpc":"2.0","method":"state_call","params":["StakingApi_transition","0x"]}'
 # Finality latency on 4, 7 and 10 local authorities (release build, >= 4 cores)
 scripts/measure-finality.sh
+```
+
+EVM contracts (M4) with Foundry: the chain accepts only ML-DSA-signed AgentCoin transactions, so
+Foundry builds and reads while `ac-wallet evm` signs (see [ac-wallet](clients/wallet-cli/README.md)).
+
+```bash
+cargo build -p ac-node -p ac-wallet -p ac-eth-rpc
+target/debug/ac-node --dev --tmp &
+target/debug/ac-eth-rpc --node-url http://127.0.0.1:9944 &      # Ethereum JSON-RPC on :8545
+(cd contracts && forge build && forge test)
+ac-wallet evm deploy --wallet dev.json --artifact contracts/out/ERC20.sol/ERC20.json \
+  --constructor "constructor(string,string,uint256)" Token TKN 1000000000000000000000
+cast call <contract> "balanceOf(address)(uint256)" "$(ac-wallet evm address --wallet dev.json)" \
+  --rpc-url http://127.0.0.1:8545
+# Acceptance: the same flow and more, with Foundry installed
+AC_E2E=1 cargo test -p ac-e2e --test evm -- --test-threads 1
 ```
 
 ## License

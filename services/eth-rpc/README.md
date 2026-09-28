@@ -55,7 +55,7 @@ Only AgentCoin extrinsics signed with ML-DSA whose call is a contract call or an
 are relayed; the returned hash is the node's (BLAKE3) transaction hash. RLP-encoded Ethereum
 transactions of any type, other calls and undecodable bytes are refused before anything reaches
 the node. Build and sign contract transactions with `ac-wallet evm deploy|send`, or sign
-externally with `ac-wallet evm raw` and submit the bytes here.
+them with `ac-wallet evm raw deploy|send` and submit the bytes here.
 
 Transaction objects carry `v`, `r` and `s` of zero: authorization is the ML-DSA signature.
 Receipts take `status` from `ExtrinsicSuccess`/`ExtrinsicFailed`, `contractAddress` from
