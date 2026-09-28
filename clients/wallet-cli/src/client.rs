@@ -21,9 +21,22 @@ use sp_runtime::AccountId32;
 pub struct Inclusion {
     /// Hash of the block that contains the transaction.
     pub block_hash: H256,
+    /// Position of the transaction in that block.
+    pub index: u32,
     /// Whether the call dispatched successfully (the fee is charged either way).
     pub success: bool,
 }
+
+/// The BLAKE3-256 hash of an encoded transaction: the hash the node reports for it.
+#[must_use]
+pub fn transaction_hash(xt: &UncheckedExtrinsic) -> H256 {
+    <ac_primitives::Blake3Hasher as sp_runtime::traits::Hash>::hash(&xt.encode())
+}
+
+/// Result of a contract dry run.
+pub type DryCall = pallet_revive::ContractResult<pallet_revive::ExecReturnValue, u128>;
+/// Result of a deployment dry run.
+pub type DryDeploy = pallet_revive::ContractResult<pallet_revive::InstantiateReturnValue, u128>;
 
 /// A JSON-RPC connection to a node.
 pub struct NodeClient {
@@ -185,11 +198,11 @@ impl NodeClient {
                     .unwrap_or_default();
                 if let Some(index) = extrinsics.iter().position(|x| x.as_str() == Some(&hex_xt)) {
                     let block_hash = H256::from_slice(&unhex(&hash)?);
-                    let success = self
-                        .dispatch_succeeded(block_hash, u32::try_from(index)?)
-                        .await?;
+                    let index = u32::try_from(index)?;
+                    let success = self.dispatch_succeeded(block_hash, index).await?;
                     return Ok(Inclusion {
                         block_hash,
+                        index,
                         success,
                     });
                 }
@@ -200,28 +213,116 @@ impl NodeClient {
         bail!("transaction not included within {timeout:?}")
     }
 
-    async fn dispatch_succeeded(&self, block: Hash, index: u32) -> Result<bool> {
+    /// Events emitted by the transaction at `index` of `block`, in order.
+    ///
+    /// # Errors
+    ///
+    /// RPC failures or undecodable events.
+    pub async fn extrinsic_events(&self, block: Hash, index: u32) -> Result<Vec<RuntimeEvent>> {
         // `System::Events` is a well-known storage value: twox128("System") ‖ twox128("Events").
         let key = [
             sp_io::hashing::twox_128(b"System"),
             sp_io::hashing::twox_128(b"Events"),
         ]
         .concat();
-        let raw = self.storage(&key, Some(block)).await?.unwrap_or_default();
+        // Absent (not empty) when a block has no events.
+        let Some(raw) = self.storage(&key, Some(block)).await? else {
+            return Ok(Vec::new());
+        };
         let events = Vec::<frame_system::EventRecord<RuntimeEvent, Hash>>::decode(&mut &raw[..])?;
-        for record in events {
-            if record.phase == frame_system::Phase::ApplyExtrinsic(index) {
-                match record.event {
-                    RuntimeEvent::System(frame_system::Event::ExtrinsicSuccess { .. }) => {
-                        return Ok(true);
-                    }
-                    RuntimeEvent::System(frame_system::Event::ExtrinsicFailed { .. }) => {
-                        return Ok(false);
-                    }
-                    _ => {}
+        Ok(events
+            .into_iter()
+            .filter(|r| r.phase == frame_system::Phase::ApplyExtrinsic(index))
+            .map(|r| r.event)
+            .collect())
+    }
+
+    async fn dispatch_succeeded(&self, block: Hash, index: u32) -> Result<bool> {
+        for event in self.extrinsic_events(block, index).await? {
+            match event {
+                RuntimeEvent::System(frame_system::Event::ExtrinsicSuccess { .. }) => {
+                    return Ok(true);
                 }
+                RuntimeEvent::System(frame_system::Event::ExtrinsicFailed { .. }) => {
+                    return Ok(false);
+                }
+                _ => {}
             }
         }
         bail!("no dispatch outcome recorded for the transaction")
+    }
+
+    /// Dry run of a contract call from `origin` on the latest state (nothing is submitted).
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn dry_call(
+        &self,
+        origin: &AccountId32,
+        dest: pallet_revive::H160,
+        value: u128,
+        data: Vec<u8>,
+    ) -> Result<DryCall> {
+        let args = (
+            origin,
+            dest,
+            value,
+            Option::<sp_runtime::Weight>::None,
+            Option::<u128>::None,
+            data,
+        );
+        let raw = self.state_call("ReviveApi_call", &args).await?;
+        Ok(DryCall::decode(&mut &raw[..])?)
+    }
+
+    /// Dry run of an EVM deployment of `init_code` (constructor arguments appended) from
+    /// `origin` on the latest state.
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn dry_deploy(
+        &self,
+        origin: &AccountId32,
+        value: u128,
+        init_code: Vec<u8>,
+    ) -> Result<DryDeploy> {
+        let args = (
+            origin,
+            value,
+            Option::<sp_runtime::Weight>::None,
+            Option::<u128>::None,
+            pallet_revive::Code::Upload(init_code),
+            Vec::<u8>::new(),
+            Option::<[u8; 32]>::None,
+        );
+        let raw = self.state_call("ReviveApi_instantiate", &args).await?;
+        Ok(DryDeploy::decode(&mut &raw[..])?)
+    }
+
+    /// Code at EVM address `address` on the latest state (empty for accounts).
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn evm_code(&self, address: pallet_revive::H160) -> Result<Vec<u8>> {
+        let raw = self.state_call("ReviveApi_code", &address).await?;
+        Ok(Vec::<u8>::decode(&mut &raw[..])?)
+    }
+
+    /// Submits `xt` without waiting and returns the hash the node assigns it.
+    ///
+    /// # Errors
+    ///
+    /// Rejection by the node or RPC failures.
+    pub async fn submit(&self, xt: &UncheckedExtrinsic) -> Result<H256> {
+        let hex_xt = format!("0x{}", hex::encode(xt.encode()));
+        let hash: String = self
+            .rpc
+            .request("author_submitExtrinsic", rpc_params![hex_xt])
+            .await
+            .context("the node rejected the transaction")?;
+        Ok(H256::from_slice(&unhex(&hash)?))
     }
 }

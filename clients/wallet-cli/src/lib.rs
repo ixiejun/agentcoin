@@ -2,6 +2,7 @@
 
 pub mod amount;
 pub mod client;
+pub mod evm;
 pub mod ops;
 pub mod wallet;
 

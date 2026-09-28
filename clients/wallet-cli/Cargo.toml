@@ -1,6 +1,6 @@
 [package]
 name = "ac-wallet"
-description = "AgentCoin command-line wallet: ML-DSA keys from a mnemonic, encrypted wallet file, transfers and key rotation"
+description = "AgentCoin command-line wallet: ML-DSA keys from a mnemonic, encrypted wallet file, transfers, key rotation and EVM contract transactions"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -17,6 +17,7 @@ path = "src/main.rs"
 ac-crypto = { workspace = true, features = ["std", "keystore", "mnemonic", "getrandom"] }
 ac-primitives = { workspace = true, features = ["std"] }
 ac-runtime = { workspace = true, features = ["std"] }
+alloy-core = { workspace = true, features = ["std", "dyn-abi"] }
 anyhow = { workspace = true }
 clap = { workspace = true }
 frame-system = { workspace = true, features = ["std"] }
@@ -24,6 +25,7 @@ hex = { workspace = true, features = ["std"] }
 jsonrpsee = { workspace = true, features = ["http-client"] }
 pallet-balances = { workspace = true, features = ["std"] }
 pallet-pq-accounts = { workspace = true, features = ["std"] }
+pallet-revive = { workspace = true, features = ["std"] }
 parity-scale-codec = { workspace = true, features = ["std"] }
 rpassword = { workspace = true }
 serde = { workspace = true, features = ["std", "derive"] }
