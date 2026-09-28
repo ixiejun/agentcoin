@@ -1,0 +1,21 @@
+# EVM acceptance project (GPL zone, GPL-3.0-or-later; decision D47, design D14 of m4-evm).
+# The official Uniswap V2 sources in lib/ are compiled with their upstream settings: solc 0.5.16
+# (v2-core) and 0.6.6 (v2-periphery), chosen per file from their pragmas, optimizer 999999 runs,
+# EVM version istanbul. The script and tests use solc 0.8.28 with the same settings.
+[profile.default]
+src = "lib"
+test = "test"
+script = "script"
+out = "out"
+cache_path = "cache"
+libs = []
+remappings = ["@uniswap/v2-core/=lib/v2-core/", "@uniswap/lib/=lib/uniswap-lib/"]
+optimizer = true
+optimizer_runs = 999999
+evm_version = "istanbul"
+fs_permissions = [{ access = "read", path = "./out" }]
+
+[lint]
+# The upstream 0.5/0.6 sources are not linted (vendored as is; their compilers emit no AST
+# forge-lint can read).
+lint_on_build = false
