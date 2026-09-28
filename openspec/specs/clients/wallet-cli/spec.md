@@ -40,3 +40,34 @@
 #### Scenario: 轮换后继续使用
 - **WHEN** 通过钱包轮换密钥后再转账
 - **THEN** 转账成功，发送方地址与轮换前相同
+
+### Requirement: 钱包作为 EVM 外部签名器
+钱包 SHALL 提供 `evm` 子命令组，用账户的 ML-DSA 密钥为合约交易签名，并通过节点 RPC 或 eth-RPC 适配器提交：
+- `address`：显示账户的 20 字节 EVM 地址（带 EIP-55 大小写校验）；
+- `deploy`：读取 Foundry 编译产物（JSON）中的初始化字节码，附加 ABI 编码的构造参数后部署，报告交易哈希、区块和新合约地址；
+- `send`：以合约地址、calldata（或函数签名加参数）与可选金额发起调用，报告交易哈希、区块、成功或回滚；
+- `broadcast`：读取 `forge script` 的模拟输出（`run-latest.json`），按顺序把每笔交易转换为原生合约交易、签名并提交，每笔等到被打包后再发下一笔；
+- `sign-message`：以上下文 `agentcoin/evm-verify/v1` 对消息签名，输出 AlgId、公钥与签名，供合约中的 `pq_verify` 使用；
+- `raw`：只签名不提交，输出可交给 `eth_sendRawTransaction` 的交易字节。
+
+钱包 SHALL 在发送前用只读查询估算权重与存储押金，按设计固定的余量设置上限。只读查询显示调用会回滚时，钱包 MUST 不提交并报告回滚原因，除非用户显式要求强制提交。
+
+#### Scenario: 部署 ERC-20
+- **WHEN** 对 `forge build` 生成的 ERC-20 产物执行 `ac-wallet evm deploy`，并附带名称、符号和初始供应量
+- **THEN** 输出新合约地址；用 `cast call` 经适配器查询部署者余额，得到初始供应量
+
+#### Scenario: 回滚的调用不提交
+- **WHEN** 对一个余额不足的 ERC-20 转账执行 `ac-wallet evm send`
+- **THEN** 钱包报告回滚原因，不提交交易，账户 nonce 不变
+
+#### Scenario: broadcast 地址不一致时中止
+- **WHEN** `run-latest.json` 中某笔部署的预测合约地址与链上实际创建的地址不同
+- **THEN** 钱包在该笔之后立即停止，报告两者地址，不再发送后续交易
+
+#### Scenario: 签名供 pq_verify 使用
+- **WHEN** 用 `ac-wallet evm sign-message` 签名一段消息，并把输出传给调用 `pq_verify` 的合约
+- **THEN** 合约得到 `true`
+
+#### Scenario: raw 交易可经适配器提交
+- **WHEN** 把 `ac-wallet evm raw` 的输出传给适配器的 `eth_sendRawTransaction`
+- **THEN** 交易被打包，返回的哈希与钱包显示的哈希一致

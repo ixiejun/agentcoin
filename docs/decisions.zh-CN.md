@@ -1,6 +1,6 @@
 > 🌐 [English](decisions.md) | **简体中文**
 
-# AgentCoin 决策记录（D1–D47）
+# AgentCoin 决策记录（D1–D52）
 
 > 本文件是需求讨论的最终结论汇总。讨论过程见 `docs/research/01–07`（`*.zh-CN.md`），技术方案见 `docs/design/`。
 
@@ -53,3 +53,8 @@
 | D45 | 罚没 | 只罚验证人本人的自质押（锁定中和解绑中的都算）：投票双签 100%，出块双签 10%，同一集合按最重一类、不累加；罚没的 ATC 销毁并计入 `Emission::TotalBurned`；提名人永不被罚；掉线不罚本金。自质押解绑 28 天；提名通过全网队列解绑，2–28 天（参照 Polkadot RFC-0097）。PoA 阶段适用同一规则 | m3-pos |
 | D46 | 奖励 | PoS 阶段安全预算在验证人之间按出块数分配，与质押多少无关（R1）；每份先付该验证人的佣金（5%–100%，调高 7 天后生效，调低下一纪元生效），其余按支撑额比例分配，自动发放；取整余数永不铸造。未揭示随机数的纪元不计工作分，连续 3 次则暂停参选；PoA 阶段只计数 | m3-pos |
 | D47 | 许可证 | 按目录划分许可证（取代 D37）。GPL 区为 `node/`（含 `node/consensus/*`）、`services/`、`clients/wallet-cli/`、`tests/`、`scripts/`，采用 `GPL-3.0-or-later`，可以使用任何与 GPL 兼容的依赖。其余部分，包括 `crates/`、`pallets/`、`runtime/`、将来的 SDK 和绑定以及任何新目录，采用 `MIT OR Apache-2.0`，其依赖闭包（包括本仓库 GPL 区的 crate）中不得出现 GPL。每个 crate 都声明所在区的许可证，这两条规则由 CI 强制检查。贡献按所在目录的许可证授权（inbound = outbound，不设 CLA）；117712b 及之前的提交仍可按 MIT 使用 | relicense-layered |
+| D48 | EVM | EVM 采用 `pallet-revive`，只运行 EVM 字节码（PolkaVM 合约、单独上传代码和按代码哈希实例化都被过滤）。合约交易就是一笔普通的 AgentCoin v5 交易，由 `PqAuthorize`（ML-DSA，`agentcoin/tx/v1`）授权，调用为 `Revive::call` 或 `Revive::instantiate_with_code`；所有以太坊签名入口（`eth_transact` 等，secp256k1 / EIP-155 / EIP-1559 交易）全部关闭。EVM 地址 = `keccak256(账户 ID)[12..]`（自动映射）；keccak 只用于 EVM 语义，不承担协议承诺。EVM 链 ID 4403（已核对 chainlist 未被占用），α 阶段 dev、local、测试网共用；`NativeToEthRatio` 为 1（ATC 与 wei 都是 18 位小数） | m4-evm |
+| D49 | EVM | PQ 预编译地址固定、永不更改：`pq_verify` 0x0A01（按 AlgId 验证 ML-DSA，上下文 `agentcoin/evm-verify/v1`，任何失败都返回 `false`）、`blake3` 0x0A02、`poseidon2` 0x0A03、`stark_verify` 0x0A10 保留（调用一律回滚），按 revive 外部预编译布局排列（`0x…0a010000`）；都是纯函数，不创建合约账户，按基准权重计费。新增签名算法时只给 `pq_verify` 增加 AlgId 分支，地址与接口不变。revive 内置的以太坊预编译（`ecrecover`、bn128、KZG `point_eval`、`p256_verify`）只供应用使用，文档标注为非后量子，永不用于账户授权，协议也不依赖它们 | m4-evm |
+| D50 | 发行 | 合约执行永不增发（D9）：每个新合约账户的存在性押金由交易签名者转入（`SetEvmPayer` 交易扩展 + `ReviveCurrency` 封装），没有付款人时铸币失败。合约销毁经 `OnBurn` 计入 `Emission::TotalBurned`；节点的发行量检查不变，照常 fail-closed。由此 revive 自带的基准（要铸币来准备账户）无法运行，runtime 使用 revive 的上游权重，并有测试断言最重的调用与部署放得进一笔普通交易 | m4-evm、license-internal-features |
+| D51 | 工具 | 自写 eth-RPC 适配器 `ac-eth-rpc`（GPL 区，D47）置于节点前：以太坊 JSON-RPC 的只读方法（按 AC-BFT 终局性给出区块、余额、代码、存储、模拟调用、gas 估算、回执、日志）来自节点 RPC 与 runtime API，并在内存中建索引；`eth_sendRawTransaction` 只接受 PQ 签名的原生合约交易。Foundry 通过钱包这个外部签名器使用（`ac-wallet evm deploy / send / broadcast`）；适配器从不记录参数与结果 | m4-evm |
+| D52 | 密码学 | Poseidon2 = Plonky3 默认的 Goldilocks 宽 12 实例（`p3-goldilocks` 0.8：x^7，外部轮 8 + 内部轮 22），海绵速率 8、容量 4，输出 32 字节，字节编码单射（先写字节长度，再把输入加 `0x01` 与补零后按 7 字节小端组成元素）。调研门控没有找到实现 Poseidon2 作者参考实例、经过审阅的 no_std 库；用户接受 Plonky3 的实例，用 Plonky3 公布的置换向量代替作者向量核对（见 `ac-crypto` README） | m4-evm |

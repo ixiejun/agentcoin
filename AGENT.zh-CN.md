@@ -22,13 +22,13 @@ AgentCoin（代币 **ATC**）是一个**抗量子、天生隐私、无许可**�
 - 链框架：Polkadot SDK（Substrate）独立链；EVM 用 `pallet-revive`
 - 主要语言：**Rust**（D31）；Python 仅限推理/训练引擎内部的薄插件
 - 开发方式：**规格驱动开发（SDD）+ OpenSpec**（D32）
-- 当前阶段：MVP；M0（工程底座 + PQ 密码库）、M1（PQ 链）、M2（AC-BFT 终局性）和 M3（排放、国库、PoA 多签、提名式 PoS 与 PoA→PoS 切换）已完成
+- 当前阶段：MVP；M0（工程底座 + PQ 密码库）、M1（PQ 链）、M2（AC-BFT 终局性）、M3（排放、国库、PoA 多签、提名式 PoS 与 PoA→PoS 切换）和 M4（EVM：`pallet-revive`、PQ 预编译、eth-RPC 适配器、经钱包使用 Foundry）已完成
 
 ### 1.1 权威文档地图
 
 | 文档 | 作用 | 何时读 |
 |---|---|---|
-| `docs/decisions.md`（中文：`.zh-CN.md`） | **全部已确认决策 D1–D47（最高设计依据）** | 每次开始新任务 |
+| `docs/decisions.md`（中文：`.zh-CN.md`） | **全部已确认决策 D1–D52（最高设计依据）** | 每次开始新任务 |
 | `docs/design/mvp-technical-plan.md` | MVP 架构、模块、数据结构、里程碑 | 做 MVP 任务时 |
 | `docs/design/full-technical-plan.md` | 全量版架构与 MVP 必须预留的接口（§11） | 设计任何接口时 |
 | `docs/research/01–07` | 决策的调研依据与讨论过程 | 需要理解“为什么”时 |

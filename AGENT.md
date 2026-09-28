@@ -22,13 +22,13 @@ AgentCoin (token **ATC**) is a **post-quantum, privacy-native, permissionless** 
 - Chain framework: standalone Polkadot SDK (Substrate) chain; EVM via `pallet-revive`
 - Primary language: **Rust** (D31); Python only for thin plugins inside inference/training engines
 - Development method: **spec-driven development (SDD) + OpenSpec** (D32)
-- Current stage: MVP; M0 (engineering foundation + PQ crypto library), M1 (PQ chain), M2 (AC-BFT finality) and M3 (emission, treasury, PoA multisig, nominated PoS and the PoA → PoS switch) complete
+- Current stage: MVP; M0 (engineering foundation + PQ crypto library), M1 (PQ chain), M2 (AC-BFT finality), M3 (emission, treasury, PoA multisig, nominated PoS and the PoA → PoS switch) and M4 (EVM: `pallet-revive`, PQ precompiles, eth-RPC adapter, Foundry via the wallet) complete
 
 ### 1.1 Authoritative document map
 
 | Document | Purpose | When to read |
 |---|---|---|
-| `docs/decisions.md` (Chinese: `.zh-CN.md`) | **All confirmed decisions D1–D47 (highest design authority)** | At the start of every task |
+| `docs/decisions.md` (Chinese: `.zh-CN.md`) | **All confirmed decisions D1–D52 (highest design authority)** | At the start of every task |
 | `docs/design/mvp-technical-plan.md` | MVP architecture, modules, data structures, milestones | For MVP tasks |
 | `docs/design/full-technical-plan.md` | Full-version architecture and interfaces the MVP must reserve (§11) | When designing any interface |
 | `docs/research/01–07` | Research and discussion behind the decisions | When you need the "why" |

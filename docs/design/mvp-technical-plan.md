@@ -558,7 +558,7 @@ agentcoin/
 | **M9 Audit** | 15–18 | External security audit (circuits, consensus, economics) and fixes | No unresolved critical / high findings |
 | **🚀 Mainnet Beta** | ≈18 | Genesis (PoA, no premine); gateways accept only anonymous vouchers | All §0.4 targets met |
 
-**Status** (2026-09): M0–M3 complete. M4 in progress: `pallet-revive` with the PQ precompiles, the eth-RPC adapter and the Foundry external signer are done and tested end to end with an ERC-20; the Uniswap V2 acceptance run is pending. Contract weights: the PQ precompiles (`pallet-evm-support`) use weights benchmarked on this runtime; `pallet-revive` keeps its upstream `SubstrateWeight`, because its benchmarks mint funds to set up accounts and this chain's no-mint currency wrapper rejects that. A runtime test checks that the heaviest contract call and deployment still fit a normal extrinsic under those weights.
+**Status** (2026-09): M0–M4 complete. M4: `pallet-revive` with the PQ precompiles, the eth-RPC adapter and the Foundry external signer, tested end to end with an ERC-20 and the official Uniswap V2 contracts (CREATE2 pairs, liquidity, swaps). Contract weights: the PQ precompiles (`pallet-evm-support`) use weights benchmarked on this runtime; `pallet-revive` keeps its upstream `SubstrateWeight`, because its benchmarks mint funds to set up accounts and this chain's no-mint currency wrapper rejects that. A runtime test checks that the heaviest contract call and deployment still fit a normal extrinsic under those weights.
 
 **Critical path**: M1 → M2 → M5 → M7 → M9. M7 (STARK circuits) is the riskiest, so it starts in parallel with M5 / M6 and completes its technology selection before month 9.
 

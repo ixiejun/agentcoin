@@ -21,7 +21,8 @@ CI SHALL 在每次推送和每个拉取请求时运行以下检查，任一失�
 5. 安全公告审计；
 6. 密码学库以 no_std 方式为 `wasm32-unknown-unknown` 构建；
 7. runtime 的 WASM 构建成功，且构建产物可被节点加载；
-8. 多节点端到端测试：本地 4 节点网络出块并最终确定、停止 1 个节点时终局性不中断、停止 2 个节点后恢复、同一密钥双签被记录并在下一纪元禁用、随机数可独立复算、ML-DSA 签名转账、密钥轮换、多个排放纪元的铸币与国库入账、超发的 runtime 升级被节点拒绝、质押达标后 PoA 自动切换到 PoS、PoS 阶段选举与奖励发放、PoS 阶段双签罚没自质押。
+8. 多节点端到端测试：本地 4 节点网络出块并最终确定、停止 1 个节点时终局性不中断、停止 2 个节点后恢复、同一密钥双签被记录并在下一纪元禁用、随机数可独立复算、ML-DSA 签名转账、密钥轮换、多个排放纪元的铸币与国库入账、超发的 runtime 升级被节点拒绝、质押达标后 PoA 自动切换到 PoS、PoS 阶段选举与奖励发放、PoS 阶段双签罚没自质押；
+9. EVM 端到端测试：用 Foundry 编译仓库中的合约，经钱包签名部署并调用 ERC-20 与官方 Uniswap V2（含工厂用 CREATE2 创建配对、添加流动性、兑换），经 eth-RPC 适配器读回状态、回执与日志，合约调用 PQ 预编译，以太坊签名交易被拒绝，且整个过程中节点的发行量检查全部通过。
 
 #### Scenario: 格式错误导致失败
 - **WHEN** 提交一段未经格式化的 Rust 代码
@@ -38,6 +39,10 @@ CI SHALL 在每次推送和每个拉取请求时运行以下检查，任一失�
 #### Scenario: 端到端测试失败导致 CI 失败
 - **WHEN** 提交一个使节点无法出块、无法最终确定区块、转账失败、节点接受超发区块或无法完成 PoA→PoS 切换的改动
 - **THEN** CI 的端到端测试步骤失败
+
+#### Scenario: EVM 端到端测试失败导致 CI 失败
+- **WHEN** 提交一个使合约部署失败、适配器返回与链上不一致的数据、或合约部署导致节点拒块的改动
+- **THEN** CI 的 EVM 端到端测试步骤失败
 
 #### Scenario: 全部通过
 - **WHEN** 在本变更完成后的主干上运行 CI
@@ -59,14 +64,15 @@ CI SHALL 在每次推送和每个拉取请求时运行以下检查，任一失�
 
 ### Requirement: 按目录划分的许可证边界
 仓库 SHALL 按目录分为两个许可证区：
-- **GPL 区**（GPL-3.0-or-later）：`node/`、`services/`、`clients/wallet-cli/`、`tests/`、`scripts/`；
+- **GPL 区**（GPL-3.0-or-later）：`node/`、`services/`、`clients/wallet-cli/`、`tests/`、`scripts/`、`contracts/acceptance/`；
 - **宽松区**（MIT OR Apache-2.0）：GPL 区以外的所有目录，新增目录默认属于宽松区。
 
 CI MUST 在以下任一情况下失败：
 1. 宽松区中任一 crate 的依赖闭包（常规与构建依赖，含传递依赖，也包括本仓库 GPL 区的 crate）中，出现只能以 GPL 家族许可证使用的依赖；带非 GPL 备选的表达式（如 `Apache-2.0 OR GPL-3.0`）视为允许。
 2. 任一工作区 crate 声明的许可证与其所在区不一致：宽松区必须为 `MIT OR Apache-2.0`，GPL 区必须为 `GPL-3.0-or-later`。
+3. 宽松区中的 Solidity 源文件缺少 SPDX 许可证标识，或其标识为 GPL 家族许可证；宽松区的 Solidity 文件 MUST NOT 导入 GPL 区的 Solidity 文件。
 
-GPL 区的 crate MAY 依赖任意 GPL 兼容许可证的依赖。
+GPL 区的 crate MAY 依赖任意 GPL 兼容许可证的依赖；GPL 区中从上游原样引入的第三方源码 SHALL 保留其原许可证，并记录来源 URL、固定版本与 SHA-256。
 
 #### Scenario: 库 crate 引入 GPL 依赖
 - **WHEN** 让 `crates/` 下的某个 crate 依赖一个 GPL-3.0 许可证的 crate
@@ -91,6 +97,14 @@ GPL 区的 crate MAY 依赖任意 GPL 兼容许可证的依赖。
 #### Scenario: 当前仓库通过
 - **WHEN** 在本变更完成后的主干上运行许可证边界检查
 - **THEN** 检查通过
+
+#### Scenario: 宽松区合约使用 GPL 标识
+- **WHEN** 在 `contracts/src/` 中加入一个 SPDX 标识为 GPL-3.0 或缺少 SPDX 标识的 Solidity 文件，或让其导入 `contracts/acceptance/` 下的文件
+- **THEN** 许可证边界检查失败
+
+#### Scenario: 验收区引入官方 Uniswap V2
+- **WHEN** `contracts/acceptance/` 中包含原样引入的官方 Uniswap V2 源码（GPL-3.0），并附来源记录
+- **THEN** 许可证边界检查通过
 
 ### Requirement: 安全公告例外须逐条记录
 依赖策略与安全公告审计中的任何忽略项 SHALL 逐条记录公告编号、受影响的依赖路径、不受影响或无法修复的理由，以及复查期限（不超过 90 天）；超过复查期限的忽略项 MUST 使 CI 失败，直到被复查更新或移除。
