@@ -47,8 +47,8 @@ pub use weights::WeightInfo;
 pub mod pallet {
     use super::WeightInfo;
     use ac_primitives::emission::{
-        EmissionSchedule, EpochIndex, EpochInput, SecurityBudget, TreasuryDeposit, WorkSource,
-        settle,
+        EmissionSchedule, EpochIndex, EpochIndexSource, EpochInput, MarketPayout, SecurityBudget,
+        TreasuryDeposit, WorkSource, settle,
     };
     use alloc::vec::Vec;
     use frame_support::pallet_prelude::{
@@ -78,6 +78,8 @@ pub mod pallet {
         type SecurityBudget: SecurityBudget<Self::AccountId>;
         /// Treasury accounts.
         type Treasury: TreasuryDeposit<Self::AccountId>;
+        /// Receiver of the market work emission (`()`: none; M5 `pallet-work`).
+        type MarketPayout: MarketPayout<Self::AccountId>;
         /// Weights.
         type WeightInfo: WeightInfo;
     }
@@ -207,10 +209,11 @@ pub mod pallet {
         /// what the formula allots.
         pub(crate) fn settle_epoch(schedule: &EmissionSchedule, epoch: EpochIndex) {
             let scheduled = schedule.scheduled(epoch);
+            let work = T::WorkSource::verified_work(epoch);
             let input = EpochInput::new(
                 scheduled,
                 Reserve::<T>::get(),
-                T::WorkSource::verified_work(epoch),
+                work,
                 T::SecurityBudget::phase(),
             );
             let out = settle(&input);
@@ -229,8 +232,8 @@ pub mod pallet {
                 T::Treasury::recipients(out.treasury_proportional, out.treasury_floor_topup);
             payments.push(community);
             payments.push(holder);
-            // Market and public work are paid by their modules from M5 on; until then they
-            // are zero because no work is verified.
+            // Public work is paid by its module from M6 on; until then it is zero because no
+            // public work is verified. Market work is minted below.
             let mut minted = 0u128;
             for (who, amount) in &payments {
                 if Self::mint(who, *amount) {
@@ -241,6 +244,14 @@ pub mod pallet {
                 minted = minted.saturating_add(floor_amount);
                 T::Treasury::floor_minted(floor_amount);
             }
+            // Market work emission goes to the settlement pot, where providers claim it by work
+            // (m5-work-settlement design D6). A refused mint returns to the reserve below.
+            let market = match T::MarketPayout::account() {
+                Some(pot) if out.market > 0 && Self::mint(&pot, out.market) => out.market,
+                _ => 0,
+            };
+            minted = minted.saturating_add(market);
+            T::MarketPayout::settled(epoch, market, work.0);
             // Everything the formula allotted but that was not minted (unpaid security budget,
             // refused mints) returns to the reserve: reserve' = reserve + S − minted.
             let reserve = out.reserve.saturating_add(out.total.saturating_sub(minted));
@@ -280,6 +291,15 @@ pub mod pallet {
             let value = amount.peek();
             drop(amount);
             TotalBurned::<T>::mutate(|b| *b = Some(b.unwrap_or(0).saturating_add(value)));
+        }
+    }
+
+    impl<T: Config> EpochIndexSource for Pallet<T> {
+        /// Epoch of the block being executed: `⌊(number − 1) / L⌋` (unlike
+        /// [`Pallet::current_epoch`], which answers for the next block).
+        fn current_epoch() -> EpochIndex {
+            let now = frame_system::Pallet::<T>::block_number().saturated_into::<u64>();
+            Self::schedule().map_or(0, |s| s.settled_epochs(now))
         }
     }
 }

@@ -25,7 +25,7 @@ total    = security + market + public + treasury，超过 avail 时按比例缩�
 reserve' = reserve + S − total
 ```
 
-所有运算都是 `u128` 向下取整，余数留在储备。国库部分交给 `Config::Treasury`（`pallet-treasury-dual`）：比例份额进入社区资助和持币人国库，补足到 5% × S 的差额进入线性解锁的保底账户。M5 之前没有已核验工作量（`Config::WorkSource = ()`），PoA 阶段不发放安全预算（`Config::SecurityBudget = PoaPhase`），所以每个纪元只铸造 5% 的保底，其余累积在储备中。货币模块拒绝铸造的部分（例如新账户低于存在性押金的份额）同样回到储备。
+所有运算都是 `u128` 向下取整，余数留在储备。国库部分交给 `Config::Treasury`（`pallet-treasury-dual`）：比例份额进入社区资助和持币人国库，补足到 5% × S 的差额进入线性解锁的保底账户。市场份额铸给 `Config::MarketPayout`（M5 起为 `pallet-work`）的领取账户，提供者从中领取 `市场排放 × 自己的工作量 ÷ 该纪元的已核验工作量`；纪元 `e` 的已核验市场工作量是在 `e` 到期的报告的工作量（`Config::WorkSource`），仍在挑战期内的工作量不计入。M6 之前没有已核验的公共工作量。PoA 阶段不发放安全预算（`Config::SecurityBudget = PoaPhase`）；没有工作量时每个纪元只铸造 5% 的保底，其余累积在储备中。货币模块拒绝铸造的部分（例如新账户或空领取账户低于存在性押金的份额）同样回到储备。
 
 ## 销毁
 

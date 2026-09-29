@@ -88,6 +88,24 @@ std::thread_local! {
     pub static WORK: RefCell<(u128, u128)> = const { RefCell::new((0, 0)) };
     /// Floor amounts reported as minted.
     pub static FLOOR_MINTED: RefCell<u128> = const { RefCell::new(0) };
+    /// Whether the market payout has an account (default: none, like `()`).
+    pub static PAYOUT_ON: RefCell<bool> = const { RefCell::new(false) };
+    /// `(epoch, minted, work)` reported to the market payout.
+    pub static SETTLED: RefCell<Vec<(u64, u128, u128)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The settlement pot of the mock.
+pub const POT: u64 = 50;
+
+/// Market payout: `POT` when switched on, recording what it is told.
+pub struct TestPayout;
+impl ac_primitives::emission::MarketPayout<u64> for TestPayout {
+    fn account() -> Option<u64> {
+        PAYOUT_ON.with(|p| *p.borrow()).then_some(POT)
+    }
+    fn settled(epoch: u64, market: u128, work: u128) {
+        SETTLED.with(|s| s.borrow_mut().push((epoch, market, work)));
+    }
 }
 
 pub struct TestBudget;
@@ -117,6 +135,7 @@ impl pallet_emission::Config for Test {
     type WorkSource = TestWork;
     type SecurityBudget = TestBudget;
     type Treasury = TestTreasury;
+    type MarketPayout = TestPayout;
     type WeightInfo = ();
 }
 
@@ -125,6 +144,8 @@ pub fn ext(length: u64) -> sp_io::TestExternalities {
     PHASE.with(|p| *p.borrow_mut() = Phase::Poa);
     WORK.with(|w| *w.borrow_mut() = (0, 0));
     FLOOR_MINTED.with(|f| *f.borrow_mut() = 0);
+    PAYOUT_ON.with(|p| *p.borrow_mut() = false);
+    SETTLED.with(|s| s.borrow_mut().clear());
     let storage = RuntimeGenesisConfig {
         system: Default::default(),
         balances: Default::default(),

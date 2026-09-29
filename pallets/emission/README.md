@@ -36,11 +36,15 @@ reserve' = reserve + S − total
 
 All arithmetic is on `u128` with rounding down; remainders stay in the reserve. The treasury
 part goes to `Config::Treasury` (`pallet-treasury-dual`): the proportional share to community
-grants and the holder treasury, the top-up to 5% × S to the vesting floor. Before M5 no work is
-verified (`Config::WorkSource = ()`), and during PoA the security budget is not paid
-(`Config::SecurityBudget = PoaPhase`), so each epoch mints only the 5% floor and the rest
-accumulates in the reserve. Anything the currency refuses to mint (for example a share below the
-existential deposit of a new account) also returns to the reserve.
+grants and the holder treasury, the top-up to 5% × S to the vesting floor. The market share is
+minted to `Config::MarketPayout` (`pallet-work` from M5): its pot, from which providers claim
+`market × their work ÷ the epoch's verified work`; the verified market work of epoch `e` is the
+work of the reports that matured in `e` (`Config::WorkSource`), so work still in its challenge
+period does not count. Public work is not verified before M6. During PoA the security budget is
+not paid (`Config::SecurityBudget = PoaPhase`); without work an epoch mints only the 5% floor and
+the rest accumulates in the reserve. Anything the currency refuses to mint (for example a share
+below the existential deposit of a new account, or of the empty pot) also returns to the
+reserve.
 
 ## Burns
 

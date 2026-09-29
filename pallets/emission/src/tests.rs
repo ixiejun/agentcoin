@@ -12,8 +12,8 @@ use frame_support::traits::fungible::{Balanced, Inspect};
 use frame_support::traits::{Hooks, OnUnbalanced};
 
 use crate::mock::{
-    Balances, COMMUNITY, Emission, FLOOR, FLOOR_MINTED, HOLDER, PHASE, RuntimeEvent, System, Test,
-    VALIDATOR, WORK, ext,
+    Balances, COMMUNITY, Emission, FLOOR, FLOOR_MINTED, HOLDER, PAYOUT_ON, PHASE, POT,
+    RuntimeEvent, SETTLED, System, Test, VALIDATOR, WORK, ext,
 };
 use crate::{EpochLength, Event, LastSettled, Reserve, TotalBurned, TotalMinted};
 
@@ -169,4 +169,91 @@ fn genesis_parameters() {
 #[should_panic(expected = "invalid emission genesis")]
 fn invalid_epoch_length_fails_genesis() {
     let _ = ext(7);
+}
+
+fn settled_reports() -> Vec<(u64, u128, u128)> {
+    SETTLED.with(|s| s.borrow().clone())
+}
+
+// Scenario "工作量未达上限": the market emission equals the verified work, goes to the pot, and
+// the proportional treasury share follows it (max(20/70 × market, 5% × S)).
+#[test]
+fn market_work_below_the_cap_is_minted_to_the_pot() {
+    ext(L).execute_with(|| {
+        PAYOUT_ON.with(|p| *p.borrow_mut() = true);
+        let s = schedule().scheduled(0);
+        let work = s / 4; // below 50% × avail = 50% × S
+        WORK.with(|w| *w.borrow_mut() = (work, 0));
+        run_to(L + 1);
+        let out = settle(&EpochInput::new(s, 0, (work, 0), Phase::Poa));
+        assert_eq!(out.market, work);
+        assert_eq!(Balances::balance(&POT), work);
+        assert_eq!(settled_reports(), vec![(0, work, work)]);
+        assert_eq!(out.treasury(), (work * 20 / 70).max(s * 5 / 100));
+        // Conservation: reserve + minted = S.
+        assert_eq!(Reserve::<Test>::get() + TotalMinted::<Test>::get(), s);
+        assert_eq!(Balances::total_issuance(), TotalMinted::<Test>::get());
+    });
+}
+
+// Scenario "工作量超过上限": the market emission is capped at 50% × avail; the pallet reports
+// the verified work so shares follow work (3:1 providers get 3:1, see pallet-work's tests).
+#[test]
+fn market_work_above_the_cap_is_capped() {
+    ext(L).execute_with(|| {
+        PAYOUT_ON.with(|p| *p.borrow_mut() = true);
+        let s = schedule().scheduled(0);
+        let work = s; // twice 50% × avail with an empty reserve
+        WORK.with(|w| *w.borrow_mut() = (work, 0));
+        run_to(L + 1);
+        let out = settle(&EpochInput::new(s, 0, (work, 0), Phase::Poa));
+        assert!(out.market < work);
+        assert_eq!(Balances::balance(&POT), out.market);
+        assert_eq!(settled_reports(), vec![(0, out.market, work)]);
+        assert_eq!(Reserve::<Test>::get() + TotalMinted::<Test>::get(), s);
+    });
+}
+
+// Scenario "挑战期内的工作不参与" (emission side): each settlement asks for exactly the epoch
+// it settles; which reports count is pallet-work's rule.
+#[test]
+fn each_settlement_reports_its_own_epoch() {
+    ext(L).execute_with(|| {
+        PAYOUT_ON.with(|p| *p.borrow_mut() = true);
+        WORK.with(|w| *w.borrow_mut() = (1_000, 0));
+        run_to(3 * L + 1);
+        let epochs: Vec<u64> = settled_reports().iter().map(|r| r.0).collect();
+        assert_eq!(epochs, [0, 1, 2]);
+    });
+}
+
+// A refused market mint (below the existential deposit into an empty pot) returns to the
+// reserve and is reported as zero.
+#[test]
+fn a_refused_market_mint_returns_to_the_reserve() {
+    ext(L).execute_with(|| {
+        PAYOUT_ON.with(|p| *p.borrow_mut() = true);
+        WORK.with(|w| *w.borrow_mut() = (5, 0)); // below the mock's existential deposit of 10
+        run_to(L + 1);
+        assert_eq!(Balances::balance(&POT), 0);
+        assert_eq!(settled_reports(), vec![(0, 0, 5)]);
+        let s = schedule().scheduled(0);
+        assert_eq!(Reserve::<Test>::get() + TotalMinted::<Test>::get(), s);
+    });
+}
+
+// The epoch of the block being executed, for settlement's challenge periods.
+#[test]
+fn the_current_block_epoch() {
+    use ac_primitives::emission::EpochIndexSource;
+    ext(L).execute_with(|| {
+        for (block, epoch) in [(1, 0), (L, 0), (L + 1, 1), (2 * L, 1), (2 * L + 1, 2)] {
+            System::set_block_number(block);
+            assert_eq!(
+                <Emission as EpochIndexSource>::current_epoch(),
+                epoch,
+                "{block}"
+            );
+        }
+    });
 }

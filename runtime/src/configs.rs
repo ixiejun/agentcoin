@@ -207,6 +207,7 @@ impl pallet_emission::Config for Runtime {
     /// validators and their stakers (`m3-pos`).
     type SecurityBudget = StakingPos;
     type Treasury = TreasuryDual;
+    type MarketPayout = ();
     type WeightInfo = pallet_emission::weights::SubstrateWeight<Runtime>;
 }
 
