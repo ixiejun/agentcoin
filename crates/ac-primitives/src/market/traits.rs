@@ -45,6 +45,13 @@ pub trait GatewayLookup<AccountId> {
     fn is_registered(who: &AccountId) -> bool;
 }
 
+/// What settlement needs to know about providers.
+pub trait ProviderLookup<AccountId> {
+    /// `true` if `who` is a registered provider, not jailed, that lists `model`: work it did
+    /// for that model can be settled (an exiting provider still settles finished work).
+    fn can_settle(who: &AccountId, model: &ModelId) -> bool;
+}
+
 /// The key an account signs with now.
 pub trait AccountKeys<AccountId> {
     /// Fingerprint of `who`'s registered public key (see `voucher::key_fingerprint`).

@@ -153,6 +153,12 @@ impl WorkParams {
     }
 }
 
+impl Default for WorkParams {
+    fn default() -> Self {
+        Self::LIVE
+    }
+}
+
 /// A [`WorkParams`] bound that does not hold.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -221,7 +227,7 @@ pub struct ReportRecord<AccountId, Balance> {
     pub lines: BoundedVec<ReportLine<AccountId, Balance>, ConstU32<MAX_REPORT_ENTRIES>>,
 }
 
-/// What an account can claim for one maturity epoch.
+/// What one gateway holds for an account, for one maturity epoch.
 #[derive(
     Clone,
     Copy,
@@ -235,11 +241,38 @@ pub struct ReportRecord<AccountId, Balance> {
     MaxEncodedLen,
     TypeInfo,
 )]
-pub struct Pending<Balance> {
-    /// Fees: provider shares and gateway fees of the reports maturing then.
-    pub amount: Balance,
-    /// Market work of those reports (zero for a gateway).
+pub struct Held<Balance> {
+    /// Provider shares held for the account.
+    pub shares: Balance,
+    /// The gateway's own fees (only when the account is the gateway). Kept apart from shares:
+    /// jailing a provider voids its shares, never its fees as a gateway.
+    pub fees: Balance,
+}
+
+/// A provider's market work maturing in one epoch.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    MaxEncodedLen,
+    TypeInfo,
+)]
+pub struct ProviderWork {
+    /// Market work of the reports maturing then.
     pub work: u128,
+    /// Voided by a jail before the epoch was settled: no emission, shares burned on claim.
+    pub voided: bool,
+    /// The epoch's market emission share was claimed (or skipped because voided).
+    pub emission_claimed: bool,
+    /// Gateways still holding shares for the provider for this epoch; the record is removed
+    /// once this is zero and the emission is claimed.
+    pub held: u32,
 }
 
 /// Verified market work of an epoch and the emission it earned.

@@ -31,7 +31,8 @@ pub use records::{ChannelRecord, GatewayRecord, ProviderRecord, Tier};
 pub use usd::{AtcPerUsd, MicroUsd, PriceError, PricePerMTok};
 pub use voucher::{SignedVoucher, VoucherBody, VoucherCheck, VoucherError};
 pub use work::{
-    EpochWork, JobKind, LifetimeWork, Pending, ReportEntry, ReportLine, ReportRecord, WorkParams,
+    EpochWork, Held, JobKind, LifetimeWork, ProviderWork, ReportEntry, ReportLine, ReportRecord,
+    WorkParams,
 };
 
 sp_api::decl_runtime_apis! {
@@ -79,8 +80,10 @@ sp_api::decl_runtime_apis! {
         fn params() -> WorkParams;
         /// An accepted report still within its retention period.
         fn report(id: u64) -> Option<ReportRecord<AccountId, Balance>>;
-        /// What `who` can claim, by maturity epoch.
-        fn pending(who: AccountId) -> Vec<(EpochIndex, Pending<Balance>)>;
+        /// What gateways hold for `who`, by maturity epoch and gateway.
+        fn held(who: AccountId) -> Vec<(EpochIndex, AccountId, Held<Balance>)>;
+        /// `who`'s market work not yet claimed, by maturity epoch.
+        fn work(who: AccountId) -> Vec<(EpochIndex, ProviderWork)>;
         /// Verified market work of `epoch` and its emission once settled.
         fn epoch_work(epoch: EpochIndex) -> EpochWork<Balance>;
         /// `who`'s lifetime work.

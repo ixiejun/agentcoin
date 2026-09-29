@@ -687,6 +687,14 @@ pub mod pallet {
         }
     }
 
+    impl<T: Config> ac_primitives::market::traits::ProviderLookup<T::AccountId> for Pallet<T> {
+        fn can_settle(who: &T::AccountId, model: &ModelId) -> bool {
+            Providers::<T>::get(who).is_some_and(|p| {
+                p.status != ProviderStatus::Jailed && p.models.iter().any(|m| m.model == *model)
+            })
+        }
+    }
+
     impl<T: Config> ac_primitives::market::traits::ProviderPenalty<T::AccountId, Balance>
         for Pallet<T>
     {

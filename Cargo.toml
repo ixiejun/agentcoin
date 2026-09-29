@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["clients/wallet-cli", "tests/e2e", "tests/sim", "tests/overmint-runtime", "tests/early-switch-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "crates/ac-toploc", "services/eth-rpc", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "pallets/staking-pos", "pallets/evm-support", "pallets/ref-rate", "pallets/model-registry", "pallets/providers", "pallets/gateways", "pallets/credits", "runtime"]
+members = ["clients/wallet-cli", "tests/e2e", "tests/sim", "tests/overmint-runtime", "tests/early-switch-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "crates/ac-toploc", "services/eth-rpc", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "pallets/staking-pos", "pallets/evm-support", "pallets/ref-rate", "pallets/model-registry", "pallets/providers", "pallets/gateways", "pallets/credits", "pallets/work", "runtime"]
 
 [workspace.package]
 version = "0.1.0"
@@ -125,6 +125,7 @@ pallet-model-registry = { path = "pallets/model-registry", version = "0.1", defa
 pallet-providers = { path = "pallets/providers", version = "0.1", default-features = false }
 pallet-gateways = { path = "pallets/gateways", version = "0.1", default-features = false }
 pallet-credits = { path = "pallets/credits", version = "0.1", default-features = false }
+pallet-work = { path = "pallets/work", version = "0.1", default-features = false }
 # Test-only
 hex = { version = "0.4", default-features = false }
 serde = { version = "1", default-features = false }

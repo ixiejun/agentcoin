@@ -415,6 +415,25 @@ fn a_jailed_provider_is_never_serviceable() {
     });
 }
 
+// m5-work-settlement design D10: settlement accepts work of registered, non-jailed providers
+// for the models they list, including exiting providers.
+#[test]
+fn which_work_can_be_settled() {
+    ext().execute_with(|| {
+        use ac_primitives::market::traits::ProviderLookup;
+        let can = |who, model| <Providers as ProviderLookup<u64>>::can_settle(&who, &model);
+        assert!(!can(ALICE, MODEL_A));
+        assert_ok!(register(ALICE, &[price(MODEL_A, 1, 1)], T2_MIN));
+        assert!(can(ALICE, MODEL_A));
+        assert!(!can(ALICE, MODEL_B));
+        assert_ok!(Providers::exit(RuntimeOrigin::signed(ALICE)));
+        assert!(can(ALICE, MODEL_A));
+        assert_ok!(register(BOB, &[price(MODEL_A, 1, 1)], T2_MIN));
+        assert_ok!(<Providers as ProviderPenalty<u64, u128>>::jail(&BOB));
+        assert!(!can(BOB, MODEL_A));
+    });
+}
+
 // m5-work-settlement design D7: a successful jail notifies settlement exactly once; a failed one
 // does not.
 #[test]
