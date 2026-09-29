@@ -2,8 +2,8 @@
 
 # ac-runtime
 
-The AgentCoin WASM runtime (M3: post-quantum chain with scheduled emission and nominated proof of
-stake).
+The AgentCoin WASM runtime: post-quantum chain with scheduled emission and nominated proof of stake
+(M1–M3), EVM contracts (M4) and the inference-market registry (M5).
 
 | Index | Pallet | Notes |
 |---|---|---|
@@ -23,6 +23,11 @@ stake).
 | 13 | `StakingPos` | candidates, nominations, unbonding queue, elections, rewards, slashing; name published (`Ledger`, `Candidates`) |
 | 14 | `Revive` | `pallet-revive`: EVM bytecode contracts only, chain ID 4403, 1 wei = 1 smallest ATC unit; index published (`ac_primitives::evm::REVIVE_PALLET_INDEX`) |
 | 15 | `EvmSupport` | contract fee payer, the non-minting currency adapter for `Revive`, PQ precompiles |
+| 16 | `RefRate` | ATC/USD reference rate, set by the PoA administration within ±20% per day |
+| 17 | `ModelRegistry` | content-addressed model registration with a storage deposit |
+| 18 | `Providers` | inference providers: dollar-denominated stake, heartbeats, serviceability; slash/jail interface for M6 only |
+| 19 | `Gateways` | inference gateways: stake and a fee capped at 5% |
+| 20 | `Credits` | transparent credits: escrow channels and cumulative ML-DSA vouchers (`Credit` interface, D20) |
 
 Transactions are v5 `General` extrinsics whose first extension is `PqAuthorize` (D36); the legacy
 `Signed` form cannot be decoded. The `transaction` module builds signed transactions for wallets
@@ -50,7 +55,15 @@ when it is created. Contracts never create issuance: the existential deposit rev
 into a new contract is paid by the transaction signer (`SetEvmPayer` extension), and revive's own
 account exists through a provider reference. `ReviveApi` offers dry runs, storage and code
 queries; Ethereum-signed payloads, code uploads and tracing are refused. The development runtime
-WASM is 4.8 MB before compression. `spec_version` 4, `transaction_version` 4.
+WASM is 4.8 MB before compression.
+
+The inference market (m5-market-registry) adds five pallets at indices 16–20. `MarketApi` offers
+the reference rate, models, providers (and the serviceable providers of a model, paged by 256),
+stake thresholds, gateways, credit channels and `check_voucher`, which applies the redemption
+rules without changing state. In the `development` and `local_testnet` presets 1 ATC = 1 USD,
+the rate interval, heartbeat interval and escrow withdrawal delay are 10 blocks and provider and
+gateway unbonding 20 blocks (live chains: one day, 600 blocks, one day and seven days).
+`spec_version` 5, `transaction_version` 5.
 
 The administration origin is a `PoaCouncil` motion approved by at least the threshold of members
 (`PoaAdmin::dispatch_as_root` runs calls as Root, e.g. `System::set_code`). The holder treasury
