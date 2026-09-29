@@ -19,7 +19,8 @@ mod benchmarks {
     use frame_system::RawOrigin;
     use sp_runtime::{SaturatedConversion, Saturating};
 
-    const STAKE: u128 = 1_000_000_000_000;
+    // 1,000 ATC: far above the runtime's existential deposit (0.001 ATC).
+    const STAKE: u128 = 1_000_000_000_000_000_000_000;
 
     fn endpoint() -> ac_primitives::market::records::Endpoint {
         BoundedVec::truncate_from(vec![b'e'; MAX_ENDPOINT_LEN as usize])

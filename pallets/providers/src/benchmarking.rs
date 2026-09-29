@@ -25,7 +25,8 @@ mod benchmarks {
 
     /// One smallest unit per dollar: the thresholds are tiny, every stake fits.
     const RATE: u128 = 1;
-    const STAKE: u128 = 1_000_000_000_000;
+    // 1,000 ATC: far above the runtime's existential deposit (0.001 ATC).
+    const STAKE: u128 = 1_000_000_000_000_000_000_000;
 
     fn models<T: Config>(n: u32, salt: u8) -> ModelList {
         let list = (0..n)
