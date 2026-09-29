@@ -5,7 +5,7 @@
 use ac_crypto::hash::validate_context;
 
 /// The registered hashing contexts, as listed in README.md.
-const REGISTERED: [&str; 14] = [
+const REGISTERED: [&str; 18] = [
     "agentcoin 2026-09 account-id v1",
     "agentcoin 2026-09 test-rng v1",
     "agentcoin 2026-09 tx-payload v1",
@@ -20,6 +20,10 @@ const REGISTERED: [&str; 14] = [
     "agentcoin 2026-09 randomness-subject v1",
     "agentcoin 2026-09 model-id v1",
     "agentcoin 2026-09 voucher-payload v1",
+    "agentcoin 2026-09 receipt-payload v1",
+    "agentcoin 2026-09 receipt-leaf v1",
+    "agentcoin 2026-09 receipt-node v1",
+    "agentcoin 2026-09 toploc-commit v1",
 ];
 
 #[test]

@@ -346,6 +346,30 @@ impl WorkSource for () {
     }
 }
 
+/// Receiver of the market work emission (M5 `pallet-work`). Emission mints the market share of
+/// an epoch to [`MarketPayout::account`] and reports it through [`MarketPayout::settled`];
+/// providers then claim their shares by work. `()` has no account: nothing is minted for the
+/// market (with `()` as [`WorkSource`] there is no market work either).
+pub trait MarketPayout<AccountId> {
+    /// Account the market emission is minted to.
+    fn account() -> Option<AccountId>;
+    /// Epoch `epoch` was settled: `market` was minted for `work` verified market work.
+    fn settled(epoch: EpochIndex, market: u128, work: u128);
+}
+
+impl<AccountId> MarketPayout<AccountId> for () {
+    fn account() -> Option<AccountId> {
+        None
+    }
+    fn settled(_epoch: EpochIndex, _market: u128, _work: u128) {}
+}
+
+/// The emission epoch the current block belongs to.
+pub trait EpochIndexSource {
+    /// Index of the current epoch.
+    fn current_epoch() -> EpochIndex;
+}
+
 /// Recipients of the security budget. In PoA ([`PoaPhase`]) nothing is paid (D19); `m3-pos`
 /// pays the validator set.
 pub trait SecurityBudget<AccountId> {

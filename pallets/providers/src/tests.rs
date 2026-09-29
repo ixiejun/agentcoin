@@ -415,6 +415,21 @@ fn a_jailed_provider_is_never_serviceable() {
     });
 }
 
+// m5-work-settlement design D7: a successful jail notifies settlement exactly once; a failed one
+// does not.
+#[test]
+fn jailing_calls_the_hook_once() {
+    ext().execute_with(|| {
+        let calls = || crate::mock::JAILED.with(|j| j.borrow().clone());
+        let before = calls();
+        assert_ok!(register(ALICE, &[price(MODEL_A, 1, 1)], T2_MIN));
+        assert_ok!(<Providers as ProviderPenalty<u64, u128>>::jail(&ALICE));
+        assert!(<Providers as ProviderPenalty<u64, u128>>::jail(&BOB).is_err());
+        let after = calls();
+        assert_eq!(after.get(before.len()..), Some(&[ALICE][..]));
+    });
+}
+
 // Scenario "管理多签不能禁闭提供者": no call of this pallet slashes or jails.
 #[test]
 fn no_call_slashes_or_jails() {

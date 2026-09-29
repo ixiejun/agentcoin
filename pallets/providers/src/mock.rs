@@ -70,6 +70,8 @@ std::thread_local! {
     pub static RATE: RefCell<Option<u128>> = const { RefCell::new(Some(1_000)) };
     /// Total burned through the slash sink.
     pub static BURNED: RefCell<u128> = const { RefCell::new(0) };
+    /// Accounts the jail hook was called for, in order.
+    pub static JAILED: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Rate settable by tests.
@@ -101,6 +103,14 @@ impl OnUnbalanced<Credit<u64, Balances>> for TestBurn {
     }
 }
 
+/// Records jail notifications.
+pub struct TestOnJail;
+impl ac_primitives::market::traits::OnJail<u64> for TestOnJail {
+    fn on_jail(who: &u64) {
+        JAILED.with(|j| j.borrow_mut().push(*who));
+    }
+}
+
 impl pallet_providers::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type RuntimeHoldReason = RuntimeHoldReason;
@@ -108,6 +118,7 @@ impl pallet_providers::Config for Test {
     type Models = TestModels;
     type Price = TestPrice;
     type Slash = TestBurn;
+    type OnJail = TestOnJail;
     type WeightInfo = ();
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();

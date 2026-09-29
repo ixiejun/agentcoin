@@ -560,7 +560,11 @@ pub mod pallet {
                 paid,
                 shortfall,
             });
-            Ok(Redemption { paid, shortfall })
+            Ok(Redemption {
+                paid,
+                shortfall,
+                usd: checked.increment,
+            })
         }
     }
 }

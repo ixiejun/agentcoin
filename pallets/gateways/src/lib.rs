@@ -496,5 +496,9 @@ pub mod pallet {
         fn fee_bps(who: &T::AccountId) -> Option<u16> {
             Gateways::<T>::get(who).map(|g| g.fee_bps)
         }
+
+        fn is_registered(who: &T::AccountId) -> bool {
+            Gateways::<T>::contains_key(who)
+        }
     }
 }

@@ -139,7 +139,7 @@ pub mod pallet {
         Endpoint, MAX_PROVIDER_MODELS, ModelPrice, ProviderStatus, SlaMetrics, Tier, UnlockingList,
         schedule_unlock, take_due, take_for_slash, unlocking_total,
     };
-    use ac_primitives::market::traits::{ModelLookup, PriceSource};
+    use ac_primitives::market::traits::{ModelLookup, OnJail, PriceSource};
     use ac_primitives::market::usd::Rounding;
     use ac_primitives::market::{ModelId, PriceError, ProviderRecord};
     use alloc::collections::BTreeSet;
@@ -189,6 +189,8 @@ pub mod pallet {
         type Price: PriceSource;
         /// Where slashed stake goes; the runtime burns it through `Emission`.
         type Slash: OnUnbalanced<Credit<Self::AccountId, Self::Currency>>;
+        /// Told when a provider is jailed (work settlement voids its unmatured earnings).
+        type OnJail: OnJail<Self::AccountId>;
         /// Weights.
         type WeightInfo: WeightInfo;
         /// Registers models and sets a rate for the benchmarks.
@@ -720,6 +722,7 @@ pub mod pallet {
             }
             Providers::<T>::insert(who, p);
             Self::deposit_event(Event::Jailed { who: who.clone() });
+            T::OnJail::on_jail(who);
             Ok(())
         }
     }

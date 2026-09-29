@@ -4,6 +4,9 @@
 //! - [`model`]: weight manifests and model IDs.
 //! - [`voucher`]: cumulative transparent vouchers and [`voucher::check_voucher`], the single
 //!   implementation of the redemption rules used on and off chain.
+//! - [`receipt`]: inference receipts signed by provider and gateway (m5-work-settlement).
+//! - [`receipt_tree`]: the Merkle tree committing a report's receipts.
+//! - [`work`]: work settlement types: job kinds, report entries and the fee allocation.
 //! - [`records`]: provider, gateway and channel records as stored on chain.
 //! - [`traits`]: the interfaces between the market pallets, including the `Credit` interface
 //!   (D20).
@@ -11,16 +14,25 @@
 
 use alloc::vec::Vec;
 
+use crate::emission::EpochIndex;
+
 pub mod model;
+pub mod receipt;
+pub mod receipt_tree;
 pub mod records;
 pub mod traits;
 pub mod usd;
 pub mod voucher;
+pub mod work;
 
 pub use model::{ModelId, ModelManifest, ModelRecord};
+pub use receipt::{ReceiptBody, ReceiptError, SignedReceipt};
 pub use records::{ChannelRecord, GatewayRecord, ProviderRecord, Tier};
 pub use usd::{AtcPerUsd, MicroUsd, PriceError, PricePerMTok};
 pub use voucher::{SignedVoucher, VoucherBody, VoucherCheck, VoucherError};
+pub use work::{
+    EpochWork, JobKind, LifetimeWork, Pending, ReportEntry, ReportLine, ReportRecord, WorkParams,
+};
 
 sp_api::decl_runtime_apis! {
     /// Read access to the inference market.
@@ -55,5 +67,23 @@ sp_api::decl_runtime_apis! {
         fn channel(user: AccountId, gateway: AccountId) -> Option<ChannelRecord<Balance, BlockNumber>>;
         /// Checks a voucher exactly as redemption would, against the current state.
         fn check_voucher(voucher: SignedVoucher) -> Result<VoucherCheck, VoucherError>;
+    }
+
+    /// Read access to work settlement (m5-work-settlement).
+    pub trait WorkApi<AccountId, Balance>
+    where
+        AccountId: parity_scale_codec::Codec,
+        Balance: parity_scale_codec::Codec,
+    {
+        /// Settlement parameters.
+        fn params() -> WorkParams;
+        /// An accepted report still within its retention period.
+        fn report(id: u64) -> Option<ReportRecord<AccountId, Balance>>;
+        /// What `who` can claim, by maturity epoch.
+        fn pending(who: AccountId) -> Vec<(EpochIndex, Pending<Balance>)>;
+        /// Verified market work of `epoch` and its emission once settled.
+        fn epoch_work(epoch: EpochIndex) -> EpochWork<Balance>;
+        /// `who`'s lifetime work.
+        fn lifetime(who: AccountId) -> LifetimeWork<Balance>;
     }
 }

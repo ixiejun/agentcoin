@@ -40,6 +40,9 @@ pub trait GatewayLookup<AccountId> {
     fn is_active(who: &AccountId) -> bool;
     /// Fee of gateway `who`, in basis points, if registered.
     fn fee_bps(who: &AccountId) -> Option<u16>;
+    /// `true` if `who` is a registered gateway, active or exiting: an exiting gateway accepts no
+    /// new escrow but still settles the requests it served.
+    fn is_registered(who: &AccountId) -> bool;
 }
 
 /// The key an account signs with now.
@@ -55,6 +58,9 @@ pub struct Redemption<Balance> {
     pub paid: Balance,
     /// Value of the increment the escrow could not cover; borne by the gateway.
     pub shortfall: Balance,
+    /// The authorized increment redeemed: cumulative amount minus the amount redeemed before
+    /// (zero for a replay). Settlement checks report totals against it.
+    pub usd: MicroUsd,
 }
 
 /// The unified credit interface (D20). Market and settlement modules use only this.
@@ -89,4 +95,16 @@ pub trait ProviderPenalty<AccountId, Balance> {
     ///
     /// If `who` is not a provider.
     fn jail(who: &AccountId) -> DispatchResult;
+}
+
+/// Called when a provider is jailed, so settlement can void its unmatured earnings
+/// (m5-work-settlement design D7). Reached only through [`ProviderPenalty::jail`], which no
+/// transaction reaches (D6).
+pub trait OnJail<AccountId> {
+    /// `who` was just jailed.
+    fn on_jail(who: &AccountId);
+}
+
+impl<AccountId> OnJail<AccountId> for () {
+    fn on_jail(_who: &AccountId) {}
 }

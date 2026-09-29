@@ -397,6 +397,7 @@ impl pallet_providers::Config for Runtime {
     type Price = crate::RefRate;
     /// Slashed stake is burned and counted in `Emission::TotalBurned`.
     type Slash = Emission;
+    type OnJail = ();
     type WeightInfo = pallet_providers::weights::SubstrateWeight<Runtime>;
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = MarketBenchmarkHelper;

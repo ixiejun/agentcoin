@@ -94,7 +94,8 @@ fn a_voucher_pays_its_increment() {
             r,
             Redemption {
                 paid: 150_000_000_000_000,
-                shortfall: 0
+                shortfall: 0,
+                usd: MicroUsd(150),
             }
         );
         assert_eq!(Balances::balance(&payee()) - before, 150_000_000_000_000);
@@ -132,7 +133,8 @@ fn a_short_escrow_pays_what_it_has() {
             r,
             Redemption {
                 paid: 3 * ATC,
-                shortfall: 2 * ATC
+                shortfall: 2 * ATC,
+                usd: MicroUsd(5_000_000),
             }
         );
         let ch = Credits::channel(&alice(), &gw()).unwrap();
@@ -426,6 +428,7 @@ fn the_credit_interface_is_replaceable() {
                 Ok(Redemption {
                     paid: *v,
                     shortfall: 0,
+                    usd: MicroUsd(*v),
                 })
             }
         }

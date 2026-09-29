@@ -122,6 +122,26 @@ fn stake_can_grow_and_shrink_down_to_the_threshold() {
     });
 }
 
+// m5-work-settlement design D10: an exiting gateway still settles the requests it served, so it
+// stays registered until its record is removed.
+#[test]
+fn an_exiting_gateway_stays_registered_until_removed() {
+    ext().execute_with(|| {
+        let registered = |who| <Gateways as GatewayLookup<u64>>::is_registered(&who);
+        assert!(!registered(ALICE));
+        assert_ok!(register(ALICE, MIN));
+        assert!(registered(ALICE));
+        assert_ok!(Gateways::exit(RuntimeOrigin::signed(ALICE)));
+        assert!(registered(ALICE));
+        assert!(!<Gateways as GatewayLookup<u64>>::is_active(&ALICE));
+        System::set_block_number(1 + UNBOND);
+        assert_ok!(Gateways::withdraw_unbonded(RuntimeOrigin::signed(ALICE)));
+        assert!(Gateways::gateway(&ALICE).is_none());
+        assert!(!registered(ALICE));
+        assert!(!registered(BOB));
+    });
+}
+
 // Requirement "退出与解绑", Scenario "退出后不能接受新托管" (the gateway side: it is no longer
 // active, which pallet-credits checks before accepting escrow).
 #[test]

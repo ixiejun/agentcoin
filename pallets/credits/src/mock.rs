@@ -114,6 +114,9 @@ impl GatewayLookup<AccountId32> for TestGateways {
     fn fee_bps(who: &AccountId32) -> Option<u16> {
         Self::is_active(who).then_some(300)
     }
+    fn is_registered(who: &AccountId32) -> bool {
+        Self::is_active(who)
+    }
 }
 
 /// Makes `who` an active gateway, or not.
