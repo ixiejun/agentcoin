@@ -16,7 +16,7 @@
 
 文档语言约定：每份项目文档都有英文版（主版本，位于规范路径）和简体中文版（`*.zh-CN.md`），两者在页首互相链接。
 
-状态：M0（工作区、CI 与抗量子密码库 `ac-crypto`，[crates/ac-crypto](crates/ac-crypto/README.zh-CN.md)）和 M1（抗量子链，[node](node/README.zh-CN.md)）已完成；M2（AC-BFT 终局性、双签证据、commit–reveal 随机数）已完成；M3 经济部分（计划排放、双国库、80/20 手续费分配、PoA 多签、节点执行的供应量不变量）已完成；M3 PoS 部分（质押、Phragmén 选举、按工作量发放奖励、罚没，以及节点强制执行的单向 PoA→PoS 切换）已完成；M4 EVM（带抗量子预编译的 `pallet-revive`、[eth-RPC 适配器](services/eth-rpc/README.zh-CN.md)、作为 Foundry 的 ML-DSA 签名器的 `ac-wallet evm`、[合约](contracts/README.zh-CN.md)）已完成。规范见 `openspec/specs/`。
+状态：M0（工作区、CI 与抗量子密码库 `ac-crypto`，[crates/ac-crypto](crates/ac-crypto/README.zh-CN.md)）和 M1（抗量子链，[node](node/README.zh-CN.md)）已完成；M2（AC-BFT 终局性、双签证据、commit–reveal 随机数）已完成；M3 经济部分（计划排放、双国库、80/20 手续费分配、PoA 多签、节点执行的供应量不变量）已完成；M3 PoS 部分（质押、Phragmén 选举、按工作量发放奖励、罚没，以及节点强制执行的单向 PoA→PoS 切换）已完成；M4 EVM（带抗量子预编译的 `pallet-revive`、[eth-RPC 适配器](services/eth-rpc/README.zh-CN.md)、作为 Foundry 的 ML-DSA 签名器的 `ac-wallet evm`、[合约](contracts/README.zh-CN.md)）已完成；M5 推理市场进行中：市场登记（参考汇率、模型、提供者、网关与透明额度，见 [pallets](pallets/credits/README.zh-CN.md)，以及 `ac-wallet market`）已完成，接下来是结算以及网关与提供者服务。规范见 `openspec/specs/`。
 
 ## 本地开发
 
@@ -29,7 +29,8 @@ SKIP_WASM_BUILD=1 cargo clippy --workspace --all-targets --all-features -- -D wa
 cargo test --workspace --all-features
 for c in ac-crypto ac-primitives ac-invariants pallet-pq-accounts pallet-aura-pq \
   pallet-validator-set pallet-ac-offences pallet-randomness-cr pallet-emission \
-  pallet-treasury-dual pallet-poa-admin pallet-staking-pos pallet-evm-support; do
+  pallet-treasury-dual pallet-poa-admin pallet-staking-pos pallet-evm-support \
+  pallet-ref-rate pallet-model-registry pallet-providers pallet-gateways pallet-credits; do
   cargo build -p $c --no-default-features --target wasm32-unknown-unknown
 done
 cargo install --locked cargo-deny cargo-audit   # 仅需一次

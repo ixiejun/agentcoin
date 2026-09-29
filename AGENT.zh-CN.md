@@ -322,6 +322,7 @@ scripts/benchmark-pallet.sh <pallet> <weights.rs> # 重新生成基准权重
 cargo build -p ac-node -p ac-wallet
 scripts/run-local-testnet.sh [--check]            # 四节点本地测试网（检查最佳与已最终确定高度）
 AC_E2E=1 cargo test -p ac-e2e -- --test-threads 1  # 多节点验收测试
+AC_E2E=1 cargo test -p ac-e2e --test market -- --test-threads 1  # 经钱包的市场登记流程
 scripts/measure-finality.sh [seconds]             # 终局性延迟，4/7/10 节点（release）
 scripts/wallet-smoke.sh                           # 针对开发节点运行钱包命令行
 

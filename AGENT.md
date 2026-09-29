@@ -322,6 +322,7 @@ scripts/benchmark-pallet.sh <pallet> <weights.rs> # regenerate benchmarked weigh
 cargo build -p ac-node -p ac-wallet
 scripts/run-local-testnet.sh [--check]            # four-node local testnet (best + finalized)
 AC_E2E=1 cargo test -p ac-e2e -- --test-threads 1  # multi-node acceptance tests
+AC_E2E=1 cargo test -p ac-e2e --test market -- --test-threads 1  # market registration via the wallet
 scripts/measure-finality.sh [seconds]             # finality latency, 4/7/10 nodes (release)
 scripts/wallet-smoke.sh                           # wallet CLI against a dev node
 

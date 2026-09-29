@@ -324,6 +324,7 @@ ShieldedVoucher { nullifier, value_commitment, gateway_id, expiry, stark_proof }
 ```
 
 - Market, gateway and settlement modules **depend only on the `Credit` trait**. When β ships the shielded implementation, the market code needs zero changes.
+- **As implemented** (m5-market-registry, D54): the transparent credits are **cumulative channel vouchers** rather than one voucher per request with a nonce. The user escrows ATC with a gateway in a (user, gateway) channel and signs `{genesis, user, gateway, channel, cumulative USD}` under `agentcoin/voucher/v1`; the chain keeps one redeemed-amount counter per channel, so replays pay nothing and no nonce set grows. Redemption converts the increment at the reference rate rounding down; withdrawals and voucher-key changes wait one day, during which earlier vouchers still redeem. `Credit::redeem` is called only by settlement (the next M5 change).
 - At mainnet genesis, **the transparent implementation is not enabled for inference payments** (D20, item 4).
 
 ### 5.3 `pallet-providers` and `pallet-model-registry`
@@ -351,6 +352,7 @@ Provider {
 
 - **Minimum stake** (in USD equivalent, converted at the reference rate): $1,000 for T1, $100 for T2 (draft).
 - **Zero-stake entry**: new nodes without stake can only take jobs from `pallet-public-jobs` (research 05 B3).
+- **As implemented** (m5-market-registry, D55): stake thresholds are converted at the reference rate rounding up (T1 $1,000, T2 $100, gateways $1,000, fee cap 5%); a provider is *serviceable* while active, staked above its threshold and heartbeating (at most two 600-block intervals apart; an on-time heartbeat is free); provider and gateway stake unbonds over 7 days. The slash-and-jail interface exists for M6 but no call reaches it, not even the PoA administration (D6). The reference rate is set by the PoA administration within ±20% per day (D56). Only X-Wing keys are accepted as provider encryption keys.
 
 ### 5.4 `pallet-work`: settlement in the refine / accumulate pattern
 
@@ -558,7 +560,7 @@ agentcoin/
 | **M9 Audit** | 15–18 | External security audit (circuits, consensus, economics) and fixes | No unresolved critical / high findings |
 | **🚀 Mainnet Beta** | ≈18 | Genesis (PoA, no premine); gateways accept only anonymous vouchers | All §0.4 targets met |
 
-**Status** (2026-09): M0–M4 complete. M4: `pallet-revive` with the PQ precompiles, the eth-RPC adapter and the Foundry external signer, tested end to end with an ERC-20 and the official Uniswap V2 contracts (CREATE2 pairs, liquidity, swaps). Contract weights: the PQ precompiles (`pallet-evm-support`) use weights benchmarked on this runtime; `pallet-revive` keeps its upstream `SubstrateWeight`, because its benchmarks mint funds to set up accounts and this chain's no-mint currency wrapper rejects that. A runtime test checks that the heaviest contract call and deployment still fit a normal extrinsic under those weights.
+**Status** (2026-09): M0–M4 complete; M5 in progress: the market registry (reference rate, models, providers, gateways, transparent credits, wallet `market` commands) is done; work settlement and the gateway and provider services come next. M4: `pallet-revive` with the PQ precompiles, the eth-RPC adapter and the Foundry external signer, tested end to end with an ERC-20 and the official Uniswap V2 contracts (CREATE2 pairs, liquidity, swaps). Contract weights: the PQ precompiles (`pallet-evm-support`) use weights benchmarked on this runtime; `pallet-revive` keeps its upstream `SubstrateWeight`, because its benchmarks mint funds to set up accounts and this chain's no-mint currency wrapper rejects that. A runtime test checks that the heaviest contract call and deployment still fit a normal extrinsic under those weights.
 
 **Critical path**: M1 → M2 → M5 → M7 → M9. M7 (STARK circuits) is the riskiest, so it starts in parallel with M5 / M6 and completes its technology selection before month 9.
 
