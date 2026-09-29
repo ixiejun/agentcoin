@@ -7535,6 +7535,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-providers"
+version = "0.1.0"
+dependencies = [
+ "ac-crypto",
+ "ac-primitives",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "parity-scale-codec",
+ "proptest",
+ "scale-info",
+ "serde",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-randomness-cr"
 version = "0.1.0"
 dependencies = [

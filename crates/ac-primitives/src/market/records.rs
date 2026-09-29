@@ -288,3 +288,127 @@ impl<Balance: Copy + Into<u128>, BlockNumber: PartialOrd + Copy>
         }
     }
 }
+
+/// Unbonding chunks of a provider or gateway.
+pub type UnlockingList<BlockNumber> =
+    BoundedVec<Unlocking<u128, BlockNumber>, ConstU32<MAX_UNLOCKING>>;
+
+/// Schedules `amount` to unlock at `unlock_at`. When the list is full the amount merges into the
+/// last chunk, which then unlocks at `unlock_at` (never earlier than it would have: calls come
+/// in block order, so `unlock_at` is the latest).
+pub fn schedule_unlock<BlockNumber: Copy>(
+    list: &mut UnlockingList<BlockNumber>,
+    amount: u128,
+    unlock_at: BlockNumber,
+) {
+    if let Err(chunk) = list.try_push(Unlocking { amount, unlock_at })
+        && let Some(last) = list.last_mut()
+    {
+        last.amount = last.amount.saturating_add(chunk.amount);
+        last.unlock_at = unlock_at;
+    }
+}
+
+/// Removes the chunks due at `now` and returns their total.
+pub fn take_due<BlockNumber: Copy + PartialOrd>(
+    list: &mut UnlockingList<BlockNumber>,
+    now: BlockNumber,
+) -> u128 {
+    let mut due = 0u128;
+    list.retain(|c| {
+        if c.unlock_at <= now {
+            due = due.saturating_add(c.amount);
+            false
+        } else {
+            true
+        }
+    });
+    due
+}
+
+/// Takes up to `target` from `stake` first, then from the chunks in unlock order (earliest
+/// first); empty chunks are dropped. Returns the amount taken.
+pub fn take_for_slash<BlockNumber: Copy + Ord>(
+    stake: &mut u128,
+    list: &mut UnlockingList<BlockNumber>,
+    target: u128,
+) -> u128 {
+    let from_stake = target.min(*stake);
+    *stake = stake.saturating_sub(from_stake);
+    let mut rest = target.saturating_sub(from_stake);
+    list.sort_by_key(|c| c.unlock_at);
+    for chunk in list.iter_mut() {
+        let take = rest.min(chunk.amount);
+        chunk.amount = chunk.amount.saturating_sub(take);
+        rest = rest.saturating_sub(take);
+    }
+    list.retain(|c| c.amount > 0);
+    target.saturating_sub(rest)
+}
+
+/// Total still unbonding.
+#[must_use]
+pub fn unlocking_total<BlockNumber>(list: &UnlockingList<BlockNumber>) -> u128 {
+    list.iter()
+        .fold(0u128, |acc, c| acc.saturating_add(c.amount))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn list(chunks: &[(u128, u32)]) -> UnlockingList<u32> {
+        BoundedVec::truncate_from(
+            chunks
+                .iter()
+                .map(|&(amount, unlock_at)| Unlocking { amount, unlock_at })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn a_full_list_merges_into_the_last_chunk() {
+        let mut l = list(&[(1, 1); 8]);
+        schedule_unlock(&mut l, 5, 20);
+        assert_eq!(l.len(), 8);
+        assert_eq!(
+            l.last(),
+            Some(&Unlocking {
+                amount: 6,
+                unlock_at: 20
+            })
+        );
+        assert_eq!(unlocking_total(&l), 13);
+    }
+
+    #[test]
+    fn only_due_chunks_are_taken() {
+        let mut l = list(&[(3, 5), (4, 10), (5, 15)]);
+        assert_eq!(take_due(&mut l, 10), 7);
+        assert_eq!(
+            l.into_inner(),
+            vec![Unlocking {
+                amount: 5,
+                unlock_at: 15
+            }]
+        );
+    }
+
+    #[test]
+    fn slashing_takes_stake_then_earliest_chunks() {
+        let mut stake = 10;
+        let mut l = list(&[(5, 30), (5, 20)]);
+        assert_eq!(take_for_slash(&mut stake, &mut l, 17), 17);
+        assert_eq!(stake, 0);
+        assert_eq!(
+            l.into_inner(),
+            vec![Unlocking {
+                amount: 3,
+                unlock_at: 30
+            }]
+        );
+        let mut stake = 1;
+        let mut l = list(&[(1, 5)]);
+        assert_eq!(take_for_slash(&mut stake, &mut l, 10), 2);
+    }
+}
