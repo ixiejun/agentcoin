@@ -58,7 +58,8 @@ jobs:
           for crate in ac-crypto ac-primitives ac-invariants pallet-pq-accounts pallet-aura-pq \
             pallet-validator-set pallet-ac-offences pallet-randomness-cr pallet-emission \
             pallet-treasury-dual pallet-poa-admin pallet-staking-pos pallet-evm-support \
-            pallet-ref-rate pallet-model-registry pallet-providers pallet-gateways pallet-credits; do
+            pallet-ref-rate pallet-model-registry pallet-providers pallet-gateways pallet-credits \
+            pallet-work ac-toploc; do
             cargo build -p "$crate" --no-default-features --target wasm32-unknown-unknown
           done
 
@@ -100,6 +101,8 @@ jobs:
         run: cargo test -p ac-e2e --test evm -- --test-threads 1
       - name: Market registration through the wallet (rate, model, provider, gateway, escrow, vouchers)
         run: cargo test -p ac-e2e --test market -- --test-threads 1
+      - name: Work settlement through the wallet (receipts, report, challenge period, emission, claims)
+        run: cargo test -p ac-e2e --test settlement -- --test-threads 1
       - name: Local testnet script
         run: AC_TESTNET_DIR="$AC_E2E_LOGS/testnet" scripts/run-local-testnet.sh --check
       - name: Wallet README commands
@@ -133,6 +136,19 @@ jobs:
         run: forge test
       - name: Vendored Uniswap V2 sources are reproducible
         run: scripts/vendor-uniswap-v2.sh --check
+
+  toploc-vectors:
+    # The TOPLOC vectors are the pinned reference implementation's own output and must
+    # reproduce byte for byte (m5-work-settlement 7.1).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: scripts/gen-toploc-vectors.sh
+      - name: Vectors are unchanged
+        run: git diff --exit-code crates/ac-toploc/tests/vectors/
 
   license-boundary:
     runs-on: ubuntu-latest
