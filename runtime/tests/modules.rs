@@ -55,8 +55,10 @@ fn pallet_indices_are_fixed() {
     assert_eq!(<ac_runtime::Providers as PalletInfoAccess>::index(), 18);
     assert_eq!(<ac_runtime::Gateways as PalletInfoAccess>::index(), 19);
     assert_eq!(<ac_runtime::Credits as PalletInfoAccess>::index(), 20);
-    assert_eq!(VERSION.transaction_version, 5);
-    assert_eq!(VERSION.spec_version, 5);
+    // m5-work-settlement (design D12): settlement at 21.
+    assert_eq!(<ac_runtime::Work as PalletInfoAccess>::index(), 21);
+    assert_eq!(VERSION.transaction_version, 6);
+    assert_eq!(VERSION.spec_version, 6);
 }
 
 // The M2 runtime APIs are declared by the runtime.
@@ -73,6 +75,12 @@ fn runtime_apis_are_declared() {
             ac_runtime::AccountId,
             ac_runtime::Balance,
             u32,
+        >>::ID));
+    // m5-work-settlement (design D12).
+    assert!(has(<dyn ac_primitives::market::WorkApi<
+            ac_runtime::Block,
+            ac_runtime::AccountId,
+            ac_runtime::Balance,
         >>::ID));
     assert!(has(
         <dyn ac_primitives::offences::OffencesApi<ac_runtime::Block>>::ID

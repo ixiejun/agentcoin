@@ -15,7 +15,7 @@ use super::{
     AccountId, AuraPq, Balance, Block, BlockNumber, Credits, Emission, EvmSupport, Executive,
     Gateways, InherentDataExt, ModelRegistry, Nonce, Offences, PqAccounts, Providers, RandomnessCr,
     RefRate, Revive, Runtime, RuntimeCall, RuntimeGenesisConfig, StakingPos, System,
-    TransactionPayment, TreasuryDual, VERSION, ValidatorSet,
+    TransactionPayment, TreasuryDual, VERSION, ValidatorSet, Work,
 };
 
 impl_runtime_apis! {
@@ -592,6 +592,42 @@ impl_runtime_apis! {
             voucher: ac_primitives::market::SignedVoucher,
         ) -> Result<ac_primitives::market::VoucherCheck, ac_primitives::market::VoucherError> {
             Credits::check(&voucher)
+        }
+    }
+
+    impl ac_primitives::market::WorkApi<Block, AccountId, Balance> for Runtime {
+        fn params() -> ac_primitives::market::WorkParams {
+            Work::params()
+        }
+
+        fn report(id: u64) -> Option<ac_primitives::market::ReportRecord<AccountId, Balance>> {
+            Work::report(id)
+        }
+
+        fn held(
+            who: AccountId,
+        ) -> Vec<(
+            ac_primitives::emission::EpochIndex,
+            AccountId,
+            ac_primitives::market::Held<Balance>,
+        )> {
+            Work::held(&who)
+        }
+
+        fn work(
+            who: AccountId,
+        ) -> Vec<(ac_primitives::emission::EpochIndex, ac_primitives::market::ProviderWork)> {
+            Work::work(&who)
+        }
+
+        fn epoch_work(
+            epoch: ac_primitives::emission::EpochIndex,
+        ) -> ac_primitives::market::EpochWork<Balance> {
+            Work::epoch_work(epoch)
+        }
+
+        fn lifetime(who: AccountId) -> ac_primitives::market::LifetimeWork<Balance> {
+            Work::lifetime(&who)
         }
     }
 

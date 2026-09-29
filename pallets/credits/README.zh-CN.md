@@ -28,7 +28,7 @@ signature = ML-DSA.sign(凭证密钥, payload, 上下文 "agentcoin/voucher/v1")
 
 ## 兑付（仅供结算调用）
 
-`Credit::redeem(gateway, voucher, payee)`——没有兑付交易；由结算（M5 的下一个变更）调用：
+`Credit::redeem(gateway, voucher, payee)`——没有兑付交易；由结算（`pallet-work`，在网关提交工作报告时）调用：
 
 1. 凭证必须写明本链创世哈希、兑付的网关、通道当前的通道号，用通道的凭证密钥签名且验签通过；
 2. 增量 = 累计额 − 已兑付额（为零时不付款，也不是错误）；

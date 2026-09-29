@@ -201,13 +201,14 @@ impl pallet_randomness_cr::Config for Runtime {
 impl pallet_emission::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
-    /// No verified work before M5 (`pallet-work`).
-    type WorkSource = ();
+    /// Verified market work: reports that matured in the epoch (`pallet-work`).
+    type WorkSource = crate::Work;
     /// PoA: the security budget rolls over (decision D19); PoS: paid by work points to
     /// validators and their stakers (`m3-pos`).
     type SecurityBudget = StakingPos;
     type Treasury = TreasuryDual;
-    type MarketPayout = ();
+    /// The market share goes to the settlement pot, claimed by work.
+    type MarketPayout = crate::Work;
     type WeightInfo = pallet_emission::weights::SubstrateWeight<Runtime>;
 }
 
@@ -398,7 +399,7 @@ impl pallet_providers::Config for Runtime {
     type Price = crate::RefRate;
     /// Slashed stake is burned and counted in `Emission::TotalBurned`.
     type Slash = Emission;
-    type OnJail = ();
+    type OnJail = crate::Work;
     type WeightInfo = pallet_providers::weights::SubstrateWeight<Runtime>;
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = MarketBenchmarkHelper;
@@ -422,6 +423,28 @@ impl pallet_credits::Config for Runtime {
     type Keys = PqAccountKeys;
     type Price = crate::RefRate;
     type WeightInfo = pallet_credits::weights::SubstrateWeight<Runtime>;
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = MarketBenchmarkHelper;
+}
+
+parameter_types! {
+    /// Derives the settlement pot the market work emission is minted to.
+    pub const WorkPalletId: frame_support::PalletId = frame_support::PalletId(*b"ac/work0");
+}
+
+impl pallet_work::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeHoldReason = RuntimeHoldReason;
+    type Currency = Balances;
+    type Credit = crate::Credits;
+    type Gateways = crate::Gateways;
+    type Providers = crate::Providers;
+    type Price = crate::RefRate;
+    type Epochs = Emission;
+    /// Burned shares and the burn ratio go through `Emission`, counted in `TotalBurned`.
+    type Burn = Emission;
+    type PalletId = WorkPalletId;
+    type WeightInfo = pallet_work::weights::SubstrateWeight<Runtime>;
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = MarketBenchmarkHelper;
 }
@@ -482,6 +505,120 @@ impl pallet_providers::BenchmarkHelper for MarketBenchmarkHelper {
 impl pallet_gateways::BenchmarkHelper for MarketBenchmarkHelper {
     fn set_rate(rate: u128) {
         Self::put_rate(rate);
+    }
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+impl pallet_work::BenchmarkHelper for MarketBenchmarkHelper {
+    fn prepare_gateway(gateway: &AccountId) {
+        use ac_primitives::market::records::GatewayStatus;
+        use frame_support::traits::fungible::Mutate;
+        pallet_gateways::Gateways::<Runtime>::insert(
+            gateway,
+            pallet_gateways::RecordOf::<Runtime> {
+                endpoint: frame_support::BoundedVec::truncate_from(b"bench".to_vec()),
+                fee_bps: 500,
+                stake: 0,
+                unlocking: Default::default(),
+                status: GatewayStatus::Active,
+                registered_at: 0,
+            },
+        );
+        Balances::set_balance(gateway, 1_000_000 * crate::ATC);
+        Self::put_rate(crate::ATC); // 1 crate::ATC per dollar
+    }
+
+    fn prepare_provider(provider: &AccountId, model: &ac_primitives::market::ModelId) {
+        use ac_primitives::market::records::{ModelPrice, ProviderStatus, Tier};
+        use ac_primitives::market::{MicroUsd, PricePerMTok};
+        use frame_support::traits::fungible::Mutate;
+        let Ok(kem_pk) = ac_crypto::KemPublicKey::new(ac_crypto::KemAlg::XWing, &[7; 1216]) else {
+            return;
+        };
+        pallet_providers::Providers::<Runtime>::insert(
+            provider,
+            pallet_providers::RecordOf::<Runtime> {
+                tier: Tier::T2,
+                endpoint: frame_support::BoundedVec::truncate_from(b"bench".to_vec()),
+                kem_pk,
+                models: frame_support::BoundedVec::truncate_from(alloc::vec![ModelPrice {
+                    model: *model,
+                    price: PricePerMTok {
+                        input: MicroUsd(1),
+                        output: MicroUsd(1),
+                    },
+                }]),
+                stake: 0,
+                unlocking: Default::default(),
+                status: ProviderStatus::Active,
+                last_heartbeat: 0,
+                metrics: Default::default(),
+                attestation: None,
+                registered_at: 0,
+            },
+        );
+        Balances::set_balance(provider, crate::ATC);
+    }
+
+    fn vouchers(
+        gateway: &AccountId,
+        first: u32,
+        n: u32,
+        micro_usd: u128,
+    ) -> alloc::vec::Vec<ac_primitives::market::SignedVoucher> {
+        use ac_primitives::market::voucher::VOUCHER_CONTEXT;
+        use ac_primitives::market::{MicroUsd, SignedVoucher, VoucherBody};
+        use frame_support::traits::fungible::Mutate;
+        // ML-DSA-87: the largest signatures and the slowest verification.
+        let Ok(seed) = ac_crypto::dev_seed("bench-user") else {
+            return alloc::vec::Vec::new();
+        };
+        let Ok(signer) = ac_crypto::sig::SigningKey::from_seed(ac_crypto::SigAlg::MlDsa87, &seed)
+        else {
+            return alloc::vec::Vec::new();
+        };
+        let Ok(public_key) = signer.public_key() else {
+            return alloc::vec::Vec::new();
+        };
+        let genesis = pallet_credits::Pallet::<Runtime>::genesis();
+        (first..first.saturating_add(n))
+            .filter_map(|i| {
+                let user: AccountId = frame_benchmarking::account("work-user", i, 0);
+                <Self as pallet_credits::BenchmarkHelper>::register_key(&user, &public_key);
+                Balances::set_balance(&user, 1_000 * crate::ATC);
+                // Escrow twice the voucher's value at 1 crate::ATC per dollar.
+                let escrow = micro_usd.saturating_mul(2_000_000_000_000);
+                pallet_credits::Pallet::<Runtime>::deposit(
+                    RuntimeOrigin::signed(user.clone()),
+                    gateway.clone(),
+                    escrow,
+                )
+                .ok()?;
+                let body = VoucherBody {
+                    genesis,
+                    user,
+                    gateway: gateway.clone(),
+                    channel: 0,
+                    cumulative: MicroUsd(micro_usd),
+                };
+                let signature = signer
+                    .sign_deterministic(&body.payload().ok()?, VOUCHER_CONTEXT)
+                    .ok()?;
+                Some(SignedVoucher {
+                    body,
+                    public_key: public_key.clone(),
+                    signature,
+                })
+            })
+            .collect()
+    }
+
+    fn set_epoch(epoch: ac_primitives::emission::EpochIndex) {
+        let length = Emission::schedule().map_or(1, |s| s.epoch_length());
+        let block = epoch.saturating_mul(length).saturating_add(1);
+        frame_system::Pallet::<Runtime>::set_block_number(
+            sp_runtime::SaturatedConversion::saturated_into(block),
+        );
     }
 }
 

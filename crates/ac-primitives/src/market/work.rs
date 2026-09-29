@@ -15,11 +15,12 @@ use crate::emission::EpochIndex;
 /// Basis points in one.
 pub const BPS: u32 = 10_000;
 
-/// Most entries in one work report.
-pub const MAX_REPORT_ENTRIES: u32 = 256;
+/// Most entries in one work report. Each entry costs up to three storage writes; with
+/// [`MAX_REPORT_VOUCHERS`] this keeps a full report under half of a normal transaction's weight.
+pub const MAX_REPORT_ENTRIES: u32 = 128;
 
-/// Most vouchers in one work report.
-pub const MAX_REPORT_VOUCHERS: u32 = 64;
+/// Most vouchers in one work report (one ML-DSA-87 verification and redemption each).
+pub const MAX_REPORT_VOUCHERS: u32 = 16;
 
 /// Kind of work a receipt or report entry is for (full plan §11).
 ///

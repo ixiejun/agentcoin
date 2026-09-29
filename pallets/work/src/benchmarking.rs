@@ -21,7 +21,7 @@ mod benchmarks {
     // The macro expands to code naming `impl_test_function` unqualified.
     use frame_benchmarking::impl_test_function;
     use frame_support::BoundedVec;
-    use frame_support::traits::fungible::Mutate;
+    use frame_support::traits::fungible::{Inspect, Mutate};
     use frame_system::RawOrigin;
     use sp_runtime::AccountId32;
 
@@ -98,10 +98,12 @@ mod benchmarks {
         let matured: Vec<EpochIndex> = (0..n).map(|i| EpochIndex::from(i) + challenge).collect();
         T::BenchmarkHelper::set_epoch(EpochIndex::from(n) + challenge + 1);
         let pot = Pallet::<T>::pot();
+        // Well above the existential deposit, which an empty pot's first mint must reach.
+        let market = T::Currency::minimum_balance().saturating_mul(1_000);
         for e in &matured {
-            T::Currency::mint_into(&pot, 1_000_000_000).unwrap();
+            T::Currency::mint_into(&pot, market).unwrap();
             let (work, _) = <Pallet<T> as WorkSource>::verified_work(*e);
-            <Pallet<T> as MarketPayout<AccountId32>>::settled(*e, 1_000_000_000, work);
+            <Pallet<T> as MarketPayout<AccountId32>>::settled(*e, market, work);
         }
         let items: Vec<(EpochIndex, AccountId32)> =
             matured.iter().map(|e| (*e, g.clone())).collect();

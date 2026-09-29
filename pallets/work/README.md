@@ -15,8 +15,8 @@ exiting):
 | Part | Rule |
 |---|---|
 | `root`, `receipt_count` | Merkle root of the receipts (`ac_primitives::market::receipt_tree`); at least one receipt per entry. |
-| `entries` (1–256) | `(job kind, provider, model, dollars, input tokens, output tokens)`; inference only; no (provider, model) twice; the provider is registered, not jailed and lists the model. |
-| `vouchers` (1–64) | Redeemed through the `Credit` interface (D20) into the **gateway's account**; one per channel. |
+| `entries` (1–128) | `(job kind, provider, model, dollars, input tokens, output tokens)`; inference only; no (provider, model) twice; the provider is registered, not jailed and lists the model. |
+| `vouchers` (1–16) | Redeemed through the `Credit` interface (D20) into the **gateway's account**; one per channel. |
 
 The entries' dollars must **equal** the dollars the vouchers redeem: a gateway allocates the
 users' money to providers, it cannot keep any beyond its fee. One invalid voucher rejects the
@@ -73,7 +73,7 @@ pending payments outlive them.
 | Feature | Default | Purpose |
 |---|---|---|
 | `std` | yes | Native builds and tests. Disable it for the WASM runtime. |
-| `runtime-benchmarks` | no | Benchmarks of both calls at their bounds (64 ML-DSA-87 vouchers, 256 entries; 64 claim items). |
+| `runtime-benchmarks` | no | Benchmarks of both calls at their bounds (16 ML-DSA-87 vouchers, 128 entries; 64 claim items). |
 | `try-runtime` | no | SDK try-runtime support. |
 
 ## Example

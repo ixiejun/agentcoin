@@ -27,6 +27,7 @@ AgentCoin 的 WASM runtime：带计划排放和提名式权益证明的抗量子
 | 18 | `Providers` | 推理提供者：以美元计的质押、心跳、可服务判定；罚没/禁闭接口仅供 M6 使用 |
 | 19 | `Gateways` | 推理网关：质押，费率上限 5% |
 | 20 | `Credits` | 透明额度：托管通道与累计式 ML-DSA 凭证（`Credit` 接口，D20） |
+| 21 | `Work` | 工作报告、销毁与款项分配、冻结款项、挑战期、领取；`Emission` 的 `WorkSource` 与 `MarketPayout` |
 
 交易采用 v5 `General` 形式，首个扩展为 `PqAuthorize`（D36）；旧式 `Signed` 交易无法解码。`transaction` 模块为钱包和测试构造签名交易：`authorized_extensions`、`implicit_from`（由链上事实得到隐式数据）、`payload`（以 `agentcoin/tx/v1` 签名的 32 字节载荷）和 `assemble`。
 
@@ -36,7 +37,9 @@ AgentCoin 的 WASM runtime：带计划排放和提名式权益证明的抗量子
 
 EVM 合约（m4-evm）通过普通的 ML-DSA 签名交易部署和调用（`Revive::instantiate_with_code`、`Revive::call`）。调用过滤器 `RuntimeCallFilter`（`HolderTreasuryLock` 加 `EvmOnly`）拒绝以太坊交易入口、所有 PolkaVM 路径和地址映射变更；每个账户在创建时获得 EVM 地址（`keccak256(账户)[12..]`）。合约不会产生新发行量：revive 本应为新合约铸造的存在性押金改由交易签名者支付（`SetEvmPayer` 扩展），revive 自己的账户靠一个 provider 引用存在。`ReviveApi` 提供模拟执行、存储与代码查询；以太坊签名载荷、代码上传和追踪都被拒绝。开发版 runtime WASM 压缩前 4.8 MB。
 
-推理市场（m5-market-registry）在序号 16–20 新增五个模块。`MarketApi` 提供参考汇率、模型、提供者（以及某模型的可服务提供者，每页最多 256 个）、质押门槛、网关、额度通道和 `check_voucher`（按兑付规则校验而不改变状态）。`development` 与 `local_testnet` 预设中 1 ATC = 1 美元，汇率调整间隔、心跳间隔和托管取回等待期均为 10 个区块，提供者与网关的解绑期为 20 个区块（活链分别为 1 天、600 个区块、1 天和 7 天）。`spec_version` 为 5，`transaction_version` 为 5。
+推理市场（m5-market-registry）在序号 16–20 新增五个模块。`MarketApi` 提供参考汇率、模型、提供者（以及某模型的可服务提供者，每页最多 256 个）、质押门槛、网关、额度通道和 `check_voucher`（按兑付规则校验而不改变状态）。`development` 与 `local_testnet` 预设中 1 ATC = 1 美元，汇率调整间隔、心跳间隔和托管取回等待期均为 10 个区块，提供者与网关的解绑期为 20 个区块（活链分别为 1 天、600 个区块、1 天和 7 天）。
+
+工作结算（m5-work-settlement）在序号 21 新增 `Work`。网关提交工作报告（收据 Merkle 根、按（提供者, 模型）汇总的合计、至多 16 张凭证和 128 项）：凭证兑付到网关账户，20% 经 `Emission` 销毁，网关费和提供者份额冻结在网关上，直到两个排放纪元后报告到期。每个纪元的已核验工作量是 `Emission` 的 `WorkSource`；市场排放铸入 `Work` 的领取账户（`MarketPayout`），与份额一起领取。到期前被禁闭的提供者失去待领取的份额与排放（`OnJail`）。`WorkApi` 提供参数、报告、冻结款项、各纪元工作量和累计合计。预设保留报告 20 个纪元（活链为 720）。`spec_version` 为 6，`transaction_version` 为 6。
 
 管理权限来源是获得至少门限数成员批准的 `PoaCouncil` 决议（`PoaAdmin::dispatch_as_root` 以 Root 执行调用，例如 `System::set_code`）。持币人国库被锁定：`HolderTreasuryLock` 既是基础调用过滤器，也是 `dispatch_as_root` 的 Root 调用过滤器。被回收账户的尘埃同样经 `Emission` 销毁，所以发行量的变化始终恰好等于铸币减去销毁。
 

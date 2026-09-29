@@ -32,7 +32,7 @@ The stake threshold is **$1,000** on live chains (a draft value), converted at t
 ## Other pallets
 
 `GatewayLookup` (`is_active`, `fee_bps`) lets `pallet-credits` refuse escrow for gateways that
-are not active and lets settlement (the next M5 change) pay the gateway fee.
+are not active and lets settlement (`pallet-work`) pay the gateway fee.
 
 ## Features
 

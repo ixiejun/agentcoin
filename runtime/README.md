@@ -28,6 +28,7 @@ The AgentCoin WASM runtime: post-quantum chain with scheduled emission and nomin
 | 18 | `Providers` | inference providers: dollar-denominated stake, heartbeats, serviceability; slash/jail interface for M6 only |
 | 19 | `Gateways` | inference gateways: stake and a fee capped at 5% |
 | 20 | `Credits` | transparent credits: escrow channels and cumulative ML-DSA vouchers (`Credit` interface, D20) |
+| 21 | `Work` | work reports, burn and payment split, held payments, challenge period, claims; the `WorkSource` and `MarketPayout` of `Emission` |
 
 Transactions are v5 `General` extrinsics whose first extension is `PqAuthorize` (D36); the legacy
 `Signed` form cannot be decoded. The `transaction` module builds signed transactions for wallets
@@ -63,7 +64,16 @@ stake thresholds, gateways, credit channels and `check_voucher`, which applies t
 rules without changing state. In the `development` and `local_testnet` presets 1 ATC = 1 USD,
 the rate interval, heartbeat interval and escrow withdrawal delay are 10 blocks and provider and
 gateway unbonding 20 blocks (live chains: one day, 600 blocks, one day and seven days).
-`spec_version` 5, `transaction_version` 5.
+
+Work settlement (m5-work-settlement) adds `Work` at index 21. A gateway submits a work report
+(the receipt Merkle root, per-(provider, model) totals, up to 16 vouchers and 128 entries); the
+vouchers are redeemed into the gateway's account, 20% is burned through `Emission`, the gateway
+fee and the provider shares stay held on the gateway until the report matures two emission epochs
+later. The verified work of an epoch is `Emission`'s `WorkSource`; market emission is minted into
+the `Work` pot (`MarketPayout`) and claimed together with the shares. A provider jailed before
+maturity loses its pending shares and emission (`OnJail`). `WorkApi` offers the parameters,
+reports, held payments, per-epoch work and lifetime totals. The presets keep reports for 20
+epochs (live chains: 720). `spec_version` 6, `transaction_version` 6.
 
 The administration origin is a `PoaCouncil` motion approved by at least the threshold of members
 (`PoaAdmin::dispatch_as_root` runs calls as Root, e.g. `System::set_code`). The holder treasury

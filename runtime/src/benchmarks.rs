@@ -16,4 +16,5 @@ frame_benchmarking::define_benchmarks!(
     [pallet_providers, Providers]
     [pallet_gateways, Gateways]
     [pallet_credits, Credits]
+    [pallet_work, Work]
 );

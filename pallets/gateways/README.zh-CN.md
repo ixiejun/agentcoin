@@ -28,7 +28,7 @@
 
 ## 与其他模块的关系
 
-`GatewayLookup`（`is_active`、`fee_bps`）让 `pallet-credits` 拒绝向非活跃网关托管，也让结算（M5 的下一个变更）据此支付网关费。
+`GatewayLookup`（`is_active`、`fee_bps`）让 `pallet-credits` 拒绝向非活跃网关托管，也让结算（`pallet-work`）据此支付网关费。
 
 ## 功能开关
 

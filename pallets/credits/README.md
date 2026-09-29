@@ -33,8 +33,8 @@ set grows.
 
 ## Redemption (settlement only)
 
-`Credit::redeem(gateway, voucher, payee)` — there is no redemption transaction; settlement (the
-next M5 change) calls it:
+`Credit::redeem(gateway, voucher, payee)` — there is no redemption transaction; settlement
+(`pallet-work`, when a gateway submits a work report) calls it:
 
 1. the voucher must name this chain's genesis, the redeeming gateway, the channel's current
    number, be signed with the channel's voucher key, and verify;

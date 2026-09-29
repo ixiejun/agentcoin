@@ -106,6 +106,8 @@ pub const LOCAL_TRANSITION: TransitionParams = TransitionParams {
 const DEV_MARKET_DELAY: u64 = 10;
 /// Unbonding period of providers and gateways on the test presets (live chains: seven days).
 const DEV_MARKET_UNBOND: u64 = 20;
+/// Epochs a work report stays queryable after it matures, in the dev and local presets.
+const DEV_WORK_RETENTION: u32 = 20;
 
 /// Parameters of one test preset.
 struct Preset<'a> {
@@ -186,6 +188,12 @@ fn testnet_genesis(preset: &Preset<'_>) -> Result<Value, ac_crypto::Error> {
         credits: pallet_credits::GenesisConfig {
             params: pallet_credits::CreditsParams {
                 withdrawal_delay: DEV_MARKET_DELAY
+            }
+        },
+        work: pallet_work::GenesisConfig {
+            params: ac_primitives::market::WorkParams {
+                retention_epochs: DEV_WORK_RETENTION,
+                ..ac_primitives::market::WorkParams::LIVE
             }
         },
     }))
