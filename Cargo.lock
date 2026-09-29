@@ -7448,6 +7448,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-credits"
+version = "0.1.0"
+dependencies = [
+ "ac-crypto",
+ "ac-primitives",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "parity-scale-codec",
+ "proptest",
+ "scale-info",
+ "serde",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-emission"
 version = "0.1.0"
 dependencies = [
