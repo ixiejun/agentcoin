@@ -318,6 +318,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ac-toploc"
+version = "0.1.0"
+dependencies = [
+ "ac-crypto",
+ "parity-scale-codec",
+ "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ac-wallet"
 version = "0.1.0"
 dependencies = [

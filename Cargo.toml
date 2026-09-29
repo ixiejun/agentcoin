@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["clients/wallet-cli", "tests/e2e", "tests/sim", "tests/overmint-runtime", "tests/early-switch-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "services/eth-rpc", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "pallets/staking-pos", "pallets/evm-support", "pallets/ref-rate", "pallets/model-registry", "pallets/providers", "pallets/gateways", "pallets/credits", "runtime"]
+members = ["clients/wallet-cli", "tests/e2e", "tests/sim", "tests/overmint-runtime", "tests/early-switch-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "crates/ac-toploc", "services/eth-rpc", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "pallets/staking-pos", "pallets/evm-support", "pallets/ref-rate", "pallets/model-registry", "pallets/providers", "pallets/gateways", "pallets/credits", "runtime"]
 
 [workspace.package]
 version = "0.1.0"
@@ -103,6 +103,7 @@ bech32 = { version = "0.12", default-features = false, features = ["alloc"] }
 ac-crypto = { path = "crates/ac-crypto", version = "0.1", default-features = false }
 ac-primitives = { path = "crates/ac-primitives", version = "0.1", default-features = false }
 ac-invariants = { path = "crates/ac-invariants", version = "0.1", default-features = false }
+ac-toploc = { path = "crates/ac-toploc", version = "0.1", default-features = false }
 ac-wallet = { path = "clients/wallet-cli", version = "0.1", default-features = false }
 ac-runtime = { path = "runtime", version = "0.1", default-features = false }
 ac-overmint-runtime = { path = "tests/overmint-runtime", version = "0.1", default-features = false }

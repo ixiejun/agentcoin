@@ -1,0 +1,38 @@
+[package]
+name = "ac-toploc"
+description = "TOPLOC proofs for verifiable inference: a pure-integer, no_std port of the Prime Intellect reference implementation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+ac-crypto = { workspace = true }
+parity-scale-codec = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true, features = ["std"] }
+serde = { workspace = true, features = ["derive", "std"] }
+serde_json = { workspace = true, features = ["std"] }
+
+[features]
+default = ["std"]
+std = ["ac-crypto/std", "parity-scale-codec/std"]
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+dbg_macro = "deny"
+wildcard_imports = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"

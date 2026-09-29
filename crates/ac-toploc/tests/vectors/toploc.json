@@ -1,0 +1,497 @@
+{
+ "source": {
+  "url": "https://github.com/PrimeIntellect-ai/toploc",
+  "commit": "7ab7bcd6a4459ba4400fd41e4636bbeed7438997",
+  "archive": "git archive --format=tar 7ab7bcd6a4459ba4400fd41e4636bbeed7438997",
+  "archive_sha256": "6b4cfd9dc05030bfe91ae8d7fc029056e526a82713037c8a55f0c3c424c4602b",
+  "torch": "2.6.0"
+ },
+ "generator": "splitmix64(seed) per activation value: sign = r & 1, exponent = 0x70 + (r >> 1) % 22, mantissa = (r >> 8) & 0x7f; overrides [activation, index, bits] applied after; perturbation from splitmix64(seed ^ 0xa5a5a5a5) over the flattened activations: r % 16 == 0 exponent + 1, 1..=8 mantissa +/- (1 + (r >> 8) % 3) (+ if (r >> 16) & 1) clamped to 0..=127, else unchanged",
+ "cases": [
+  {
+   "name": "prefill-and-decode-batches",
+   "seed": 1,
+   "lengths": [
+    192,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32,
+    32
+   ],
+   "overrides": [],
+   "decode_batching_size": 4,
+   "topk": 8,
+   "skip_prefill": false,
+   "proofs": [
+    "ffd9a712b6de1aaf7666ea896469106880ed",
+    "ffd9421667adcfaa7b64f2777c9856ce9396",
+    "ffd9915e4fa65a5ffdf4604bedd9063959c8",
+    "ffd938f46db0f4ac85302335fad1724ae87a"
+   ],
+   "same": [
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    }
+   ],
+   "perturbed": [
+    {
+     "exp_mismatches": 1,
+     "mant_err_mean": 0.5714285714285714,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_err_mean": 1.7142857142857142,
+     "mant_err_median": 2.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 1.875,
+     "mant_err_median": 2.5
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 2.0,
+     "mant_err_median": 2.0
+    }
+   ]
+  },
+  {
+   "name": "skip-prefill",
+   "seed": 2,
+   "lengths": [
+    24,
+    24,
+    24,
+    24,
+    24,
+    24,
+    24,
+    24,
+    24
+   ],
+   "overrides": [],
+   "decode_batching_size": 3,
+   "topk": 6,
+   "skip_prefill": true,
+   "proofs": [
+    "ffd9cc01a3340316a9f3634a48e4",
+    "ffd93d0889ed342830f89e4dc372",
+    "ffd933a861feaf0f0bf155ffa86c"
+   ],
+   "same": [
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    }
+   ],
+   "perturbed": [
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.8333333333333334,
+     "mant_err_median": 0.5
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_err_mean": 0.5,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_err_mean": 0.8,
+     "mant_err_median": 0.0
+    }
+   ],
+   "same_batched": [
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    }
+   ],
+   "perturbed_batched": [
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.8333333333333334,
+     "mant_err_median": 1.0
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_err_mean": 0.5,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_err_mean": 0.8,
+     "mant_err_median": 0.0
+    }
+   ]
+  },
+  {
+   "name": "short-last-batch",
+   "seed": 3,
+   "lengths": [
+    80,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16
+   ],
+   "overrides": [],
+   "decode_batching_size": 3,
+   "topk": 4,
+   "skip_prefill": false,
+   "proofs": [
+    "ffd98b511d9c62c21fd2",
+    "ffd91f2bf943f394b71e",
+    "ffd98fa01c9a5d49ab6f",
+    "ffd90b5f23175df79677"
+   ],
+   "same": [
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    }
+   ],
+   "perturbed": [
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 1.0,
+     "mant_err_median": 0.5
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 1.25,
+     "mant_err_median": 1.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 1.5,
+     "mant_err_median": 1.5
+    }
+   ]
+  },
+  {
+   "name": "single-decode-chunks",
+   "seed": 4,
+   "lengths": [
+    48,
+    48,
+    48,
+    48,
+    48,
+    48
+   ],
+   "overrides": [],
+   "decode_batching_size": 1,
+   "topk": 16,
+   "skip_prefill": false,
+   "proofs": [
+    "ffd9987fb54d0c96ac9b917dfd7fc655bc55066ffd08a5b59c045f123a1f3796e2f4",
+    "ffd95be9d83b26d5e5013be10bc45df42a8830f1857c789193bdc33edd957827d304",
+    "ffd98a5e409198f49f04c6f83cfe03f27557a9152a0308364fb4b65974ccb9598a28",
+    "ffd9d84c0d246d42b1cb7d41f76d54f539f2d0dfda2ea5abf49e418ae74ca11d64e3",
+    "ffd94131ea8baea30c8e20c54cce60014411a2eba4e5c685d8eee80e41967135974b",
+    "ffd95121f0db676bd5eebf4e9948f1d9126994552d64dc104309051f82eed52233b8"
+   ],
+   "same": [
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    }
+   ],
+   "perturbed": [
+    {
+     "exp_mismatches": 3,
+     "mant_err_mean": 1.2307692307692308,
+     "mant_err_median": 1.0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_err_mean": 1.6,
+     "mant_err_median": 2.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 1.25,
+     "mant_err_median": 1.0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_err_mean": 1.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 1.6875,
+     "mant_err_median": 2.0
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_err_mean": 0.6923076923076923,
+     "mant_err_median": 1.0
+    }
+   ]
+  },
+  {
+   "name": "even-topk-medians",
+   "seed": 5,
+   "lengths": [
+    40,
+    40,
+    40,
+    40,
+    40,
+    40,
+    40,
+    40
+   ],
+   "overrides": [],
+   "decode_batching_size": 2,
+   "topk": 10,
+   "skip_prefill": true,
+   "proofs": [
+    "ffd92b9a9a8a1926718e298a5e27f220c21b350ee94d",
+    "ffd94258385b82134bb1f235e80266c22221a682ef93",
+    "ffd9d614b934556d32c9b7523551a7935fd61987c2e4",
+    "ffd9769a779f595c7f1da79641eb2b2c9fe7404a82fe"
+   ],
+   "same": [
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    }
+   ],
+   "perturbed": [
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 1.2,
+     "mant_err_median": 1.5
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_err_mean": 1.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 1.2,
+     "mant_err_median": 0.5
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_err_mean": 1.0,
+     "mant_err_median": 1.0
+    }
+   ],
+   "same_batched": [
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    }
+   ],
+   "perturbed_batched": [
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 1.2,
+     "mant_err_median": 2.0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_err_mean": 1.0,
+     "mant_err_median": 0.0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 1.2,
+     "mant_err_median": 1.0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_err_mean": 1.0,
+     "mant_err_median": 1.0
+    }
+   ]
+  },
+  {
+   "name": "modulus-below-prime",
+   "seed": 13,
+   "lengths": [
+    70000
+   ],
+   "overrides": [
+    [
+     0,
+     10,
+     17536
+    ],
+    [
+     0,
+     65507,
+     17664
+    ]
+   ],
+   "decode_batching_size": 1,
+   "topk": 16,
+   "skip_prefill": true,
+   "proofs": [
+    "ffd840e1ebc241e3b28b6ec6072602fed13c3f1d5b885f6def2c0f2ad55c7b64700b"
+   ],
+   "same": [
+    {
+     "exp_mismatches": 3,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    }
+   ],
+   "perturbed": [
+    {
+     "exp_mismatches": 15,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    }
+   ],
+   "same_batched": [
+    {
+     "exp_mismatches": 0,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    }
+   ],
+   "perturbed_batched": [
+    {
+     "exp_mismatches": 15,
+     "mant_err_mean": 0.0,
+     "mant_err_median": 0.0
+    }
+   ]
+  }
+ ]
+}
