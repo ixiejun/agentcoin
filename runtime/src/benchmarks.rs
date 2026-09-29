@@ -11,4 +11,9 @@ frame_benchmarking::define_benchmarks!(
     [pallet_staking_pos, StakingPos]
     [pallet_evm_support, EvmSupport]
     [pallet_revive, Revive]
+    [pallet_ref_rate, RefRate]
+    [pallet_model_registry, ModelRegistry]
+    [pallet_providers, Providers]
+    [pallet_gateways, Gateways]
+    [pallet_credits, Credits]
 );

@@ -369,3 +369,146 @@ impl pallet_revive::Config for Runtime {
 impl pallet_evm_support::Config for Runtime {
     type WeightInfo = pallet_evm_support::weights::SubstrateWeight<Runtime>;
 }
+
+// ---- Inference market (m5-market-registry) ----
+
+impl pallet_ref_rate::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    /// The PoA administration sets the rate (design D3; M8 moves it to token governance).
+    type AdminOrigin = AdminOrigin;
+    type WeightInfo = pallet_ref_rate::weights::SubstrateWeight<Runtime>;
+}
+
+impl pallet_model_registry::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeHoldReason = RuntimeHoldReason;
+    type Currency = Balances;
+    /// The contract storage formula (m4-evm design D2): 0.01 ATC per item, 0.0001 ATC per byte.
+    type DepositPerItem = ConstU128<{ contract_deposit(1, 0) }>;
+    type DepositPerByte = ConstU128<{ contract_deposit(0, 1) }>;
+    type WeightInfo = pallet_model_registry::weights::SubstrateWeight<Runtime>;
+}
+
+impl pallet_providers::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeHoldReason = RuntimeHoldReason;
+    type Currency = Balances;
+    type Models = crate::ModelRegistry;
+    type Price = crate::RefRate;
+    /// Slashed stake is burned and counted in `Emission::TotalBurned`.
+    type Slash = Emission;
+    type WeightInfo = pallet_providers::weights::SubstrateWeight<Runtime>;
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = MarketBenchmarkHelper;
+}
+
+impl pallet_gateways::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeHoldReason = RuntimeHoldReason;
+    type Currency = Balances;
+    type Price = crate::RefRate;
+    type WeightInfo = pallet_gateways::weights::SubstrateWeight<Runtime>;
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = MarketBenchmarkHelper;
+}
+
+impl pallet_credits::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeHoldReason = RuntimeHoldReason;
+    type Currency = Balances;
+    type Gateways = crate::Gateways;
+    type Keys = PqAccountKeys;
+    type Price = crate::RefRate;
+    type WeightInfo = pallet_credits::weights::SubstrateWeight<Runtime>;
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = MarketBenchmarkHelper;
+}
+
+/// Accounts' current keys, from `pallet-pq-accounts`: the fingerprint vouchers are checked
+/// against (`ac_primitives::market::voucher::key_fingerprint` computes the same value).
+pub struct PqAccountKeys;
+impl ac_primitives::market::traits::AccountKeys<AccountId> for PqAccountKeys {
+    fn key_fingerprint(who: &AccountId) -> Option<[u8; 32]> {
+        pallet_pq_accounts::Keys::<Runtime>::get(who)
+            .map(|r| pallet_pq_accounts::key_fingerprint(&r.public_key))
+    }
+}
+
+/// Market benchmark setup: registered models, keys and gateways, and a reference rate, written
+/// straight into storage.
+#[cfg(feature = "runtime-benchmarks")]
+pub struct MarketBenchmarkHelper;
+
+#[cfg(feature = "runtime-benchmarks")]
+impl MarketBenchmarkHelper {
+    fn put_rate(rate: u128) {
+        pallet_ref_rate::Rate::<Runtime>::put((ac_primitives::market::AtcPerUsd(rate), 0));
+    }
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+impl pallet_providers::BenchmarkHelper for MarketBenchmarkHelper {
+    fn register_model(id: ac_primitives::market::ModelId) {
+        use ac_primitives::market::model::QuantType;
+        let Ok(manifest) = ac_primitives::market::ModelManifest::new(
+            b"bench",
+            b"bench",
+            QuantType::Bf16,
+            alloc::vec![[1; 32]],
+        ) else {
+            return;
+        };
+        pallet_model_registry::Models::<Runtime>::insert(
+            id,
+            pallet_model_registry::RecordOf::<Runtime> {
+                owner: AccountId::new([0; 32]),
+                manifest,
+                lineage: None,
+                license_tag: Default::default(),
+                royalty: None,
+                deposit: 0,
+                registered_at: 0,
+            },
+        );
+    }
+    fn set_rate(rate: u128) {
+        Self::put_rate(rate);
+    }
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+impl pallet_gateways::BenchmarkHelper for MarketBenchmarkHelper {
+    fn set_rate(rate: u128) {
+        Self::put_rate(rate);
+    }
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+impl pallet_credits::BenchmarkHelper for MarketBenchmarkHelper {
+    fn register_key(who: &AccountId, key: &ac_crypto::PqPublicKey) {
+        pallet_pq_accounts::Keys::<Runtime>::insert(
+            who,
+            pallet_pq_accounts::KeyRecord {
+                public_key: key.clone(),
+                rotations: 0,
+            },
+        );
+    }
+    fn activate_gateway(gateway: &AccountId) {
+        use ac_primitives::market::records::GatewayStatus;
+        pallet_gateways::Gateways::<Runtime>::insert(
+            gateway,
+            pallet_gateways::RecordOf::<Runtime> {
+                endpoint: frame_support::BoundedVec::truncate_from(b"bench".to_vec()),
+                fee_bps: 0,
+                stake: 0,
+                unlocking: Default::default(),
+                status: GatewayStatus::Active,
+                registered_at: 0,
+            },
+        );
+    }
+    fn set_rate(rate: u128) {
+        Self::put_rate(rate);
+    }
+}

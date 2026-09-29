@@ -12,10 +12,10 @@ use sp_runtime::{
 use sp_version::RuntimeVersion;
 
 use super::{
-    AccountId, AuraPq, Balance, Block, BlockNumber, Emission, EvmSupport, Executive,
-    InherentDataExt, Nonce, Offences, PqAccounts, RandomnessCr, Revive, Runtime, RuntimeCall,
-    RuntimeGenesisConfig, StakingPos, System, TransactionPayment, TreasuryDual, VERSION,
-    ValidatorSet,
+    AccountId, AuraPq, Balance, Block, BlockNumber, Credits, Emission, EvmSupport, Executive,
+    Gateways, InherentDataExt, ModelRegistry, Nonce, Offences, PqAccounts, Providers, RandomnessCr,
+    RefRate, Revive, Runtime, RuntimeCall, RuntimeGenesisConfig, StakingPos, System,
+    TransactionPayment, TreasuryDual, VERSION, ValidatorSet,
 };
 
 impl_runtime_apis! {
@@ -537,6 +537,61 @@ impl_runtime_apis! {
             balance: pallet_revive::U256,
         ) -> Result<(Balance, u32), pallet_revive::BalanceConversionError> {
             Revive::new_balance_with_dust(balance)
+        }
+    }
+
+    impl ac_primitives::market::MarketApi<Block, AccountId, Balance, BlockNumber> for Runtime {
+        fn atc_per_usd() -> Option<(ac_primitives::market::AtcPerUsd, BlockNumber)> {
+            RefRate::rate()
+        }
+
+        fn model(
+            id: ac_primitives::market::ModelId,
+        ) -> Option<ac_primitives::market::ModelRecord<AccountId, Balance, BlockNumber>> {
+            ModelRegistry::model(&id)
+        }
+
+        fn provider(who: AccountId) -> Option<ac_primitives::market::ProviderRecord<Balance, BlockNumber>> {
+            Providers::provider(&who)
+        }
+
+        fn is_serviceable(who: AccountId) -> bool {
+            Providers::is_serviceable(&who)
+        }
+
+        fn serviceable_providers(
+            model: ac_primitives::market::ModelId,
+            start_after: Option<AccountId>,
+            limit: u32,
+        ) -> Vec<(AccountId, ac_primitives::market::ProviderRecord<Balance, BlockNumber>)> {
+            Providers::serviceable_providers(model, start_after, limit)
+        }
+
+        fn provider_threshold(
+            tier: ac_primitives::market::Tier,
+        ) -> Result<Balance, ac_primitives::market::PriceError> {
+            Providers::threshold(tier)
+        }
+
+        fn gateway(who: AccountId) -> Option<ac_primitives::market::GatewayRecord<Balance, BlockNumber>> {
+            Gateways::gateway(&who)
+        }
+
+        fn gateway_threshold() -> Result<Balance, ac_primitives::market::PriceError> {
+            Gateways::threshold()
+        }
+
+        fn channel(
+            user: AccountId,
+            gateway: AccountId,
+        ) -> Option<ac_primitives::market::ChannelRecord<Balance, BlockNumber>> {
+            Credits::channel(&user, &gateway)
+        }
+
+        fn check_voucher(
+            voucher: ac_primitives::market::SignedVoucher,
+        ) -> Result<ac_primitives::market::VoucherCheck, ac_primitives::market::VoucherError> {
+            Credits::check(&voucher)
         }
     }
 

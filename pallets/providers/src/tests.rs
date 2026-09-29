@@ -261,6 +261,23 @@ fn serviceable_providers_page_in_account_order() {
     });
 }
 
+#[test]
+fn a_page_holds_at_most_256_providers() {
+    ext().execute_with(|| {
+        for who in 100u64..(100 + 257) {
+            let _ = Balances::mint_into_for_tests(who);
+            assert_ok!(register(who, &[price(MODEL_A, 1, 1)], T2_MIN));
+        }
+        let first = Providers::serviceable_providers(MODEL_A, None, u32::MAX);
+        assert_eq!(first.len(), 256);
+        // Order is the accounts' encoded byte order; the next page starts after the last entry.
+        let last = first.last().map(|(w, _)| *w);
+        let second = Providers::serviceable_providers(MODEL_A, last, u32::MAX);
+        assert_eq!(second.len(), 1);
+        assert!(!first.iter().any(|(w, _)| *w == second[0].0));
+    });
+}
+
 trait MintForTests {
     fn mint_into_for_tests(who: u64) -> u128;
 }

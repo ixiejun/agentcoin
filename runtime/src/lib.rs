@@ -62,13 +62,15 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // 2: emission, treasury, fee distribution and the PoA multisig (m3-economics).
     // 3: staking, elections and the PoA -> PoS switch (m3-pos).
     // 4: EVM contracts through pallet-revive and EVM support (m4-evm).
-    spec_version: 4,
+    // 5: the inference market: reference rate, models, providers, gateways, credits (m5).
+    spec_version: 5,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     // 2: `AuthorizeCall` joined the extension pipeline (m2-finality); encodings are unchanged.
     // 3: new staking and validator-set calls (m3-pos).
     // 4: the `SetEvmPayer` extension and the `Revive` calls (m4-evm).
-    transaction_version: 4,
+    // 5: the market calls (m5-market-registry).
+    transaction_version: 5,
     system_version: 1,
 };
 
@@ -81,10 +83,10 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     impl_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     authoring_version: 1,
-    spec_version: 5,
+    spec_version: 6,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
-    transaction_version: 4,
+    transaction_version: 5,
     system_version: 1,
 };
 
@@ -258,4 +260,20 @@ mod runtime {
 
     #[runtime::pallet_index(15)]
     pub type EvmSupport = pallet_evm_support;
+
+    // Inference market (m5-market-registry).
+    #[runtime::pallet_index(16)]
+    pub type RefRate = pallet_ref_rate;
+
+    #[runtime::pallet_index(17)]
+    pub type ModelRegistry = pallet_model_registry;
+
+    #[runtime::pallet_index(18)]
+    pub type Providers = pallet_providers;
+
+    #[runtime::pallet_index(19)]
+    pub type Gateways = pallet_gateways;
+
+    #[runtime::pallet_index(20)]
+    pub type Credits = pallet_credits;
 }

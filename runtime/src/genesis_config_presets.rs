@@ -101,6 +101,12 @@ pub const LOCAL_TRANSITION: TransitionParams = TransitionParams {
     sustain_blocks: 40,
 };
 
+/// Market delays of the test presets: rate interval, heartbeat interval and escrow withdrawal
+/// (live chains: one day, 600 blocks and one day).
+const DEV_MARKET_DELAY: u64 = 10;
+/// Unbonding period of providers and gateways on the test presets (live chains: seven days).
+const DEV_MARKET_UNBOND: u64 = 20;
+
 /// Parameters of one test preset.
 struct Preset<'a> {
     authorities: &'a [&'a str],
@@ -156,6 +162,32 @@ fn testnet_genesis(preset: &Preset<'_>) -> Result<Value, ac_crypto::Error> {
             motion_duration: DEV_MOTION_DURATION
         },
         staking_pos: pallet_staking_pos::GenesisConfig { params: staking },
+        // Market (m5-market-registry design D8): 1 ATC = 1 USD and short periods so tests see
+        // heartbeat expiry, unbonding and withdrawals within a few blocks.
+        ref_rate: pallet_ref_rate::GenesisConfig {
+            initial: Some(ac_primitives::market::AtcPerUsd(ATC)),
+            params: pallet_ref_rate::RefRateParams {
+                min_interval: DEV_MARKET_DELAY
+            }
+        },
+        providers: pallet_providers::GenesisConfig {
+            params: pallet_providers::ProviderParams {
+                heartbeat_interval: DEV_MARKET_DELAY,
+                unbond_blocks: DEV_MARKET_UNBOND,
+                ..pallet_providers::ProviderParams::LIVE
+            }
+        },
+        gateways: pallet_gateways::GenesisConfig {
+            params: pallet_gateways::GatewayParams {
+                unbond_blocks: DEV_MARKET_UNBOND,
+                ..pallet_gateways::GatewayParams::LIVE
+            }
+        },
+        credits: pallet_credits::GenesisConfig {
+            params: pallet_credits::CreditsParams {
+                withdrawal_delay: DEV_MARKET_DELAY
+            }
+        },
     }))
 }
 

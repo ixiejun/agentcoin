@@ -49,9 +49,14 @@ fn pallet_indices_are_fixed() {
         usize::from(ac_primitives::evm::REVIVE_PALLET_INDEX)
     );
     assert_eq!(<ac_runtime::EvmSupport as PalletInfoAccess>::index(), 15);
-    // m4-evm: the `SetEvmPayer` extension and the Revive calls (design D11).
-    assert_eq!(VERSION.transaction_version, 4);
-    assert_eq!(VERSION.spec_version, 4);
+    // m5-market-registry (design D9): the market pallets at 16-20, new calls.
+    assert_eq!(<ac_runtime::RefRate as PalletInfoAccess>::index(), 16);
+    assert_eq!(<ac_runtime::ModelRegistry as PalletInfoAccess>::index(), 17);
+    assert_eq!(<ac_runtime::Providers as PalletInfoAccess>::index(), 18);
+    assert_eq!(<ac_runtime::Gateways as PalletInfoAccess>::index(), 19);
+    assert_eq!(<ac_runtime::Credits as PalletInfoAccess>::index(), 20);
+    assert_eq!(VERSION.transaction_version, 5);
+    assert_eq!(VERSION.spec_version, 5);
 }
 
 // The M2 runtime APIs are declared by the runtime.
@@ -62,6 +67,13 @@ fn runtime_apis_are_declared() {
     assert!(has(
         <dyn ac_primitives::validator_set::ValidatorSetApi<ac_runtime::Block>>::ID
     ));
+    // m5-market-registry (design D9).
+    assert!(has(<dyn ac_primitives::market::MarketApi<
+            ac_runtime::Block,
+            ac_runtime::AccountId,
+            ac_runtime::Balance,
+            u32,
+        >>::ID));
     assert!(has(
         <dyn ac_primitives::offences::OffencesApi<ac_runtime::Block>>::ID
     ));
