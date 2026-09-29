@@ -2,7 +2,8 @@
 
 # ac-wallet
 
-AgentCoin's command-line wallet (M1), and the external signer for EVM contracts (M4).
+AgentCoin's command-line wallet (M1), the external signer for EVM contracts (M4) and the
+inference-market client (M5).
 
 - Keys: 24-word BIP-39 mnemonic over 256-bit entropy; account keys are derived per algorithm
   and index (`agentcoin 2026-09 wallet-key v1`). The default account algorithm is ML-DSA-44.
@@ -62,6 +63,50 @@ stops at the first transaction that fails or that creates a contract elsewhere t
 predicted; later transactions are not sent. Note that a native deployment advances the account
 nonce by two (once for the transaction, once by `pallet-revive`), so a script can predict only
 its first deployment correctly.
+
+## Inference market
+
+`ac-wallet market …` registers and operates in the inference market (M5): models, providers,
+gateways, escrow and vouchers. Dollar amounts are decimals with at most six places (`0.5`);
+ATC amounts use the usual format. A failed transaction prints the chain's error name, for
+example `Providers(BelowThreshold)`.
+
+```bash
+ac-wallet market rate                                            # reference rate (ATC per USD)
+ac-wallet market model id --file model.json                      # the model ID, offline
+ac-wallet market model register --wallet alice.json --file model.json
+ac-wallet market provider register --wallet p.json --tier t2 --endpoint https://p.example \
+  --kem-key 0x01… --model 0x<model id>:0.1:0.2                    # $ per million input:output tokens
+ac-wallet market providers --model 0x<model id>                  # serviceable providers
+ac-wallet market gateway register --wallet g.json --endpoint https://g.example --fee-bps 300
+ac-wallet market escrow deposit --wallet alice.json --gateway atc1… --amount 5
+ac-wallet market voucher sign --wallet alice.json --gateway atc1… --usd 0.5
+ac-wallet market voucher check --voucher 0x…
+```
+
+| Command | What it does |
+|---|---|
+| `market model register --file`, `model show --id`, `model id --file` | registers a model from a manifest file (the ID is printed before submitting), shows one, or computes an ID offline |
+| `market provider register` | `--tier t1\|t2`, `--endpoint`, `--kem-key` (hex of the AlgId-tagged X-Wing key), one or more `--model ID:INPUT_USD:OUTPUT_USD`, `--stake` (defaults to the current threshold) |
+| `market provider update`, `heartbeat`, `bond`, `unbond`, `exit`, `withdraw`, `show` | change the endpoint, key or models; heartbeat; add or unbond stake; leave; withdraw due stake; show a provider and whether it is serviceable |
+| `market providers --model` | every serviceable provider of a model |
+| `market gateway register`, `update`, `bond`, `unbond`, `exit`, `withdraw`, `show` | the same for gateways (`--fee-bps` at most 500) |
+| `market escrow deposit`, `request-withdrawal`, `withdraw`, `change-key` | escrow ATC with a gateway; withdraw it after the delay; make the wallet's current key the channel's voucher key after the delay |
+| `market channel --gateway` | the channel's escrow, number, redeemed amount, voucher key and pending requests |
+| `market voucher sign --gateway --usd` | signs a cumulative voucher (`agentcoin/voucher/v1`) and prints its hex |
+| `market voucher check --voucher` | checks a voucher against the chain exactly as redemption would |
+
+A manifest file:
+
+```json
+{ "name": "Qwen2.5-0.5B-Instruct", "arch": "qwen2", "quant": "int4",
+  "shards": ["0x…32-byte BLAKE3 of shard 1…", "0x…"],
+  "lineage": { "parent": "0x<model id>", "kind": "quantize" },
+  "licenseTag": "apache-2.0" }
+```
+
+`quant` is one of `bf16`, `fp16`, `fp8`, `int8`, `int4`; `lineage` (kinds `finetune`,
+`quantize`, `distill`, `merge`) and `licenseTag` are optional.
 
 ## Library example
 

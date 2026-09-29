@@ -57,7 +57,8 @@ jobs:
         run: |
           for crate in ac-crypto ac-primitives ac-invariants pallet-pq-accounts pallet-aura-pq \
             pallet-validator-set pallet-ac-offences pallet-randomness-cr pallet-emission \
-            pallet-treasury-dual pallet-poa-admin pallet-staking-pos pallet-evm-support; do
+            pallet-treasury-dual pallet-poa-admin pallet-staking-pos pallet-evm-support \
+            pallet-ref-rate pallet-model-registry pallet-providers pallet-gateways pallet-credits; do
             cargo build -p "$crate" --no-default-features --target wasm32-unknown-unknown
           done
 
@@ -97,6 +98,8 @@ jobs:
           -- --test-threads 1
       - name: EVM contracts through the wallet, the eth-RPC adapter and Foundry
         run: cargo test -p ac-e2e --test evm -- --test-threads 1
+      - name: Market registration through the wallet (rate, model, provider, gateway, escrow, vouchers)
+        run: cargo test -p ac-e2e --test market -- --test-threads 1
       - name: Local testnet script
         run: AC_TESTNET_DIR="$AC_E2E_LOGS/testnet" scripts/run-local-testnet.sh --check
       - name: Wallet README commands

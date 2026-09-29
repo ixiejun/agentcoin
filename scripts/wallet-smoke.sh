@@ -53,4 +53,23 @@ fi
 [[ "$("$wallet" address --wallet "$work/fresh.json")" == "$fresh_addr" ]]
 "$wallet" transfer --wallet "$work/fresh.json" "${pw[@]}" --node "$url" --to "$dev_addr" --amount 1
 "$wallet" balance --wallet "$work/fresh.json" --node "$url"
+# 5. The inference market (m5-market-registry): rate, a model, a provider, a gateway, escrow and
+#    a voucher checked against the chain.
+"$wallet" market rate --node "$url"
+printf '{"name":"smoke","arch":"llama","quant":"bf16","shards":["0x%s"]}' "$(printf '11%.0s' $(seq 32))" >"$work/model.json"
+model="$("$wallet" market model id --file "$work/model.json")"
+"$wallet" market model register --wallet "$work/dev.json" "${pw[@]}" --node "$url" --file "$work/model.json"
+kem="0x01$(printf '07%.0s' $(seq 1216))"
+"$wallet" transfer --wallet "$work/dev.json" "${pw[@]}" --node "$url" --to "$fresh_addr" --amount 2000
+"$wallet" market provider register --wallet "$work/fresh.json" "${pw[@]}" --node "$url" \
+  --tier t2 --endpoint https://provider.example --kem-key "$kem" --model "$model:0.1:0.2"
+"$wallet" market providers --node "$url" --model "$model" | grep -q "provider: $fresh_addr"
+"$wallet" market gateway register --wallet "$work/fresh.json" "${pw[@]}" --node "$url" \
+  --endpoint https://gateway.example --fee-bps 300
+"$wallet" market escrow deposit --wallet "$work/dev.json" "${pw[@]}" --node "$url" \
+  --gateway "$fresh_addr" --amount 5
+voucher="$("$wallet" market voucher sign --wallet "$work/dev.json" "${pw[@]}" --node "$url" \
+  --gateway "$fresh_addr" --usd 0.5 | sed -n 's/^voucher: //p')"
+"$wallet" market voucher check --node "$url" --voucher "$voucher" | grep -q "valid: yes"
+"$wallet" market channel --wallet "$work/dev.json" --node "$url" --gateway "$fresh_addr"
 echo "wallet smoke test passed"

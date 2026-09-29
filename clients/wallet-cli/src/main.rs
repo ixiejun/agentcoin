@@ -9,6 +9,8 @@ use anyhow::{Context, Result, bail};
 use clap::Parser;
 use zeroize::Zeroizing;
 
+mod market_cli;
+
 /// AgentCoin command-line wallet (ML-DSA keys, `atc1…` addresses).
 #[derive(Debug, Parser)]
 #[command(version)]
@@ -91,6 +93,11 @@ enum Command {
     Evm {
         #[command(subcommand)]
         command: EvmCommand,
+    },
+    /// Inference market: models, providers, gateways, escrow and vouchers.
+    Market {
+        #[command(subcommand)]
+        command: market_cli::MarketCommand,
     },
     /// Rotate to a new key (next derivation index); the address stays the same.
     Rotate {
@@ -558,6 +565,7 @@ async fn main() -> Result<()> {
             println!("included in block {:?}", inclusion.block_hash);
         }
         Command::Evm { command } => run_evm(command).await?,
+        Command::Market { command } => market_cli::run(command).await?,
         Command::Rotate { wallet, node, alg } => {
             let mut w = load(&wallet.wallet)?;
             let alg = match alg {

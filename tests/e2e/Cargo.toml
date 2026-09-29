@@ -23,6 +23,7 @@ pallet-balances = { workspace = true, features = ["std"] }
 pallet-collective = { workspace = true, features = ["std"] }
 pallet-emission = { workspace = true, features = ["std"] }
 pallet-poa-admin = { workspace = true, features = ["std"] }
+pallet-ref-rate = { workspace = true, features = ["std"] }
 pallet-staking-pos = { workspace = true, features = ["std"] }
 pallet-treasury-dual = { workspace = true, features = ["std"] }
 frame-support = { workspace = true, features = ["std"] }

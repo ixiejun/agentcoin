@@ -1,6 +1,6 @@
 [package]
 name = "ac-wallet"
-description = "AgentCoin command-line wallet: ML-DSA keys from a mnemonic, encrypted wallet file, transfers, key rotation and EVM contract transactions"
+description = "AgentCoin command-line wallet: ML-DSA keys from a mnemonic, encrypted wallet file, transfers, key rotation, EVM contract transactions and the inference market"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -20,10 +20,15 @@ ac-runtime = { workspace = true, features = ["std"] }
 alloy-core = { workspace = true, features = ["std", "dyn-abi"] }
 anyhow = { workspace = true }
 clap = { workspace = true }
+frame-support = { workspace = true, features = ["std"] }
 frame-system = { workspace = true, features = ["std"] }
 hex = { workspace = true, features = ["std"] }
 jsonrpsee = { workspace = true, features = ["http-client"] }
 pallet-balances = { workspace = true, features = ["std"] }
+pallet-credits = { workspace = true, features = ["std"] }
+pallet-gateways = { workspace = true, features = ["std"] }
+pallet-model-registry = { workspace = true, features = ["std"] }
+pallet-providers = { workspace = true, features = ["std"] }
 pallet-pq-accounts = { workspace = true, features = ["std"] }
 pallet-revive = { workspace = true, features = ["std"] }
 parity-scale-codec = { workspace = true, features = ["std"] }

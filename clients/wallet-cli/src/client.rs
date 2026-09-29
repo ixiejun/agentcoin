@@ -69,6 +69,38 @@ impl NodeClient {
         unhex(&result)
     }
 
+    /// Calls runtime API `method` (e.g. `MarketApi_model`) with SCALE-encoded `args` on the
+    /// latest state and returns the encoded result.
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn call_api(&self, method: &str, args: &impl Encode) -> Result<Vec<u8>> {
+        self.state_call(method, args).await
+    }
+
+    /// Name of the error a failed transaction returned (e.g. `Providers(BelowThreshold)`), from
+    /// its `ExtrinsicFailed` event; `None` if it succeeded.
+    ///
+    /// # Errors
+    ///
+    /// RPC failures or undecodable events.
+    pub async fn dispatch_error(&self, block: Hash, index: u32) -> Result<Option<String>> {
+        for event in self.extrinsic_events(block, index).await? {
+            if let RuntimeEvent::System(frame_system::Event::ExtrinsicFailed {
+                dispatch_error,
+                ..
+            }) = event
+            {
+                return Ok(Some(
+                    ac_runtime::RuntimeError::from_dispatch_error(dispatch_error)
+                        .map_or_else(|| format!("{dispatch_error:?}"), |e| format!("{e:?}")),
+                ));
+            }
+        }
+        Ok(None)
+    }
+
     async fn storage(&self, key: &[u8], at: Option<H256>) -> Result<Option<Vec<u8>>> {
         let key = format!("0x{}", hex::encode(key));
         let value: Option<String> = self

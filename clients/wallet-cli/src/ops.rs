@@ -54,6 +54,33 @@ pub async fn sign_call(
     Ok(assemble(call, who, signature, public_key, extensions))
 }
 
+/// Signs and submits `call`, waits for inclusion and fails with the chain's error name (e.g.
+/// `Providers(BelowThreshold)`) if the call did not succeed.
+///
+/// # Errors
+///
+/// See [`sign_call`] and [`NodeClient::submit_and_watch`]; a failed dispatch.
+pub async fn submit(
+    client: &NodeClient,
+    wallet: &Wallet,
+    password: &[u8],
+    call: RuntimeCall,
+) -> Result<Inclusion> {
+    let xt = sign_call(client, wallet, password, call).await?;
+    let inclusion = client.submit_and_watch(&xt, INCLUSION_TIMEOUT).await?;
+    if !inclusion.success {
+        let reason = client
+            .dispatch_error(inclusion.block_hash, inclusion.index)
+            .await?
+            .unwrap_or_else(|| "unknown reason".to_owned());
+        bail!(
+            "the transaction was included in block {:?} but failed: {reason}",
+            inclusion.block_hash
+        );
+    }
+    Ok(inclusion)
+}
+
 /// Transfers `amount` smallest units to `to` and waits for inclusion.
 ///
 /// # Errors

@@ -3,6 +3,7 @@
 pub mod amount;
 pub mod client;
 pub mod evm;
+pub mod market;
 pub mod ops;
 pub mod wallet;
 
