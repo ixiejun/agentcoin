@@ -7489,6 +7489,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-gateways"
+version = "0.1.0"
+dependencies = [
+ "ac-primitives",
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "parity-scale-codec",
+ "proptest",
+ "scale-info",
+ "serde",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-model-registry"
 version = "0.1.0"
 dependencies = [

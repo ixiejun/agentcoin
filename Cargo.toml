@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["clients/wallet-cli", "tests/e2e", "tests/sim", "tests/overmint-runtime", "tests/early-switch-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "services/eth-rpc", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "pallets/staking-pos", "pallets/evm-support", "pallets/ref-rate", "pallets/model-registry", "pallets/providers", "runtime"]
+members = ["clients/wallet-cli", "tests/e2e", "tests/sim", "tests/overmint-runtime", "tests/early-switch-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "services/eth-rpc", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "pallets/staking-pos", "pallets/evm-support", "pallets/ref-rate", "pallets/model-registry", "pallets/providers", "pallets/gateways", "runtime"]
 
 [workspace.package]
 version = "0.1.0"
@@ -122,6 +122,7 @@ pallet-evm-support = { path = "pallets/evm-support", version = "0.1", default-fe
 pallet-ref-rate = { path = "pallets/ref-rate", version = "0.1", default-features = false }
 pallet-model-registry = { path = "pallets/model-registry", version = "0.1", default-features = false }
 pallet-providers = { path = "pallets/providers", version = "0.1", default-features = false }
+pallet-gateways = { path = "pallets/gateways", version = "0.1", default-features = false }
 # Test-only
 hex = { version = "0.4", default-features = false }
 serde = { version = "1", default-features = false }
