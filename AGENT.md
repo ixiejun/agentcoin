@@ -317,12 +317,14 @@ scripts/check-license-boundary.sh [--self-test]     # licence zones (D47) and in
 scripts/check-release-runtime.sh <wasm>|--self-test # the release runtime has no benchmarking API
 scripts/sync-audit-exceptions.py [--write]        # advisory exceptions (edit audit-exceptions.toml)
 scripts/benchmark-pallet.sh <pallet> <weights.rs> # regenerate benchmarked weights
+scripts/gen-toploc-vectors.sh                     # regenerate TOPLOC vectors from the reference (Python)
 
 # Node and end-to-end
 cargo build -p ac-node -p ac-wallet
 scripts/run-local-testnet.sh [--check]            # four-node local testnet (best + finalized)
 AC_E2E=1 cargo test -p ac-e2e -- --test-threads 1  # multi-node acceptance tests
 AC_E2E=1 cargo test -p ac-e2e --test market -- --test-threads 1  # market registration via the wallet
+AC_E2E=1 cargo test -p ac-e2e --test settlement -- --test-threads 1  # receipts, report, claims
 scripts/measure-finality.sh [seconds]             # finality latency, 4/7/10 nodes (release)
 scripts/wallet-smoke.sh                           # wallet CLI against a dev node
 

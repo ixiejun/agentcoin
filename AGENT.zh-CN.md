@@ -317,12 +317,14 @@ scripts/check-license-boundary.sh [--self-test]     # 许可证分区（D47）�
 scripts/check-release-runtime.sh <wasm>|--self-test # 正式 runtime 不含基准测试 API
 scripts/sync-audit-exceptions.py [--write]        # 安全公告例外（编辑 audit-exceptions.toml）
 scripts/benchmark-pallet.sh <pallet> <weights.rs> # 重新生成基准权重
+scripts/gen-toploc-vectors.sh                     # 由参考实现重新生成 TOPLOC 向量（Python）
 
 # 节点与端到端
 cargo build -p ac-node -p ac-wallet
 scripts/run-local-testnet.sh [--check]            # 四节点本地测试网（检查最佳与已最终确定高度）
 AC_E2E=1 cargo test -p ac-e2e -- --test-threads 1  # 多节点验收测试
 AC_E2E=1 cargo test -p ac-e2e --test market -- --test-threads 1  # 经钱包的市场登记流程
+AC_E2E=1 cargo test -p ac-e2e --test settlement -- --test-threads 1  # 收据、报告与领取
 scripts/measure-finality.sh [seconds]             # 终局性延迟，4/7/10 节点（release）
 scripts/wallet-smoke.sh                           # 针对开发节点运行钱包命令行
 

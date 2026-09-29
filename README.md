@@ -16,7 +16,7 @@ Primary language: Rust. Development method: spec-driven development (SDD) with [
 
 Documentation language policy: every project document has an English version (primary, at the canonical path) and a Simplified Chinese version (`*.zh-CN.md`), each linking to the other at the top.
 
-Status: M0 (workspace, CI and the `ac-crypto` post-quantum library, [crates/ac-crypto](crates/ac-crypto/README.md)) and M1 (post-quantum chain, [node](node/README.md)) complete; M2 (AC-BFT finality, double-signing evidence, commit–reveal randomness) complete; M3 economics (scheduled emission, dual treasury, 80/20 fee distribution, PoA multisig, node-enforced supply invariants) complete; M3 PoS (staking, Phragmén elections, rewards by work, slashing, and the node-enforced one-way PoA → PoS switch) complete; M4 EVM (`pallet-revive` with post-quantum precompiles, the [eth-RPC adapter](services/eth-rpc/README.md), `ac-wallet evm` as the ML-DSA signer for Foundry, [contracts](contracts/README.md)) complete; M5 inference market in progress: the market registry (reference rate, models, providers, gateways and transparent credits in [pallets](pallets/credits/README.md), `ac-wallet market`) is done, settlement and the gateway and provider services come next. Specs in `openspec/specs/`.
+Status: M0 (workspace, CI and the `ac-crypto` post-quantum library, [crates/ac-crypto](crates/ac-crypto/README.md)) and M1 (post-quantum chain, [node](node/README.md)) complete; M2 (AC-BFT finality, double-signing evidence, commit–reveal randomness) complete; M3 economics (scheduled emission, dual treasury, 80/20 fee distribution, PoA multisig, node-enforced supply invariants) complete; M3 PoS (staking, Phragmén elections, rewards by work, slashing, and the node-enforced one-way PoA → PoS switch) complete; M4 EVM (`pallet-revive` with post-quantum precompiles, the [eth-RPC adapter](services/eth-rpc/README.md), `ac-wallet evm` as the ML-DSA signer for Foundry, [contracts](contracts/README.md)) complete; M5 inference market in progress: the market registry (reference rate, models, providers, gateways and transparent credits in [pallets](pallets/credits/README.md), `ac-wallet market`) and work settlement (signed receipts, [work reports and claims](pallets/work/README.md), market emission, the [TOPLOC port](crates/ac-toploc/README.md)) are done, the gateway and provider services come next. Specs in `openspec/specs/`.
 
 ## Local development
 
@@ -30,7 +30,8 @@ cargo test --workspace --all-features
 for c in ac-crypto ac-primitives ac-invariants pallet-pq-accounts pallet-aura-pq \
   pallet-validator-set pallet-ac-offences pallet-randomness-cr pallet-emission \
   pallet-treasury-dual pallet-poa-admin pallet-staking-pos pallet-evm-support \
-  pallet-ref-rate pallet-model-registry pallet-providers pallet-gateways pallet-credits; do
+  pallet-ref-rate pallet-model-registry pallet-providers pallet-gateways pallet-credits \
+  pallet-work ac-toploc; do
   cargo build -p $c --no-default-features --target wasm32-unknown-unknown
 done
 cargo install --locked cargo-deny cargo-audit   # once
