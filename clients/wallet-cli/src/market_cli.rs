@@ -8,6 +8,7 @@ use sp_runtime::AccountId32;
 
 use ac_primitives::encode_address;
 use ac_primitives::market::records::{ModelPrice, Tier};
+use ac_primitives::market::work::{MAX_REPORT_ENTRIES, MAX_REPORT_VOUCHERS};
 use ac_runtime::RuntimeCall;
 use ac_wallet::market::{self, Channel, Gateway, Provider, format_usd, parse_usd};
 use ac_wallet::{NodeClient, amount, ops, parse_address};
@@ -67,6 +68,114 @@ pub enum MarketCommand {
     Rate {
         #[command(flatten)]
         node: NodeArgs,
+    },
+    /// Receipts: create and sign one, co-sign one, check one against the chain.
+    Receipt {
+        #[command(subcommand)]
+        command: ReceiptCommand,
+    },
+    /// Work reports: build from receipts and vouchers and submit, or show one.
+    Report {
+        #[command(subcommand)]
+        command: ReportCommand,
+    },
+    /// Claim matured fees and market emission for an account.
+    Claim {
+        #[command(flatten)]
+        signed: Signed,
+        /// Account to claim for; defaults to the wallet's.
+        #[arg(long)]
+        account: Option<String>,
+        /// Only these maturity epochs (comma-separated); default: every settled one.
+        #[arg(long, value_delimiter = ',')]
+        epochs: Vec<u64>,
+    },
+    /// Show settlement state: an account's held payments and work, or an epoch's work.
+    Work {
+        #[command(flatten)]
+        node: NodeArgs,
+        /// Account to show; defaults to the wallet's.
+        #[arg(long)]
+        account: Option<String>,
+        /// Show this epoch's verified work instead.
+        #[arg(long)]
+        epoch: Option<u64>,
+        /// Wallet file (used when no account is given).
+        #[arg(long, value_name = "PATH", default_value = "wallet.json")]
+        wallet: std::path::PathBuf,
+    },
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub enum ReceiptCommand {
+    /// Create a receipt (fee from the provider's price on chain) and sign it as its provider or
+    /// gateway.
+    New {
+        #[command(flatten)]
+        signed: Signed,
+        /// Gateway address.
+        #[arg(long)]
+        gateway: String,
+        /// Provider address.
+        #[arg(long)]
+        provider: String,
+        /// Model ID.
+        #[arg(long)]
+        model: String,
+        #[arg(long)]
+        in_tokens: u32,
+        #[arg(long)]
+        out_tokens: u32,
+        /// TOPLOC commitment (hex, 32 bytes); zero if omitted.
+        #[arg(long)]
+        toploc: Option<String>,
+        /// Request ID (hex, 32 bytes); random if omitted.
+        #[arg(long)]
+        request_id: Option<String>,
+        #[arg(long, default_value_t = 0)]
+        ttft_ms: u32,
+        #[arg(long, default_value_t = 0)]
+        total_ms: u32,
+        /// Receipt file to write.
+        #[arg(long, value_name = "PATH")]
+        out: std::path::PathBuf,
+    },
+    /// Add this wallet's signature (as provider or gateway) to a receipt file.
+    Cosign {
+        #[command(flatten)]
+        wallet: WalletArgs,
+        #[arg(long, value_name = "PATH")]
+        file: std::path::PathBuf,
+    },
+    /// Check a signed receipt against the chain's keys and prices.
+    Check {
+        #[command(flatten)]
+        node: NodeArgs,
+        #[arg(long, value_name = "PATH")]
+        file: std::path::PathBuf,
+    },
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub enum ReportCommand {
+    /// Build a report from receipt files and vouchers, check it locally, and submit it as the
+    /// gateway.
+    Submit {
+        #[command(flatten)]
+        signed: Signed,
+        /// Receipt files, in order; repeat.
+        #[arg(long = "receipt", required = true, value_name = "PATH")]
+        receipts: Vec<std::path::PathBuf>,
+        /// Vouchers: hex from `voucher sign`, or files holding it; repeat.
+        #[arg(long = "voucher", required = true)]
+        vouchers: Vec<String>,
+    },
+    /// Show a report.
+    Show {
+        #[command(flatten)]
+        node: NodeArgs,
+        #[arg(long)]
+        id: u64,
     },
 }
 
@@ -548,6 +657,278 @@ pub async fn run(command: MarketCommand) -> Result<()> {
                     println!("set at block: {at}");
                 }
                 None => println!("rate: not set"),
+            }
+        }
+        MarketCommand::Receipt { command } => run_receipt(command).await?,
+        MarketCommand::Report { command } => run_report(command).await?,
+        MarketCommand::Claim {
+            signed,
+            account,
+            epochs,
+        } => {
+            let target = who(account, &signed.wallet.wallet)?;
+            let client = NodeClient::new(&signed.node.node)?;
+            let items = claimable(&client, &target, &epochs).await?;
+            if items.is_empty() {
+                println!("nothing to claim");
+                return Ok(());
+            }
+            let before = client.free_balance(&target).await?;
+            let call = RuntimeCall::Work(pallet_work::Call::claim {
+                who: target.clone(),
+                items: BoundedVec::truncate_from(items.clone()),
+            });
+            send(&signed, call).await?;
+            let after = client.free_balance(&target).await?;
+            println!("claimed items: {}", items.len());
+            println!(
+                "received: {}",
+                amount::format_atc(after.saturating_sub(before))
+            );
+        }
+        MarketCommand::Work {
+            node,
+            account,
+            epoch,
+            wallet,
+        } => {
+            let client = NodeClient::new(&node.node)?;
+            if let Some(e) = epoch {
+                let w = client.work_epoch(e).await?;
+                println!("epoch: {e}");
+                println!("verified work: {}", amount::format_atc(w.verified));
+                match w.market {
+                    Some(m) => println!("market emission: {}", amount::format_atc(m)),
+                    None => println!("market emission: not settled"),
+                }
+                return Ok(());
+            }
+            let target = who(account, &wallet)?;
+            let l = client.work_lifetime(&target).await?;
+            println!("pending work: {}", amount::format_atc(l.pending));
+            println!("verified work: {}", amount::format_atc(l.verified));
+            println!("claimed: {}", amount::format_atc(l.claimed));
+            for (e, g, h) in client.work_held(&target).await? {
+                println!(
+                    "held: epoch {e} by {}: shares {}, fees {}",
+                    encode_address(g.as_ref()),
+                    amount::format_atc(h.shares),
+                    amount::format_atc(h.fees)
+                );
+            }
+            for (e, w) in client.work_of(&target).await? {
+                println!(
+                    "work: epoch {e}: {}{}",
+                    amount::format_atc(w.work),
+                    if w.voided { " (void)" } else { "" }
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Claim items of `target`: every held payment and unclaimed emission of a settled epoch
+/// (only `epochs` when given), at most 64.
+async fn claimable(
+    client: &NodeClient,
+    target: &AccountId32,
+    epochs: &[u64],
+) -> Result<Vec<(u64, AccountId32)>> {
+    let wanted = |e: u64| epochs.is_empty() || epochs.contains(&e);
+    let mut items: Vec<(u64, AccountId32)> = Vec::new();
+    for (e, g, _) in client.work_held(target).await? {
+        if wanted(e) && client.work_epoch(e).await?.market.is_some() {
+            items.push((e, g));
+        }
+    }
+    // Emission of epochs whose shares were all claimed already.
+    for (e, w) in client.work_of(target).await? {
+        if wanted(e)
+            && !w.emission_claimed
+            && !items.iter().any(|(i, _)| *i == e)
+            && client.work_epoch(e).await?.market.is_some()
+        {
+            items.push((e, target.clone()));
+        }
+    }
+    items.truncate(64);
+    Ok(items)
+}
+
+fn hex32(text: &str, what: &str) -> Result<[u8; 32]> {
+    let bytes = hex::decode(text.trim().trim_start_matches("0x"))
+        .with_context(|| format!("{what}: bad hex"))?;
+    <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| anyhow::anyhow!("{what} must be 32 bytes"))
+}
+
+async fn run_receipt(command: ReceiptCommand) -> Result<()> {
+    use ac_primitives::market::receipt::{ReceiptBody, fee_for};
+    use ac_primitives::market::work::JobKind;
+    use ac_wallet::work::ReceiptFile;
+    match command {
+        ReceiptCommand::New {
+            signed,
+            gateway,
+            provider,
+            model,
+            in_tokens,
+            out_tokens,
+            toploc,
+            request_id,
+            ttft_ms,
+            total_ms,
+            out,
+        } => {
+            let gateway = parse_address(&gateway)?;
+            let provider = parse_address(&provider)?;
+            let model = market::parse_model_id(&model)?;
+            let toploc_commit = toploc.map_or(Ok([0; 32]), |t| hex32(&t, "TOPLOC commitment"))?;
+            let client = NodeClient::new(&signed.node.node)?;
+            let price = client
+                .market_provider(&provider)
+                .await?
+                .and_then(|p| p.models.iter().find(|m| m.model == model).map(|m| m.price))
+                .with_context(|| format!("the provider does not offer model {model:?}"))?;
+            let fee = fee_for(&price, in_tokens, out_tokens).context("fee overflow")?;
+            let request_id = match request_id {
+                Some(r) => hex32(&r, "request ID")?,
+                None => {
+                    // Unique enough for one gateway's receipts: time, parties and tokens.
+                    let nanos = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)?
+                        .as_nanos();
+                    ac_crypto::hash::blake3_256(
+                        &(nanos, &provider, &gateway, in_tokens, out_tokens).encode(),
+                    )
+                }
+            };
+            let body = ReceiptBody {
+                genesis: client.chain_context().await?.genesis_hash,
+                gateway,
+                provider,
+                kind: JobKind::Inference,
+                model,
+                request_id,
+                in_tokens,
+                out_tokens,
+                fee,
+                toploc_commit,
+                ttft_ms,
+                total_ms,
+            };
+            let w = load(&signed.wallet.wallet)?;
+            let pw = password(&signed.wallet, false)?;
+            let mut file = ReceiptFile::new(&body);
+            file.sign(&w.account()?, &w.current_key(&pw)?)?;
+            file.save(&out)?;
+            println!("fee: {}", format_usd(fee));
+            println!("receipt: {}", out.display());
+        }
+        ReceiptCommand::Cosign { wallet, file } => {
+            let mut f = ReceiptFile::load(&file)?;
+            let w = load(&wallet.wallet)?;
+            let pw = password(&wallet, false)?;
+            f.sign(&w.account()?, &w.current_key(&pw)?)?;
+            f.save(&file)?;
+            println!("signed: {}", file.display());
+        }
+        ReceiptCommand::Check { node, file } => {
+            let f = ReceiptFile::load(&file)?;
+            let receipt = f.signed()?;
+            let client = NodeClient::new(&node.node)?;
+            let facts = client.receipt_facts(&receipt.body).await?;
+            ac_wallet::work::check(&receipt, &facts)
+                .with_context(|| format!("{}: invalid receipt", file.display()))?;
+            println!("receipt valid: fee {}", format_usd(receipt.body.fee));
+        }
+    }
+    Ok(())
+}
+
+async fn run_report(command: ReportCommand) -> Result<()> {
+    use ac_wallet::work::{ReceiptFile, build_report, check_totals, load_vouchers};
+    match command {
+        ReportCommand::Submit {
+            signed,
+            receipts,
+            vouchers,
+        } => {
+            // Everything is checked locally before anything is signed or submitted.
+            let receipts = receipts
+                .iter()
+                .map(|p| {
+                    let r = ReceiptFile::load(p)?
+                        .signed()
+                        .with_context(|| format!("{}: not fully signed", p.display()))?;
+                    Ok((p.display().to_string(), r))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let vouchers = load_vouchers(&vouchers)?;
+            let w = load(&signed.wallet.wallet)?;
+            let gateway = w.account()?;
+            let report = build_report(&gateway, &receipts)?;
+            let client = NodeClient::new(&signed.node.node)?;
+            for (name, r) in &receipts {
+                let facts = client.receipt_facts(&r.body).await?;
+                ac_wallet::work::check(r, &facts)
+                    .with_context(|| format!("{name}: invalid receipt"))?;
+            }
+            let mut increments = Vec::with_capacity(vouchers.len());
+            for (name, v) in &vouchers {
+                let c = client
+                    .market_check_voucher(v)
+                    .await?
+                    .map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
+                increments.push((name.clone(), c.increment));
+            }
+            check_totals(&report, &increments)?;
+            println!("root: 0x{}", hex::encode(report.root));
+            let call = RuntimeCall::Work(pallet_work::Call::submit_report {
+                root: report.root,
+                receipt_count: report.receipt_count,
+                entries: BoundedVec::try_from(report.entries).map_err(|_| {
+                    anyhow::anyhow!(
+                        "at most {MAX_REPORT_ENTRIES} (provider, model) totals per report"
+                    )
+                })?,
+                vouchers: BoundedVec::try_from(
+                    vouchers.into_iter().map(|(_, v)| v).collect::<Vec<_>>(),
+                )
+                .map_err(|_| {
+                    anyhow::anyhow!("at most {MAX_REPORT_VOUCHERS} vouchers per report")
+                })?,
+            });
+            send(&signed, call).await?;
+            let params = client.work_params().await?;
+            println!(
+                "accepted; claimable once the epoch {} after submission is settled",
+                params.challenge_epochs
+            );
+        }
+        ReportCommand::Show { node, id } => {
+            let client = NodeClient::new(&node.node)?;
+            let Some(r) = client.work_report(id).await? else {
+                bail!("report {id} does not exist (or was pruned)");
+            };
+            println!("report: {id}");
+            println!("gateway: {}", encode_address(r.gateway.as_ref()));
+            println!("root: 0x{}", hex::encode(r.root));
+            println!("receipts: {}", r.receipt_count);
+            println!("submitted in epoch: {}", r.submitted);
+            println!("matures in epoch: {}", r.matures);
+            println!("settled: {}", amount::format_atc(r.settled));
+            println!("burned: {}", amount::format_atc(r.burned));
+            println!("gateway fee: {}", amount::format_atc(r.gateway_fee));
+            for l in r.lines.iter() {
+                println!(
+                    "line: {} {:?} {}: share {}, work {}",
+                    encode_address(l.entry.provider.as_ref()),
+                    l.entry.model,
+                    format_usd(l.entry.usd),
+                    amount::format_atc(l.share),
+                    amount::format_atc(l.work)
+                );
             }
         }
     }

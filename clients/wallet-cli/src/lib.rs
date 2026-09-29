@@ -6,6 +6,7 @@ pub mod evm;
 pub mod market;
 pub mod ops;
 pub mod wallet;
+pub mod work;
 
 pub use client::{Inclusion, NodeClient};
 pub use wallet::{Created, Wallet, parse_alg};

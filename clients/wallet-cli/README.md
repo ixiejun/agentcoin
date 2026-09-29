@@ -108,6 +108,35 @@ A manifest file:
 `quant` is one of `bf16`, `fp16`, `fp8`, `int8`, `int4`; `lineage` (kinds `finetune`,
 `quantize`, `distill`, `merge`) and `licenseTag` are optional.
 
+## Work settlement
+
+Providers and gateways sign one receipt per request; the gateway submits a work report and,
+after the challenge period (two emission epochs), everyone claims (`pallet-work`). A receipt
+file is JSON with the hex of the receipt body and each party's key and signature; it never
+holds the prompt, the output or the user.
+
+```bash
+ac-wallet market receipt new --wallet p.json --gateway atc1… --provider atc1… \
+  --model 0x<model id> --in-tokens 1000 --out-tokens 2000 --out r1.json   # fee from the chain's price
+ac-wallet market receipt cosign --wallet g.json --file r1.json
+ac-wallet market receipt check --file r1.json
+ac-wallet market report submit --wallet g.json --receipt r1.json --receipt r2.json --voucher 0x…
+ac-wallet market report show --id 0
+ac-wallet market claim --wallet any.json --account atc1…                  # everything matured
+ac-wallet market work --account atc1…                                     # held payments and work
+ac-wallet market work --epoch 12                                          # an epoch's verified work
+```
+
+| Command | What it does |
+|---|---|
+| `market receipt new` | builds a receipt (fee = the provider's price for the model, rounded up to a micro-dollar; `--toploc`, `--request-id`, `--ttft-ms`, `--total-ms` optional) and signs it as its provider or gateway |
+| `market receipt cosign --file` | adds the wallet's signature as the other party |
+| `market receipt check --file` | checks both signatures, the genesis and the fee against the chain's keys and prices |
+| `market report submit` | builds the Merkle root and the per-(provider, model) totals, checks every receipt and that the totals equal the vouchers' increments, then submits; an inconsistency is reported with the file or voucher at fault and nothing is submitted |
+| `market report show --id` | a stored report with its shares and work |
+| `market claim [--account] [--epochs]` | claims every held payment and emission share of settled epochs for an account (by default the wallet's) |
+| `market work [--account \| --epoch]` | an account's lifetime work, held payments and unclaimed work, or an epoch's verified work and market emission |
+
 ## Library example
 
 ```rust

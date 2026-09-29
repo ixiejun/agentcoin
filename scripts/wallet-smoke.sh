@@ -72,4 +72,17 @@ voucher="$("$wallet" market voucher sign --wallet "$work/dev.json" "${pw[@]}" --
   --gateway "$fresh_addr" --usd 0.5 | sed -n 's/^voucher: //p')"
 "$wallet" market voucher check --node "$url" --voucher "$voucher" | grep -q "valid: yes"
 "$wallet" market channel --wallet "$work/dev.json" --node "$url" --gateway "$fresh_addr"
+
+# 6. Work settlement (m5-work-settlement): the fresh account is both provider and gateway, so one
+# signature completes the receipt; 5M prompt tokens at $0.1 per million match the $0.5 voucher.
+"$wallet" market receipt new --wallet "$work/fresh.json" "${pw[@]}" --node "$url" \
+  --gateway "$fresh_addr" --provider "$fresh_addr" --model "$model" \
+  --in-tokens 5000000 --out-tokens 0 --out "$work/receipt.json" | grep 'fee: \$0.5' >/dev/null
+"$wallet" market receipt check --node "$url" --file "$work/receipt.json" | grep "receipt valid" >/dev/null
+"$wallet" market report submit --wallet "$work/fresh.json" "${pw[@]}" --node "$url" \
+  --receipt "$work/receipt.json" --voucher "$voucher" | grep "^root: " >/dev/null
+"$wallet" market report show --node "$url" --id 0 | grep "settled: 0.5 ATC" >/dev/null
+"$wallet" market work --node "$url" --wallet "$work/fresh.json"
+"$wallet" market claim --wallet "$work/dev.json" "${pw[@]}" --node "$url" \
+  --account "$fresh_addr" | grep "nothing to claim" >/dev/null
 echo "wallet smoke test passed"

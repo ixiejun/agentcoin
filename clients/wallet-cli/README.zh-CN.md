@@ -89,6 +89,32 @@ ac-wallet market voucher check --voucher 0x…
 
 `quant` 取 `bf16`、`fp16`、`fp8`、`int8`、`int4` 之一；`lineage`（派生方式 `finetune`、`quantize`、`distill`、`merge`）与 `licenseTag` 可省略。
 
+## 工作结算
+
+提供者与网关对每次请求各签一条收据；网关提交工作报告，挑战期（两个排放纪元）过后各方领取（`pallet-work`）。收据文件是 JSON：收据内容的十六进制编码，加上两方各自的公钥与签名；其中从不包含 prompt、输出或用户。
+
+```bash
+ac-wallet market receipt new --wallet p.json --gateway atc1… --provider atc1… \
+  --model 0x<模型 ID> --in-tokens 1000 --out-tokens 2000 --out r1.json    # 费用按链上价格计算
+ac-wallet market receipt cosign --wallet g.json --file r1.json
+ac-wallet market receipt check --file r1.json
+ac-wallet market report submit --wallet g.json --receipt r1.json --receipt r2.json --voucher 0x…
+ac-wallet market report show --id 0
+ac-wallet market claim --wallet any.json --account atc1…                  # 领取全部已到期款项
+ac-wallet market work --account atc1…                                     # 冻结款项与工作量
+ac-wallet market work --epoch 12                                          # 某纪元的已核验工作量
+```
+
+| 命令 | 作用 |
+|---|---|
+| `market receipt new` | 构造收据（费用 = 提供者对该模型的价格，向上取整到微美元；`--toploc`、`--request-id`、`--ttft-ms`、`--total-ms` 可选），并以提供者或网关身份签名 |
+| `market receipt cosign --file` | 以另一方身份追加签名 |
+| `market receipt check --file` | 按链上的公钥与价格校验两方签名、创世哈希与费用 |
+| `market report submit` | 计算 Merkle 根和按（提供者, 模型）的汇总，逐条校验收据并核对汇总等于凭证增量后提交；不一致时指出出错的文件或凭证，不提交任何交易 |
+| `market report show --id` | 已存储的报告及其份额与工作量 |
+| `market claim [--account] [--epochs]` | 为某账户（默认钱包自己的）领取已结算纪元的全部冻结款项与排放份额 |
+| `market work [--account \| --epoch]` | 某账户的累计工作量、冻结款项与未领取的工作量，或某纪元的已核验工作量与市场排放 |
+
 ## 库示例
 
 示例代码见英文版 [README.md](README.md)（英文版中的示例作为 doctest 运行）：在 ATC 小数字符串与最小单位之间互相转换。
