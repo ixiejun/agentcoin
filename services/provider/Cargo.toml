@@ -1,0 +1,42 @@
+[package]
+name = "ac-provider"
+description = "AgentCoin inference provider agent: serves sealed requests from registered gateways through a local OpenAI-compatible engine, signs receipts, heartbeats and claims"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "GPL-3.0-or-later"
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "ac-provider"
+path = "src/main.rs"
+
+[dependencies]
+ac-crypto = { workspace = true, features = ["std", "sealed", "keystore", "getrandom"] }
+ac-market-proto = { workspace = true }
+ac-primitives = { workspace = true, features = ["std"] }
+ac-runtime = { workspace = true, features = ["std"] }
+ac-wallet = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true }
+hex = { workspace = true, features = ["std"] }
+log = { workspace = true, features = ["std"] }
+pallet-providers = { workspace = true, features = ["std"] }
+pallet-work = { workspace = true, features = ["std"] }
+parity-scale-codec = { workspace = true, features = ["std"] }
+serde_json = { workspace = true, features = ["std"] }
+sp-core = { workspace = true, features = ["std"] }
+sp-runtime = { workspace = true, features = ["std"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net", "sync", "fs"] }
+zeroize = { workspace = true, features = ["std"] }
+
+[dev-dependencies]
+ac-mock-engine = { workspace = true }
+ac-crypto = { workspace = true, features = ["std", "sealed", "keystore", "getrandom"] }
+serde_json = { workspace = true, features = ["std"] }
+
+[lints]
+workspace = true

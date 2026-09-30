@@ -216,6 +216,24 @@ impl Wallet {
     }
 }
 
+/// Reads a passphrase file, dropping one trailing newline.
+///
+/// # Errors
+///
+/// An unreadable file.
+pub fn read_password_file(path: &Path) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+    let mut bytes = zeroize::Zeroizing::new(
+        std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?,
+    );
+    if bytes.last() == Some(&b'\n') {
+        bytes.pop();
+        if bytes.last() == Some(&b'\r') {
+            bytes.pop();
+        }
+    }
+    Ok(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

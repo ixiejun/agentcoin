@@ -25,7 +25,7 @@ AgentCoin 推理市场的线协议：钱包本地代理、网关（`ac-gateway`�
 | 网关 → 提供者 | `ProviderReq::Infer` | 0 | 请求 ID、任务类型、模型 ID、请求（JSON） |
 | | `ProviderReq::Cosigned` | 1 | 网关追加签名后的收据，供提供者留存 |
 | 提供者 → 网关 | `ProviderMsg::Delta` | 0 | 一个流式块（JSON） |
-| | `ProviderMsg::Receipt` | 1 | 提供者签名的收据与引擎报告的用量 |
+| | `ProviderMsg::Receipt` | 1 | 收据、提供者公钥与签名，以及引擎报告的用量 |
 | | `ProviderMsg::Error` | 2 | 错误码与说明 |
 | | `ProviderMsg::Ack` | 3 | 确认收到 `Cosigned` |
 

@@ -6,6 +6,7 @@ pub mod evm;
 pub mod http;
 pub mod market;
 pub mod ops;
+pub mod sealed_http;
 pub mod wallet;
 pub mod work;
 

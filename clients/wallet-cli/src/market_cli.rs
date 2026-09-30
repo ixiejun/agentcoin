@@ -668,7 +668,7 @@ pub async fn run(command: MarketCommand) -> Result<()> {
         } => {
             let target = who(account, &signed.wallet.wallet)?;
             let client = NodeClient::new(&signed.node.node)?;
-            let items = claimable(&client, &target, &epochs).await?;
+            let items = client.work_claimable(&target, &epochs).await?;
             if items.is_empty() {
                 println!("nothing to claim");
                 return Ok(());
@@ -730,32 +730,6 @@ pub async fn run(command: MarketCommand) -> Result<()> {
 
 /// Claim items of `target`: every held payment and unclaimed emission of a settled epoch
 /// (only `epochs` when given), at most 64.
-async fn claimable(
-    client: &NodeClient,
-    target: &AccountId32,
-    epochs: &[u64],
-) -> Result<Vec<(u64, AccountId32)>> {
-    let wanted = |e: u64| epochs.is_empty() || epochs.contains(&e);
-    let mut items: Vec<(u64, AccountId32)> = Vec::new();
-    for (e, g, _) in client.work_held(target).await? {
-        if wanted(e) && client.work_epoch(e).await?.market.is_some() {
-            items.push((e, g));
-        }
-    }
-    // Emission of epochs whose shares were all claimed already.
-    for (e, w) in client.work_of(target).await? {
-        if wanted(e)
-            && !w.emission_claimed
-            && !items.iter().any(|(i, _)| *i == e)
-            && client.work_epoch(e).await?.market.is_some()
-        {
-            items.push((e, target.clone()));
-        }
-    }
-    items.truncate(64);
-    Ok(items)
-}
-
 fn hex32(text: &str, what: &str) -> Result<[u8; 32]> {
     let bytes = hex::decode(text.trim().trim_start_matches("0x"))
         .with_context(|| format!("{what}: bad hex"))?;

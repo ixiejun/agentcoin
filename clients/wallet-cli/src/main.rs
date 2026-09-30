@@ -458,16 +458,7 @@ async fn run_evm(command: EvmCommand) -> Result<()> {
 /// Reads the passphrase from a file (one trailing newline dropped) or the terminal.
 fn password(args: &WalletArgs, confirm: bool) -> Result<Zeroizing<Vec<u8>>> {
     if let Some(path) = &args.password_file {
-        let mut bytes = Zeroizing::new(
-            std::fs::read(path).with_context(|| format!("cannot read {}", path.display()))?,
-        );
-        if bytes.last() == Some(&b'\n') {
-            bytes.pop();
-            if bytes.last() == Some(&b'\r') {
-                bytes.pop();
-            }
-        }
-        return Ok(bytes);
+        return ac_wallet::wallet::read_password_file(path);
     }
     if !std::io::stdin().is_terminal() {
         bail!("no terminal to read the passphrase from; use --password-file");

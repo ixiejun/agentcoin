@@ -14,7 +14,8 @@ name = "ac-wallet"
 path = "src/main.rs"
 
 [dependencies]
-ac-crypto = { workspace = true, features = ["std", "keystore", "mnemonic", "getrandom"] }
+ac-crypto = { workspace = true, features = ["std", "keystore", "mnemonic", "getrandom", "sealed"] }
+ac-market-proto = { workspace = true }
 ac-primitives = { workspace = true, features = ["std"] }
 ac-runtime = { workspace = true, features = ["std"] }
 alloy-core = { workspace = true, features = ["std", "dyn-abi"] }

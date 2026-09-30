@@ -285,6 +285,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "ac-provider"
+version = "0.1.0"
+dependencies = [
+ "ac-crypto",
+ "ac-market-proto",
+ "ac-mock-engine",
+ "ac-primitives",
+ "ac-runtime",
+ "ac-wallet",
+ "anyhow",
+ "async-trait",
+ "clap",
+ "hex",
+ "log",
+ "pallet-providers",
+ "pallet-work",
+ "parity-scale-codec",
+ "serde_json",
+ "sp-core",
+ "sp-runtime",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "ac-runtime"
 version = "0.1.0"
 dependencies = [
@@ -362,6 +387,7 @@ name = "ac-wallet"
 version = "0.1.0"
 dependencies = [
  "ac-crypto",
+ "ac-market-proto",
  "ac-primitives",
  "ac-runtime",
  "alloy-core",

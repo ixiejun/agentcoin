@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["clients/wallet-cli", "tests/e2e", "tests/mock-engine", "tests/sim", "tests/overmint-runtime", "tests/early-switch-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "crates/ac-toploc", "crates/ac-market-proto", "services/eth-rpc", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "pallets/staking-pos", "pallets/evm-support", "pallets/ref-rate", "pallets/model-registry", "pallets/providers", "pallets/gateways", "pallets/credits", "pallets/work", "runtime"]
+members = ["clients/wallet-cli", "tests/e2e", "tests/mock-engine", "tests/sim", "tests/overmint-runtime", "tests/early-switch-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "crates/ac-toploc", "crates/ac-market-proto", "services/eth-rpc", "services/provider", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "pallets/staking-pos", "pallets/evm-support", "pallets/ref-rate", "pallets/model-registry", "pallets/providers", "pallets/gateways", "pallets/credits", "pallets/work", "runtime"]
 
 [workspace.package]
 version = "0.1.0"

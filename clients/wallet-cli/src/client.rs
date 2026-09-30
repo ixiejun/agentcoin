@@ -38,7 +38,8 @@ pub type DryCall = pallet_revive::ContractResult<pallet_revive::ExecReturnValue,
 /// Result of a deployment dry run.
 pub type DryDeploy = pallet_revive::ContractResult<pallet_revive::InstantiateReturnValue, u128>;
 
-/// A JSON-RPC connection to a node.
+/// A JSON-RPC connection to a node (cheap to clone; clones share the connection pool).
+#[derive(Clone)]
 pub struct NodeClient {
     rpc: HttpClient,
 }
@@ -184,6 +185,46 @@ impl NodeClient {
             }
             None => 0,
         })
+    }
+
+    /// Number of the best block.
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn best_block(&self) -> Result<u64> {
+        self.best_number().await
+    }
+
+    /// The providers pallet's parameters (thresholds, heartbeat interval, unbonding).
+    ///
+    /// # Errors
+    ///
+    /// RPC failures or an undecodable value.
+    pub async fn provider_params(&self) -> Result<pallet_providers::ProviderParams> {
+        let key = pallet_providers::Params::<Runtime>::hashed_key();
+        match self.storage(&key, None).await? {
+            Some(raw) => Ok(pallet_providers::ProviderParams::decode(&mut &raw[..])?),
+            None => Ok(pallet_providers::ProviderParams::default()),
+        }
+    }
+
+    /// Emission epoch length in blocks (published key `Emission::EpochLength`).
+    ///
+    /// # Errors
+    ///
+    /// RPC failures, or a chain without the key.
+    pub async fn epoch_length(&self) -> Result<u64> {
+        let key = [
+            sp_io::hashing::twox_128(b"Emission"),
+            sp_io::hashing::twox_128(b"EpochLength"),
+        ]
+        .concat();
+        let raw = self
+            .storage(&key, None)
+            .await?
+            .context("Emission::EpochLength is missing")?;
+        Ok(u64::decode(&mut &raw[..])?)
     }
 
     async fn best_number(&self) -> Result<u64> {

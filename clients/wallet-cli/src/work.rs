@@ -353,6 +353,39 @@ impl NodeClient {
         self.work_api("lifetime", who).await
     }
 
+    /// Items `target` can claim now, at most 64: every (epoch, gateway) with held payments in a
+    /// settled epoch, plus settled epochs whose emission is still unclaimed. An empty `epochs`
+    /// means every epoch.
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn work_claimable(
+        &self,
+        target: &AccountId32,
+        epochs: &[EpochIndex],
+    ) -> Result<Vec<(EpochIndex, AccountId32)>> {
+        let wanted = |e: EpochIndex| epochs.is_empty() || epochs.contains(&e);
+        let mut items: Vec<(EpochIndex, AccountId32)> = Vec::new();
+        for (e, g, _) in self.work_held(target).await? {
+            if wanted(e) && self.work_epoch(e).await?.market.is_some() {
+                items.push((e, g));
+            }
+        }
+        // Emission of epochs whose shares were all claimed already.
+        for (e, w) in self.work_of(target).await? {
+            if wanted(e)
+                && !w.emission_claimed
+                && !items.iter().any(|(i, _)| *i == e)
+                && self.work_epoch(e).await?.market.is_some()
+            {
+                items.push((e, target.clone()));
+            }
+        }
+        items.truncate(64);
+        Ok(items)
+    }
+
     /// Chain facts to check `body` against: genesis, both parties' key fingerprints and the
     /// provider's price for the model.
     ///

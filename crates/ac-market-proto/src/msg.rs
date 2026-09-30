@@ -3,8 +3,9 @@
 //! Enum indices are wire format: they are spelled out and never change; new variants take new
 //! indices.
 
+use ac_crypto::{PqPublicKey, PqSignature};
 use ac_primitives::market::work::JobKind;
-use ac_primitives::market::{MicroUsd, ModelId, SignedReceipt, SignedVoucher};
+use ac_primitives::market::{MicroUsd, ModelId, ReceiptBody, SignedReceipt, SignedVoucher};
 use parity_scale_codec::{Decode, Encode};
 
 use crate::Error;
@@ -182,11 +183,16 @@ pub enum ProviderMsg {
     /// One streamed Chat Completions chunk (JSON bytes).
     #[codec(index = 0)]
     Delta(Vec<u8>),
-    /// The provider-signed receipt and the usage it charges for.
+    /// The receipt, signed by the provider, and the usage it charges for; the gateway adds its
+    /// own signature.
     #[codec(index = 1)]
     Receipt {
-        /// Receipt signed by the provider only.
-        receipt: SignedReceipt,
+        /// The receipt.
+        body: ReceiptBody,
+        /// The provider's account key.
+        key: PqPublicKey,
+        /// The provider's signature over the receipt payload.
+        signature: PqSignature,
         /// Usage reported by the engine.
         usage: Usage,
     },

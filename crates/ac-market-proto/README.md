@@ -34,7 +34,7 @@ wire format and never change.
 | gateway → provider | `ProviderReq::Infer` | 0 | request ID, job kind, model ID, request (JSON) |
 | | `ProviderReq::Cosigned` | 1 | the co-signed receipt, for the provider's records |
 | provider → gateway | `ProviderMsg::Delta` | 0 | one streamed chunk (JSON) |
-| | `ProviderMsg::Receipt` | 1 | the provider-signed receipt and the engine's usage |
+| | `ProviderMsg::Receipt` | 1 | the receipt with the provider's key and signature, and the engine's usage |
 | | `ProviderMsg::Error` | 2 | error code and message |
 | | `ProviderMsg::Ack` | 3 | acknowledges `Cosigned` |
 
