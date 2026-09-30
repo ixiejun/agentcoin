@@ -64,6 +64,10 @@ struct RunArgs {
     /// Directory for co-signed receipts.
     #[arg(long, default_value = "ac-provider-data")]
     data_dir: PathBuf,
+    /// Local Unix socket for the engine's TOPLOC plugin (`AGENTCOIN_TOPLOC_SOCKET` of the
+    /// engine). Without it receipts carry no TOPLOC proofs.
+    #[arg(long)]
+    toploc_socket: Option<PathBuf>,
     /// Log level (error, warn, info, debug, trace). Lines never contain request content.
     #[arg(long, default_value = "info")]
     log_level: log::LevelFilter,
@@ -109,6 +113,17 @@ async fn run(a: RunArgs) -> Result<()> {
         .await?
         .context("this account is not a registered provider (register with ac-wallet market provider register)")?;
     let models = check_registration(&record, &kem_public, &mapping)?;
+    let toploc = match &a.toploc_socket {
+        Some(path) => {
+            let c = ac_provider::toploc::Collector::listen(path)?;
+            log::info!(target: TARGET, "waiting for the engine's TOPLOC plugin on {}", path.display());
+            Some(c)
+        }
+        None => {
+            log::warn!(target: TARGET, "no --toploc-socket: receipts carry no TOPLOC proofs");
+            None
+        }
+    };
 
     let service = Service::new(
         Config {
@@ -120,6 +135,7 @@ async fn run(a: RunArgs) -> Result<()> {
             models,
             engine: a.engine,
             store_dir: a.data_dir.join("receipts"),
+            toploc,
         },
         Box::new(node.clone()),
     )?;

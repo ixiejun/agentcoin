@@ -4,6 +4,9 @@
 //! word per token, up to the request's output limit (default 16). Prompt tokens are the
 //! whitespace-separated words of every message. Time to first token and the interval between
 //! tokens are configurable, and a failure switch drops the stream after a number of tokens.
+//! With [`Config::toploc`] the engine also plays the vLLM TOPLOC plugin ([`plugin`]).
+
+pub mod plugin;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -11,6 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use ac_wallet::http::{self, Request, Response};
+pub use plugin::PluginConfig;
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
@@ -37,6 +41,8 @@ pub struct Config {
     pub token_interval: Duration,
     /// Drop the stream after this many tokens (no usage, no `[DONE]`).
     pub fail_after: Option<u64>,
+    /// Send pseudo-activations to a provider's TOPLOC socket, as the vLLM plugin does.
+    pub toploc: Option<PluginConfig>,
 }
 
 impl Default for Config {
@@ -46,6 +52,7 @@ impl Default for Config {
             ttft: Duration::from_millis(20),
             token_interval: Duration::from_millis(5),
             fail_after: None,
+            toploc: None,
         }
     }
 }
@@ -81,15 +88,24 @@ pub async fn spawn(listen: &str, config: Config) -> anyhow::Result<Engine> {
     let listener = TcpListener::bind(listen).await?;
     let addr = listener.local_addr()?;
     let served = Arc::new(AtomicU64::new(0));
+    let plugin = config
+        .toploc
+        .clone()
+        .map(|c| Arc::new(plugin::Plugin::new(c)));
     let (config, counter) = (Arc::new(config), Arc::clone(&served));
     tokio::spawn(http::serve(listener, move |req| {
-        let (config, counter) = (Arc::clone(&config), Arc::clone(&counter));
-        async move { handle(req, &config, &counter).await }
+        let (config, counter, plugin) = (Arc::clone(&config), Arc::clone(&counter), plugin.clone());
+        async move { handle(req, &config, &counter, plugin).await }
     }));
     Ok(Engine { addr, served })
 }
 
-async fn handle(req: Request, config: &Config, served: &AtomicU64) -> Response {
+async fn handle(
+    req: Request,
+    config: &Config,
+    served: &AtomicU64,
+    plugin: Option<Arc<plugin::Plugin>>,
+) -> Response {
     match (req.method().as_str(), req.uri().path()) {
         ("GET", "/v1/models") => {
             let data: Vec<Value> = config
@@ -102,6 +118,15 @@ async fn handle(req: Request, config: &Config, served: &AtomicU64) -> Response {
         ("GET", "/mock/requests") => http::json(200, served.load(Ordering::SeqCst).to_string()),
         ("POST", "/v1/chat/completions") => {
             served.fetch_add(1, Ordering::SeqCst);
+            // vLLM names a request `chatcmpl-<X-Request-Id>-<suffix>`.
+            let engine_id = req
+                .headers()
+                .get("x-request-id")
+                .and_then(|v| v.to_str().ok())
+                .map_or_else(
+                    || "chatcmpl-mock".to_string(),
+                    |x| format!("chatcmpl-{x}-6d6f636b"),
+                );
             let Ok(body) = http::read_body(req.into_body(), 4 << 20).await else {
                 return error(400, "unreadable body");
             };
@@ -116,7 +141,7 @@ async fn handle(req: Request, config: &Config, served: &AtomicU64) -> Response {
             if !config.models.contains(&model) {
                 return error(404, "unknown model");
             }
-            complete(&request, model, config)
+            complete(&request, model, config, Answer { engine_id, plugin })
         }
         _ => error(404, "not found"),
     }
@@ -162,7 +187,21 @@ pub fn answer(request: &Value) -> (Vec<String>, u64) {
     (tokens, prompt)
 }
 
-fn complete(request: &Value, model: String, config: &Config) -> Response {
+/// Who hears about an answer once it is complete.
+struct Answer {
+    engine_id: String,
+    plugin: Option<Arc<plugin::Plugin>>,
+}
+
+impl Answer {
+    async fn finished(&self, prompt: u64, completion: u64) {
+        if let Some(p) = &self.plugin {
+            p.send(&self.engine_id, prompt, completion).await;
+        }
+    }
+}
+
+fn complete(request: &Value, model: String, config: &Config, answer_to: Answer) -> Response {
     let (tokens, prompt) = answer(request);
     let completion = u64::try_from(tokens.len()).unwrap_or(u64::MAX);
     let usage = json!({ "prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": prompt.saturating_add(completion) });
@@ -181,6 +220,7 @@ fn complete(request: &Value, model: String, config: &Config) -> Response {
         let (tx, resp) = http::streaming(200, "application/json");
         tokio::spawn(async move {
             tokio::time::sleep(config.ttft).await;
+            answer_to.finished(prompt, completion).await;
             let body = json!({
                 "id": id, "object": "chat.completion", "created": 0, "model": model,
                 "choices": [{ "index": 0, "message": { "role": "assistant", "content": text.concat() }, "finish_reason": "length" }],
@@ -225,6 +265,7 @@ fn complete(request: &Value, model: String, config: &Config) -> Response {
             }
         }
         send(chunk(json!({}), json!("length"))).await;
+        answer_to.finished(prompt, completion).await;
         if include_usage {
             send(json!({ "id": id, "object": "chat.completion.chunk", "created": 0, "model": model, "choices": [], "usage": usage })).await;
         }

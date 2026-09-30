@@ -59,14 +59,33 @@ struct Setup {
 }
 
 async fn setup(label: &str, engine: ac_mock_engine::Config) -> Setup {
+    setup_with(label, engine, None).await
+}
+
+/// With `toploc = Some(half_decode)` the provider listens for the plugin and the mock engine
+/// plays it.
+async fn setup_with(
+    label: &str,
+    mut engine: ac_mock_engine::Config,
+    toploc: Option<bool>,
+) -> Setup {
     logging::init(log::LevelFilter::Debug, Sink::Buffer(&LOGS));
+    let data =
+        std::env::temp_dir().join(format!("ac-provider-test-{label}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&data);
+    std::fs::create_dir_all(&data).unwrap();
+    let collector = toploc.map(|half_decode| {
+        let socket = data.join("toploc.sock");
+        engine.toploc = Some(ac_mock_engine::PluginConfig {
+            socket: socket.clone(),
+            half_decode,
+        });
+        ac_provider::toploc::Collector::listen(&socket).unwrap()
+    });
     let engine = ac_mock_engine::spawn("127.0.0.1:0", engine).await.unwrap();
     let (gateway, inactive, provider) = (party(10), party(11), party(12));
     let kem_secret = KemSecretKey::from_seed(KemAlg::XWing, &SecretSeed::new([13; 32])).unwrap();
     let kem = kem_secret.public_key().unwrap();
-    let data =
-        std::env::temp_dir().join(format!("ac-provider-test-{label}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&data);
     let mut dir = HashMap::new();
     dir.insert(
         gateway.account.clone(),
@@ -98,6 +117,7 @@ async fn setup(label: &str, engine: ac_mock_engine::Config) -> Setup {
             )]),
             engine: engine.url(),
             store_dir: data.join("receipts"),
+            toploc: collector,
         },
         Box::new(StaticDirectory(dir)),
     )
@@ -433,4 +453,98 @@ fn walk(dir: &std::path::Path) -> Vec<PathBuf> {
         }
     }
     out
+}
+
+/// Co-signs a provider receipt as the gateway would.
+fn cosign(s: &Setup, reply: &[(Duration, ProviderMsg)]) -> SignedReceipt {
+    let Some((
+        _,
+        ProviderMsg::Receipt {
+            body,
+            key,
+            signature,
+            ..
+        },
+    )) = reply.last().cloned()
+    else {
+        panic!("no receipt: {:?}", reply.last());
+    };
+    let payload = body.payload().unwrap();
+    SignedReceipt {
+        gateway_sig: s
+            .gateway
+            .key
+            .sign(&payload, RECEIPT_CONTEXT, &mut OsRng::new().unwrap())
+            .unwrap(),
+        gateway_key: s.gateway.key.public_key().unwrap(),
+        provider_key: key,
+        provider_sig: signature,
+        body,
+    }
+}
+
+// m5-engine-toploc 4.2, scenarios "带证明的收据", "证明随收据保存与删除" and "不保存候选": the
+// receipt commits to proofs built from the plugin's candidates, the proofs are kept with the
+// co-signed receipt and pruned with it, and only receipts and proofs reach the disk.
+#[tokio::test]
+async fn receipts_commit_to_toploc_proofs_kept_until_pruned() {
+    let s = setup_with("toploc", fast(), Some(false)).await;
+    let prompt = format!("w w w {MARKER}");
+    let reply = call(&s, &s.gateway, &infer(MODEL, &prompt, 40))
+        .await
+        .unwrap();
+    let Some((_, ProviderMsg::Receipt { body, toploc, .. })) = reply.last().cloned() else {
+        panic!("no receipt: {:?}", reply.last());
+    };
+    let proofs = toploc.expect("the receipt comes with proofs");
+    assert_ne!(body.toploc_commit, [0; 32]);
+    // 40 output tokens: the prefill and 39 decode steps in 2 batches.
+    assert_eq!(proofs.proofs.len(), 3);
+    ac_market_proto::toploc::check(&body, Some(&proofs)).unwrap();
+    assert_eq!(s.service.toploc_missing(), 0);
+
+    let cosigned = cosign(&s, &reply);
+    let ack = call(
+        &s,
+        &s.gateway,
+        &msg::encode(&ProviderReq::Cosigned(cosigned)),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(&ack[..], [(_, ProviderMsg::Ack)]));
+    assert_eq!(s.service.store().toploc_of(&[9; 32]).unwrap(), Some(proofs));
+    // Besides the plugin socket, only the receipt file is in the data directory.
+    let stored: Vec<PathBuf> = walk(&s.data)
+        .into_iter()
+        .filter(|p| p.extension().is_none_or(|e| e != "sock"))
+        .collect();
+    let files: Vec<String> = stored
+        .iter()
+        .map(|p| p.strip_prefix(&s.data).unwrap().display().to_string())
+        .collect();
+    assert_eq!(files, [format!("receipts/{}.json", hex::encode([9u8; 32]))]);
+    let logs = LOGS.lock().unwrap().join("\n");
+    assert!(!logs.contains(MARKER));
+    for entry in stored {
+        assert!(!String::from_utf8_lossy(&std::fs::read(&entry).unwrap()).contains(MARKER));
+    }
+    // Pruned after the challenge period: the proofs go with the receipt.
+    assert_eq!(s.service.store().prune(u64::MAX).unwrap(), 1);
+    assert!(s.service.store().toploc_of(&[9; 32]).is_err());
+}
+
+// Scenario "步骤数不符": too few decode segments give an all-zero commitment and no proofs.
+#[tokio::test]
+async fn incomplete_candidates_give_no_proof() {
+    let s = setup_with("toploc-half", fast(), Some(true)).await;
+    let reply = call(&s, &s.gateway, &infer(MODEL, "a b c", 10))
+        .await
+        .unwrap();
+    let Some((_, ProviderMsg::Receipt { body, toploc, .. })) = reply.last().cloned() else {
+        panic!("no receipt");
+    };
+    assert_eq!(body.toploc_commit, [0; 32]);
+    assert!(toploc.is_none());
+    assert_eq!(s.service.toploc_missing(), 1);
+    ac_market_proto::toploc::check(&body, None).unwrap();
 }

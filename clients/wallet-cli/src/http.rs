@@ -203,8 +203,26 @@ impl Client {
         content_type: &str,
         body: impl Into<Bytes>,
     ) -> Result<hyper::Response<Incoming>> {
-        let req = hyper::Request::post(url)
-            .header(CONTENT_TYPE, content_type)
+        self.post_with(url, content_type, &[], body).await
+    }
+
+    /// `POST url` with a complete body and extra request headers.
+    ///
+    /// # Errors
+    ///
+    /// Invalid URLs or header values, and transport errors.
+    pub async fn post_with(
+        &self,
+        url: &str,
+        content_type: &str,
+        headers: &[(&str, &str)],
+        body: impl Into<Bytes>,
+    ) -> Result<hyper::Response<Incoming>> {
+        let mut req = hyper::Request::post(url).header(CONTENT_TYPE, content_type);
+        for (name, value) in headers {
+            req = req.header(*name, *value);
+        }
+        let req = req
             .body(Full::new(body.into()))
             .context("building the request")?;
         self.inner

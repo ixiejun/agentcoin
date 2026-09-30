@@ -167,6 +167,13 @@ async fn provider(
     engine: ac_mock_engine::Config,
     local_price: PricePerMTok,
 ) -> ProviderNode {
+    // An engine that plays the TOPLOC plugin gets a provider listening on its socket.
+    let collector = engine.toploc.as_ref().map(|plugin| {
+        if let Some(dir) = plugin.socket.parent() {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        ac_provider::toploc::Collector::listen(&plugin.socket).unwrap()
+    });
     let engine = ac_mock_engine::spawn("127.0.0.1:0", engine).await.unwrap();
     let party = party(seed);
     let kem_secret = KemSecretKey::from_seed(
@@ -198,6 +205,7 @@ async fn provider(
             )]),
             engine: engine.url(),
             store_dir: temp(&format!("provider-{seed}")),
+            toploc: collector,
         },
         Box::new(StaticDirectory(dir)),
     )

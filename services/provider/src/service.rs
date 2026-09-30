@@ -11,7 +11,9 @@ use ac_crypto::kem::KemSecretKey;
 use ac_crypto::sealed::{Acceptor, ReplayCache, recipient_id};
 use ac_crypto::sig::SigningKey;
 use ac_crypto::{KemPublicKey, OsRng};
+use ac_market_proto::engine::request_id_header;
 use ac_market_proto::openai::{SseDecoder, SseEvent, has_content, usage_of};
+use ac_market_proto::toploc::ToplocProofs;
 use ac_market_proto::{ChatRequest, ErrorCode, ProviderMsg, ProviderReq, Usage, msg};
 use ac_primitives::market::receipt::{RECEIPT_CONTEXT, ReceiptContext, check_receipt, fee_for};
 use ac_primitives::market::voucher::key_fingerprint;
@@ -26,9 +28,15 @@ use sp_runtime::AccountId32;
 use crate::chain::{Cached, Directory};
 use crate::logging::TARGET;
 use crate::store::Store;
+use crate::toploc::{Collector, Missing};
 
 /// Largest request body accepted.
 pub const MAX_BODY: usize = 32 * 1024 * 1024;
+
+/// Proofs of receipts sent to gateways and not yet co-signed, kept at most this long.
+const UNCONFIRMED_TTL: Duration = Duration::from_secs(600);
+/// Proofs awaiting a co-signed receipt, at most.
+const MAX_UNCONFIRMED: usize = 10_000;
 
 /// A model the provider serves: its engine name and on-chain price.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,6 +65,8 @@ pub struct Config {
     pub engine: String,
     /// Receipt directory.
     pub store_dir: PathBuf,
+    /// The engine plugin's candidates, when `--toploc-socket` is set.
+    pub toploc: Option<Arc<Collector>>,
 }
 
 /// The running service.
@@ -74,6 +84,9 @@ pub struct Service {
     replay: Mutex<ReplayCache>,
     store: Store,
     block: AtomicU64,
+    toploc: Option<Arc<Collector>>,
+    unconfirmed: Mutex<BTreeMap<[u8; 32], (Instant, ToplocProofs)>>,
+    missing: AtomicU64,
 }
 
 impl Service {
@@ -98,6 +111,9 @@ impl Service {
             replay: Mutex::new(ReplayCache::default()),
             store: Store::open(&config.store_dir)?,
             block: AtomicU64::new(0),
+            toploc: config.toploc,
+            unconfirmed: Mutex::new(BTreeMap::new()),
+            missing: AtomicU64::new(0),
         }))
     }
 
@@ -117,6 +133,22 @@ impl Service {
     #[must_use]
     pub const fn store(&self) -> &Store {
         &self.store
+    }
+
+    /// Receipts signed without TOPLOC proofs so far.
+    #[must_use]
+    pub fn toploc_missing(&self) -> u64 {
+        self.missing.load(Ordering::Relaxed)
+    }
+
+    fn no_proof(&self, id: &[u8; 32], why: Missing) {
+        self.missing.fetch_add(1, Ordering::Relaxed);
+        match &self.toploc {
+            Some(c) => c.count_missing(id, why),
+            None => {
+                log::debug!(target: TARGET, "request {}: no TOPLOC plugin configured", short(id))
+            }
+        }
     }
 
     /// Handles one HTTP request.
@@ -215,11 +247,21 @@ impl Service {
                 "served {id} model {} for gateway {}: {} + {} tokens, fee {} micro-USD, ttft {ttft} ms, total {total} ms",
                 short(&job.model.0), short_account(&job.gateway), usage.prompt_tokens, usage.completion_tokens, fee
             ),
-            Ok(None) => log::info!(target: TARGET, "request {id}: the gateway went away"),
+            Ok(None) => {
+                self.forget_toploc(&job.request_id);
+                log::info!(target: TARGET, "request {id}: the gateway went away");
+            }
             Err((code, reason)) => {
+                self.forget_toploc(&job.request_id);
                 log::warn!(target: TARGET, "request {id} failed: {} ({reason})", code.as_str());
                 writer.send(&msg::encode(&error(code, reason)), true).await;
             }
+        }
+    }
+
+    fn forget_toploc(&self, id: &[u8; 32]) {
+        if let Some(c) = &self.toploc {
+            c.forget(id);
         }
     }
 
@@ -246,11 +288,18 @@ impl Service {
             .map_err(|_| (ErrorCode::BadRequest, "malformed request"))?;
         chat.set_model(&entry.engine_name);
         chat.set_stream(true);
+        // Proofs cover one answer only (issue I-008 tracks `n > 1`).
+        let collecting = match &self.toploc {
+            Some(c) if chat.choices() <= 1 => c.expect(job.request_id),
+            _ => false,
+        };
+        let request_id = request_id_header(&job.request_id);
         let resp = self
             .http
-            .post(
+            .post_with(
                 &http::join(&self.engine, "/v1/chat/completions"),
                 "application/json",
+                &[("x-request-id", &request_id)],
                 chat.to_bytes(),
             )
             .await
@@ -297,6 +346,25 @@ impl Service {
         };
         let fee = fee_for(&entry.price, usage.prompt_tokens, usage.completion_tokens)
             .ok_or((ErrorCode::Internal, "fee overflow"))?;
+        let toploc = match &self.toploc {
+            Some(c) if collecting => match c.take(&job.request_id, usage).await {
+                Ok(p) => Some(p),
+                Err(why) => {
+                    self.no_proof(&job.request_id, why);
+                    None
+                }
+            },
+            _ => {
+                self.no_proof(&job.request_id, Missing::NotCollected);
+                None
+            }
+        };
+        let toploc_commit = match &toploc {
+            Some(p) => p
+                .commitment()
+                .map_err(|_| (ErrorCode::Internal, "proof encoding failed"))?,
+            None => [0; 32],
+        };
         let total = millis(job.started.elapsed());
         let body = ReceiptBody {
             genesis: self.genesis,
@@ -308,8 +376,7 @@ impl Service {
             in_tokens: usage.prompt_tokens,
             out_tokens: usage.completion_tokens,
             fee,
-            // No proof in this phase: engine-side TOPLOC comes with the next change.
-            toploc_commit: [0; 32],
+            toploc_commit,
             ttft_ms: ttft.unwrap_or(total),
             total_ms: total,
         };
@@ -321,12 +388,26 @@ impl Service {
             key,
             signature,
             usage,
-            toploc: None,
+            toploc: toploc.clone(),
         };
         if !writer.send(&msg::encode(&receipt), true).await {
             return Ok(None);
         }
+        if let Some(p) = toploc {
+            self.await_cosigned(job.request_id, p);
+        }
         Ok(Some((usage, fee.0, ttft.unwrap_or(total), total)))
+    }
+
+    /// Keeps proofs until the gateway returns the co-signed receipt (bounded; old entries of
+    /// receipts never co-signed are dropped).
+    fn await_cosigned(&self, id: [u8; 32], proofs: ToplocProofs) {
+        if let Ok(mut u) = self.unconfirmed.lock() {
+            u.retain(|_, (at, _)| at.elapsed() < UNCONFIRMED_TTL);
+            if u.len() < MAX_UNCONFIRMED {
+                u.insert(id, (Instant::now(), proofs));
+            }
+        }
     }
 
     fn sign(&self, body: &ReceiptBody) -> Result<(ac_crypto::PqPublicKey, ac_crypto::PqSignature)> {
@@ -366,8 +447,15 @@ impl Service {
             },
         )
         .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let proofs = self
+            .unconfirmed
+            .lock()
+            .ok()
+            .and_then(|mut u| u.remove(&receipt.body.request_id))
+            .map(|(_, p)| p)
+            .filter(|p| p.commitment().ok() == Some(receipt.body.toploc_commit));
         self.store
-            .save(receipt, self.block.load(Ordering::Relaxed))
+            .save(receipt, proofs.as_ref(), self.block.load(Ordering::Relaxed))
             .context("storing the receipt")
     }
 }

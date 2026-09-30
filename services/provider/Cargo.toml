@@ -18,6 +18,7 @@ ac-crypto = { workspace = true, features = ["std", "sealed", "keystore", "getran
 ac-market-proto = { workspace = true }
 ac-primitives = { workspace = true, features = ["std"] }
 ac-runtime = { workspace = true, features = ["std"] }
+ac-toploc = { workspace = true, features = ["std"] }
 ac-wallet = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
@@ -30,7 +31,7 @@ parity-scale-codec = { workspace = true, features = ["std"] }
 serde_json = { workspace = true, features = ["std"] }
 sp-core = { workspace = true, features = ["std"] }
 sp-runtime = { workspace = true, features = ["std"] }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net", "sync", "fs"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net", "sync", "fs", "io-util"] }
 zeroize = { workspace = true, features = ["std"] }
 
 [dev-dependencies]

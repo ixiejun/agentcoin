@@ -147,3 +147,121 @@ async fn the_failure_switch_drops_the_stream() {
             .all(|e| !matches!(e, SseEvent::Data(d) if usage_of(d).is_some()))
     );
 }
+
+/// Receives the stand-in plugin's messages on a Unix socket (as a provider would).
+async fn toploc_receiver(
+    path: std::path::PathBuf,
+) -> tokio::sync::mpsc::UnboundedReceiver<ac_market_proto::engine::EngineMsg> {
+    use ac_market_proto::engine::{EngineMsg, EngineReader};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        let (mut s, _) = listener.accept().await.unwrap();
+        let mut reader = EngineReader::new();
+        let mut buf = vec![0u8; 65536];
+        let mut greeted = false;
+        loop {
+            let n = s.read(&mut buf).await.unwrap();
+            if n == 0 {
+                return;
+            }
+            reader.push(&buf[..n]);
+            while let Some(m) = reader.next_msg().unwrap() {
+                if !greeted {
+                    assert!(matches!(
+                        m,
+                        EngineMsg::Hello {
+                            hidden_size: 256,
+                            ..
+                        }
+                    ));
+                    let w = EngineMsg::Welcome {
+                        version: 1,
+                        topk: 128,
+                    };
+                    s.write_all(&w.to_frame().unwrap()).await.unwrap();
+                    greeted = true;
+                } else {
+                    tx.send(m).unwrap();
+                }
+            }
+        }
+    });
+    rx
+}
+
+// m5-engine-toploc 6.1: the engine plays the TOPLOC plugin: a prefill of prompt × 256 values,
+// one decode segment per output token but the last, the end marker, all under vLLM's request
+// ID derived from X-Request-Id.
+#[tokio::test]
+async fn the_engine_plays_the_toploc_plugin() {
+    use ac_market_proto::engine::{EngineMsg, market_request_id};
+    use ac_toploc::Phase;
+    for (half, decode) in [(false, 4), (true, 2)] {
+        let dir =
+            std::env::temp_dir().join(format!("ac-mock-toploc-{}-{half}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("t.sock");
+        let mut rx = toploc_receiver(socket.clone()).await;
+        let engine = spawn(
+            "127.0.0.1:0",
+            Config {
+                ttft: Duration::ZERO,
+                token_interval: Duration::ZERO,
+                toploc: Some(ac_mock_engine::PluginConfig {
+                    socket,
+                    half_decode: half,
+                }),
+                ..Config::default()
+            },
+        )
+        .await
+        .unwrap();
+        let id = [0x3cu8; 32];
+        let header = ac_market_proto::engine::request_id_header(&id);
+        let resp = Client::new()
+            .unwrap()
+            .post_with(
+                &join(&engine.url(), "/v1/chat/completions"),
+                "application/json",
+                &[("x-request-id", &header)],
+                request(true).to_string(),
+            )
+            .await
+            .unwrap();
+        read_body(resp.into_body(), 1 << 20).await.unwrap();
+        // 5 prompt words (2 + 3 in two prefill steps), 5 output tokens.
+        let mut prefill = Vec::new();
+        let mut decodes = 0;
+        loop {
+            match rx.recv().await.unwrap() {
+                EngineMsg::Segment {
+                    request,
+                    phase,
+                    len,
+                    candidates,
+                } => {
+                    assert_eq!(market_request_id(&request), Some(id));
+                    assert_eq!(candidates.len(), 128);
+                    match phase {
+                        Phase::Prefill => prefill.push(len),
+                        _ => {
+                            assert_eq!(len, 256);
+                            decodes += 1;
+                        }
+                    }
+                }
+                EngineMsg::Finish { request } => {
+                    assert_eq!(market_request_id(&request), Some(id));
+                    break;
+                }
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        assert_eq!(prefill, [2 * 256, 3 * 256]);
+        assert_eq!(decodes, decode);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}

@@ -1,8 +1,10 @@
-//! Co-signed receipts kept until their challenge period is over (spec "费用计算与收据签名").
-//! Files hold receipts only: never prompts or outputs.
+//! Co-signed receipts kept with their TOPLOC proofs until their challenge period is over (spec
+//! "费用计算与收据签名"). Files hold receipts and proofs only: never prompts, outputs or
+//! activations.
 
 use std::path::{Path, PathBuf};
 
+use ac_market_proto::toploc::ToplocProofs;
 use ac_primitives::market::SignedReceipt;
 use anyhow::{Context, Result};
 use parity_scale_codec::{Decode, Encode};
@@ -27,16 +29,28 @@ impl Store {
         })
     }
 
-    /// Saves a receipt stamped with the block it was stored at (write, then rename).
+    /// Saves a receipt and its proofs, stamped with the block it was stored at (write, then
+    /// rename); pruning deletes both.
     ///
     /// # Errors
     ///
     /// Write failures.
-    pub fn save(&self, receipt: &SignedReceipt, block: u64) -> Result<()> {
+    pub fn save(
+        &self,
+        receipt: &SignedReceipt,
+        toploc: Option<&ToplocProofs>,
+        block: u64,
+    ) -> Result<()> {
         let name = hex::encode(receipt.body.request_id);
         let tmp = self.dir.join(format!("{name}.tmp"));
-        let body =
+        let mut body =
             json!({ "block": block, "receipt": format!("0x{}", hex::encode(receipt.encode())) });
+        if let (Some(p), Some(obj)) = (toploc, body.as_object_mut()) {
+            obj.insert(
+                "toploc".into(),
+                format!("0x{}", hex::encode(p.encode())).into(),
+            );
+        }
         std::fs::write(&tmp, body.to_string())
             .with_context(|| format!("writing {}", tmp.display()))?;
         std::fs::rename(&tmp, self.dir.join(format!("{name}.json")))
@@ -64,6 +78,26 @@ impl Store {
             out.push((block, receipt, path));
         }
         Ok(out)
+    }
+
+    /// The TOPLOC proofs stored with a receipt (`None` for a receipt without proofs, or one
+    /// stored before proofs existed).
+    ///
+    /// # Errors
+    ///
+    /// If no receipt with that request ID is stored.
+    pub fn toploc_of(&self, request_id: &[u8; 32]) -> Result<Option<ToplocProofs>> {
+        let path = self.dir.join(format!("{}.json", hex::encode(request_id)));
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let v: Value = serde_json::from_str(&text).context("malformed receipt file")?;
+        let Some(hex_proofs) = v.get("toploc").and_then(Value::as_str) else {
+            return Ok(None);
+        };
+        let bytes = hex::decode(hex_proofs.trim_start_matches("0x")).context("malformed proofs")?;
+        Ok(Some(
+            ToplocProofs::decode(&mut &bytes[..]).context("malformed proofs")?,
+        ))
     }
 
     /// Deletes receipts stored before `block`; returns how many.
@@ -141,8 +175,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ac-provider-store-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let store = Store::open(&dir).unwrap();
-        store.save(&receipt(1), 10).unwrap();
-        store.save(&receipt(2), 20).unwrap();
+        store.save(&receipt(1), None, 10).unwrap();
+        store.save(&receipt(2), None, 20).unwrap();
         drop(store);
         let reopened = Store::open(&dir).unwrap();
         let mut listed: Vec<(u64, u8)> = reopened
@@ -159,6 +193,28 @@ mod tests {
         );
         assert_eq!(reopened.prune(15).unwrap(), 1);
         assert_eq!(reopened.list().unwrap().len(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // Scenario "证明随收据保存与删除".
+    #[test]
+    fn proofs_are_kept_and_pruned_with_their_receipt() {
+        let dir = std::env::temp_dir().join(format!("ac-provider-proofs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = Store::open(&dir).unwrap();
+        let proofs = ToplocProofs {
+            decode_batching_size: 32,
+            topk: 128,
+            skip_prefill: false,
+            proofs: vec![vec![0xff, 0xd9, 1, 2]],
+        };
+        store.save(&receipt(3), Some(&proofs), 10).unwrap();
+        store.save(&receipt(4), None, 10).unwrap();
+        assert_eq!(store.toploc_of(&[3; 32]).unwrap(), Some(proofs));
+        assert_eq!(store.toploc_of(&[4; 32]).unwrap(), None);
+        assert_eq!(store.prune(11).unwrap(), 2);
+        assert!(store.toploc_of(&[3; 32]).is_err());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

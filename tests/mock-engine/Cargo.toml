@@ -14,14 +14,15 @@ name = "ac-mock-engine"
 path = "src/main.rs"
 
 [dependencies]
+ac-market-proto = { workspace = true }
+ac-toploc = { workspace = true, features = ["std"] }
 ac-wallet = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 serde_json = { workspace = true, features = ["std"] }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net", "sync"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net", "sync", "io-util"] }
 
 [dev-dependencies]
-ac-market-proto = { workspace = true }
 
 [lints]
 workspace = true

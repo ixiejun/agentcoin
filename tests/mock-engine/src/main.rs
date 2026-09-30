@@ -22,6 +22,12 @@ struct Args {
     /// Drop every stream after this many tokens.
     #[arg(long)]
     fail_after: Option<u64>,
+    /// Play the vLLM TOPLOC plugin: send pseudo-activations to this provider socket.
+    #[arg(long)]
+    toploc_socket: Option<std::path::PathBuf>,
+    /// With --toploc-socket: send only half of the decode segments (no proof results).
+    #[arg(long)]
+    toploc_half_decode: bool,
 }
 
 #[tokio::main]
@@ -34,6 +40,10 @@ async fn main() -> anyhow::Result<()> {
             ttft: Duration::from_millis(a.ttft_ms),
             token_interval: Duration::from_millis(a.token_ms),
             fail_after: a.fail_after,
+            toploc: a.toploc_socket.map(|socket| ac_mock_engine::PluginConfig {
+                socket,
+                half_decode: a.toploc_half_decode,
+            }),
         },
     )
     .await?;
