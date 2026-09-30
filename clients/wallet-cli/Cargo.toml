@@ -20,6 +20,7 @@ ac-primitives = { workspace = true, features = ["std"] }
 ac-runtime = { workspace = true, features = ["std"] }
 alloy-core = { workspace = true, features = ["std", "dyn-abi"] }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 bytes = { workspace = true, features = ["std"] }
 http-body-util = { workspace = true }
 hyper = { workspace = true, features = ["http1", "server", "client"] }

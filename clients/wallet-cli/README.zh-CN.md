@@ -115,6 +115,15 @@ ac-wallet market work --epoch 12                                          # 某�
 | `market claim [--account] [--epochs]` | 为某账户（默认钱包自己的）领取已结算纪元的全部冻结款项与排放份额 |
 | `market work [--account \| --epoch]` | 某账户的累计工作量、冻结款项与未领取的工作量，或某纪元的已核验工作量与市场排放 |
 
+## 本地推理代理
+
+`ac-wallet market serve` 在本机提供 OpenAI 兼容接口（`GET /v1/models`、`POST /v1/chat/completions`，流式与非流式），用你的额度通道向网关付费，使未修改的 OpenAI SDK 可以直接使用推理市场。命令与 Python 示例见英文版 [README.md](README.md)：先托管额度，再运行 `market serve --gateway <网关地址> --max-usd 5`，然后把 OpenAI SDK 的 `base_url` 指向 `http://127.0.0.1:8411/v1`（模型可写名称或 `0x…` ID）。
+
+- 启动时检查：你与该网关有额度通道、钱包密钥是通道的凭证密钥、网关的加密公钥由网关账户签名。
+- 每个请求都密封给网关（X-Wing + ML-DSA），并附带恰好等于你已付总额的凭证。响应结束后，代理校验双签收据（签名、链、网关、模型、token 数与返回的 `usage` 一致、费用等于提供者的链上价格、网关的已计费总额），通过后才付清该总额。任何一项校验失败，代理都会停止后续所有付款与请求。
+- `--max-usd` 限制通道的累计付款；已付总额保存在钱包旁的 `serve-<网关>.json`（`--state`），重启后不会重复付款。
+- 默认只监听 `127.0.0.1:8411`，且没有鉴权：切勿对外暴露。私钥从不离开本机，代理也不记录 prompt 或输出。
+
 ## 库示例
 
 示例代码见英文版 [README.md](README.md)（英文版中的示例作为 doctest 运行）：在 ATC 小数字符串与最小单位之间互相转换。

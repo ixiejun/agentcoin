@@ -90,6 +90,29 @@ pub enum MarketCommand {
         #[arg(long, value_delimiter = ',')]
         epochs: Vec<u64>,
     },
+    /// Serve an OpenAI-compatible endpoint on this machine that forwards sealed requests to a
+    /// gateway and pays each checked receipt with a voucher (point OpenAI SDKs' base URL at it).
+    Serve {
+        #[command(flatten)]
+        signed: Signed,
+        /// Gateway address.
+        #[arg(long)]
+        gateway: String,
+        /// Gateway base URL; defaults to its registered endpoint.
+        #[arg(long)]
+        gateway_url: Option<String>,
+        /// Local address to listen on. Keep it on the loopback interface: it has no
+        /// authentication and spends from your channel.
+        #[arg(long, default_value = ac_wallet::proxy::DEFAULT_LISTEN)]
+        listen: String,
+        /// Stop paying once the channel's paid total reaches this many dollars.
+        #[arg(long)]
+        max_usd: Option<String>,
+        /// File keeping the paid total across restarts; defaults to
+        /// `serve-<gateway>.json` next to the wallet.
+        #[arg(long)]
+        state: Option<std::path::PathBuf>,
+    },
     /// Show settlement state: an account's held payments and work, or an epoch's work.
     Work {
         #[command(flatten)]
@@ -661,6 +684,46 @@ pub async fn run(command: MarketCommand) -> Result<()> {
         }
         MarketCommand::Receipt { command } => run_receipt(command).await?,
         MarketCommand::Report { command } => run_report(command).await?,
+        MarketCommand::Serve {
+            signed,
+            gateway,
+            gateway_url,
+            listen,
+            max_usd,
+            state,
+        } => {
+            let w = load(&signed.wallet.wallet)?;
+            let pw = password(&signed.wallet, false)?;
+            let gateway = parse_address(&gateway)?;
+            let client = NodeClient::new(&signed.node.node)?;
+            let state = state.unwrap_or_else(|| {
+                let short = &encode_address(gateway.as_ref())[..16];
+                signed
+                    .wallet
+                    .wallet
+                    .with_file_name(format!("serve-{short}.json"))
+            });
+            let max_usd = max_usd.map(|m| parse_usd(&m)).transpose()?;
+            let config = ac_wallet::proxy::connect(
+                &client,
+                (w.account()?, w.current_key(&pw)?),
+                gateway,
+                gateway_url,
+                (max_usd, state),
+            )
+            .await?;
+            let proxy = ac_wallet::proxy::Proxy::new(config, Box::new(client))?;
+            let paid = proxy.paid().await;
+            let listener = tokio::net::TcpListener::bind(&listen)
+                .await
+                .with_context(|| format!("binding {listen}"))?;
+            println!("listening on http://{}/v1", listener.local_addr()?);
+            println!("paid so far: {}", format_usd(paid.total));
+            ac_wallet::http::serve(listener, move |req| {
+                std::sync::Arc::clone(&proxy).handle(req)
+            })
+            .await?;
+        }
         MarketCommand::Claim {
             signed,
             account,

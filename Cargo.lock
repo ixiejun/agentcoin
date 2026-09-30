@@ -417,6 +417,7 @@ dependencies = [
  "ac-runtime",
  "alloy-core",
  "anyhow",
+ "async-trait",
  "bytes",
  "clap",
  "frame-support",

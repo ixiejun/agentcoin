@@ -137,6 +137,39 @@ ac-wallet market work --epoch 12                                          # an e
 | `market claim [--account] [--epochs]` | claims every held payment and emission share of settled epochs for an account (by default the wallet's) |
 | `market work [--account \| --epoch]` | an account's lifetime work, held payments and unclaimed work, or an epoch's verified work and market emission |
 
+## Local inference proxy
+
+`ac-wallet market serve` runs an OpenAI-compatible endpoint on this machine (`GET /v1/models`,
+`POST /v1/chat/completions`, streamed or not) that pays a gateway from your credit channel, so
+unmodified OpenAI SDKs can use the market:
+
+```bash
+ac-wallet market escrow deposit --wallet user.json --gateway atc1… --amount 10
+ac-wallet market serve --wallet user.json --gateway atc1… --max-usd 5
+# listening on http://127.0.0.1:8411/v1
+```
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://127.0.0.1:8411/v1", api_key="unused")
+for chunk in client.chat.completions.create(
+        model="Qwen2.5-0.5B-Instruct",  # a model name or its 0x… ID
+        messages=[{"role": "user", "content": "Hello!"}], stream=True):
+    print(chunk.choices[0].delta.content if chunk.choices else "", end="")
+```
+
+- At start it checks that you have a channel with the gateway, that the wallet key is the
+  channel's voucher key and that the gateway's encryption key is signed by the gateway account.
+- Each request is sealed to the gateway (X-Wing + ML-DSA) with a voucher for exactly what you
+  have paid so far. After the response the proxy checks the double-signed receipt (signatures,
+  chain, gateway, model, token counts against the returned usage, fee at the provider's on-chain
+  price, the gateway's billed total) and only then pays that total. A receipt that fails any
+  check stops all further payments and requests.
+- `--max-usd` caps the channel's paid total; the paid total is kept in
+  `serve-<gateway>.json` next to the wallet (`--state`) so restarts never pay twice.
+- It listens on `127.0.0.1:8411` by default and has no authentication: never expose it. Your
+  private key never leaves the machine, and the proxy logs no prompts or outputs.
+
 ## Library example
 
 ```rust
