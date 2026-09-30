@@ -1,20 +1,22 @@
-//! `ac-provider`: the inference provider agent.
+//! `ac-gateway`: the inference gateway.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use ac_provider::chain_tasks::{self, check_registration};
-use ac_provider::logging::{self, Sink, TARGET};
-use ac_provider::{Config, Service};
-use ac_wallet::kem_key as keys;
-use ac_wallet::market::parse_model_id;
+use ac_gateway::chain_tasks::{self, Schedule};
+use ac_gateway::logging::{self, Sink, TARGET};
+use ac_gateway::routing::Router;
+use ac_gateway::{Config, Gateway};
+use ac_primitives::market::records::GatewayStatus;
+use ac_wallet::kem_key;
 use ac_wallet::ops::Signer;
 use ac_wallet::wallet::read_password_file;
 use ac_wallet::{NodeClient, Wallet};
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "ac-provider", about = "AgentCoin inference provider agent")]
+#[command(name = "ac-gateway", about = "AgentCoin inference gateway")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -22,7 +24,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Generate the X-Wing key and print the public key to register.
+    /// Generate the gateway's X-Wing key.
     Keygen {
         /// Key file to create.
         #[arg(long)]
@@ -31,13 +33,13 @@ enum Command {
         #[arg(long)]
         password_file: PathBuf,
     },
-    /// Serve sealed requests from registered gateways.
+    /// Serve users.
     Run(RunArgs),
 }
 
 #[derive(clap::Args)]
 struct RunArgs {
-    /// The provider's wallet file.
+    /// The gateway's wallet file.
     #[arg(long)]
     wallet: PathBuf,
     /// File holding the wallet passphrase.
@@ -52,18 +54,18 @@ struct RunArgs {
     /// Node RPC URL.
     #[arg(long, default_value = "http://127.0.0.1:9944")]
     node: String,
-    /// OpenAI-compatible engine base URL (vLLM, SGLang, llama.cpp server, ...).
-    #[arg(long, default_value = "http://127.0.0.1:8000")]
-    engine: String,
-    /// `<on-chain model id>=<engine model name>`, repeatable.
-    #[arg(long = "model", required = true)]
-    models: Vec<String>,
     /// Address to listen on (the registered endpoint should reach it).
-    #[arg(long, default_value = "127.0.0.1:8421")]
+    #[arg(long, default_value = "127.0.0.1:8431")]
     listen: String,
-    /// Directory for co-signed receipts.
-    #[arg(long, default_value = "ac-provider-data")]
+    /// Directory for the channel ledger and reported receipts.
+    #[arg(long, default_value = "ac-gateway-data")]
     data_dir: PathBuf,
+    /// Blocks between report rounds (default: one live emission epoch; at most an epoch).
+    #[arg(long, default_value_t = 3_600)]
+    report_interval: u64,
+    /// Output-token limit applied when a request gives none.
+    #[arg(long, default_value_t = 4_096)]
+    max_output_tokens: u32,
     /// Log level (error, warn, info, debug, trace). Lines never contain request content.
     #[arg(long, default_value = "info")]
     log_level: log::LevelFilter,
@@ -73,8 +75,8 @@ struct RunArgs {
 async fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Keygen { out, password_file } => {
-            let key = keys::generate(&out, &read_password_file(&password_file)?)?;
-            println!("kem key: {}", keys::encode(&key));
+            let key = kem_key::generate(&out, &read_password_file(&password_file)?)?;
+            println!("kem key: {}", kem_key::encode(&key));
             Ok(())
         }
         Command::Run(args) => run(args).await,
@@ -90,54 +92,47 @@ async fn run(a: RunArgs) -> Result<()> {
         Some(p) => read_password_file(p)?,
         None => password.clone(),
     };
-    let (kem, kem_public) = keys::load(&a.kem_key, &kem_password)?;
-    let mapping = a
-        .models
-        .iter()
-        .map(|m| {
-            let (id, name) = m
-                .split_once('=')
-                .context("--model must be <model id>=<engine model name>")?;
-            Ok((parse_model_id(id)?, name.to_string()))
-        })
-        .collect::<Result<Vec<_>>>()?;
-
+    let (kem, kem_public) = kem_key::load(&a.kem_key, &kem_password)?;
     let node = NodeClient::new(&a.node)?;
     let genesis = node.chain_context().await?.genesis_hash;
     let record = node
-        .market_provider(&signer.account)
+        .market_gateway(&signer.account)
         .await?
-        .context("this account is not a registered provider (register with ac-wallet market provider register)")?;
-    let models = check_registration(&record, &kem_public, &mapping)?;
+        .context("this account is not a registered gateway (register with ac-wallet market gateway register)")?;
+    if record.status != GatewayStatus::Active {
+        bail!("the gateway is not active on chain");
+    }
+    let epoch = node.epoch_length().await?;
+    let report_interval = a.report_interval.clamp(1, epoch.max(1));
 
-    let service = Service::new(
+    let router = Arc::new(Router::new());
+    router.refresh(&node).await?;
+    let gateway = Gateway::new(
         Config {
             account: signer.account.clone(),
             key: wallet.current_key(&password)?,
             kem,
             kem_public,
             genesis,
-            models,
-            engine: a.engine,
-            store_dir: a.data_dir.join("receipts"),
+            max_output_tokens: a.max_output_tokens,
+            data_dir: a.data_dir.clone(),
         },
-        Box::new(node.clone()),
+        Arc::new(node.clone()),
+        Arc::clone(&router),
     )?;
     tokio::spawn(chain_tasks::run(
-        node,
-        signer,
-        std::sync::Arc::clone(&service),
-        mapping,
+        (node, signer),
+        Arc::clone(&gateway),
+        router,
+        a.data_dir,
+        Schedule { report_interval },
     ));
     let listener = tokio::net::TcpListener::bind(&a.listen)
         .await
         .with_context(|| format!("binding {}", a.listen))?;
     let addr = listener.local_addr()?;
     println!("listening on {addr}");
-    log::info!(target: TARGET, "serving on {addr}");
-    ac_wallet::http::serve(listener, move |req| {
-        std::sync::Arc::clone(&service).handle(req)
-    })
-    .await?;
+    log::info!(target: TARGET, "serving on {addr}; reports every {report_interval} blocks");
+    ac_wallet::http::serve(listener, move |req| Arc::clone(&gateway).handle(req)).await?;
     Ok(())
 }

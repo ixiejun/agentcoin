@@ -187,6 +187,26 @@ impl NodeClient {
         })
     }
 
+    /// Storage keys under `prefix`, at most `count`, after `start` (latest state).
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn storage_keys_paged(
+        &self,
+        prefix: &[u8],
+        count: u32,
+        start: Option<&[u8]>,
+    ) -> Result<Vec<Vec<u8>>> {
+        let prefix = format!("0x{}", hex::encode(prefix));
+        let start = start.map(|s| format!("0x{}", hex::encode(s)));
+        let keys: Vec<String> = self
+            .rpc
+            .request("state_getKeysPaged", rpc_params![prefix, count, start])
+            .await?;
+        keys.iter().map(|k| unhex(k)).collect()
+    }
+
     /// Number of the best block.
     ///
     /// # Errors

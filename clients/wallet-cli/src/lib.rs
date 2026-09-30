@@ -4,6 +4,7 @@ pub mod amount;
 pub mod client;
 pub mod evm;
 pub mod http;
+pub mod kem_key;
 pub mod market;
 pub mod ops;
 pub mod sealed_http;

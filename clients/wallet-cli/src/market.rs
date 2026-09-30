@@ -298,6 +298,37 @@ impl NodeClient {
         self.market("model", &id).await
     }
 
+    /// Every registered model ID (paged over the `ModelRegistry::Models` storage map, whose
+    /// keys end with the ID).
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn market_model_ids(&self) -> Result<Vec<ModelId>> {
+        let prefix = [
+            sp_io::hashing::twox_128(b"ModelRegistry"),
+            sp_io::hashing::twox_128(b"Models"),
+        ]
+        .concat();
+        let mut ids = Vec::new();
+        let mut start: Option<Vec<u8>> = None;
+        loop {
+            let keys = self
+                .storage_keys_paged(&prefix, 512, start.as_deref())
+                .await?;
+            let full = keys.len() == 512;
+            for k in &keys {
+                if let Some(Ok(id)) = k.get(prefix.len()..).map(<[u8; 32]>::try_from) {
+                    ids.push(ModelId(id));
+                }
+            }
+            start = keys.last().cloned();
+            if !full {
+                return Ok(ids);
+            }
+        }
+    }
+
     /// A registered provider.
     ///
     /// # Errors

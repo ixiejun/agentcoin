@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["clients/wallet-cli", "tests/e2e", "tests/mock-engine", "tests/sim", "tests/overmint-runtime", "tests/early-switch-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "crates/ac-toploc", "crates/ac-market-proto", "services/eth-rpc", "services/provider", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "pallets/staking-pos", "pallets/evm-support", "pallets/ref-rate", "pallets/model-registry", "pallets/providers", "pallets/gateways", "pallets/credits", "pallets/work", "runtime"]
+members = ["clients/wallet-cli", "tests/e2e", "tests/mock-engine", "tests/sim", "tests/overmint-runtime", "tests/early-switch-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "crates/ac-toploc", "crates/ac-market-proto", "services/eth-rpc", "services/provider", "services/gateway", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "pallets/staking-pos", "pallets/evm-support", "pallets/ref-rate", "pallets/model-registry", "pallets/providers", "pallets/gateways", "pallets/credits", "pallets/work", "runtime"]
 
 [workspace.package]
 version = "0.1.0"
@@ -114,6 +114,7 @@ ac-toploc = { path = "crates/ac-toploc", version = "0.1", default-features = fal
 ac-market-proto = { path = "crates/ac-market-proto", version = "0.1", default-features = false }
 ac-wallet = { path = "clients/wallet-cli", version = "0.1", default-features = false }
 ac-mock-engine = { path = "tests/mock-engine", version = "0.1", default-features = false }
+ac-provider = { path = "services/provider", version = "0.1", default-features = false }
 ac-runtime = { path = "runtime", version = "0.1", default-features = false }
 ac-overmint-runtime = { path = "tests/overmint-runtime", version = "0.1", default-features = false }
 ac-early-switch-runtime = { path = "tests/early-switch-runtime", version = "0.1", default-features = false }

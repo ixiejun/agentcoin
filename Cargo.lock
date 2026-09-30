@@ -153,6 +153,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "ac-gateway"
+version = "0.1.0"
+dependencies = [
+ "ac-crypto",
+ "ac-market-proto",
+ "ac-mock-engine",
+ "ac-primitives",
+ "ac-provider",
+ "ac-runtime",
+ "ac-wallet",
+ "anyhow",
+ "async-trait",
+ "clap",
+ "hex",
+ "log",
+ "pallet-work",
+ "parity-scale-codec",
+ "rand_core 0.10.1",
+ "serde_json",
+ "sp-core",
+ "sp-runtime",
+ "tokio",
+]
+
+[[package]]
 name = "ac-invariants"
 version = "0.1.0"
 dependencies = [

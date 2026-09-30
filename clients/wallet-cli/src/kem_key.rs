@@ -1,4 +1,5 @@
-//! The provider's X-Wing key: generated once, stored password-encrypted (spec "加密密钥管理").
+//! A service's X-Wing key (providers and gateways): generated once, stored password-encrypted
+//! (spec `market/provider-agent` "加密密钥管理").
 
 use std::path::Path;
 
@@ -69,7 +70,7 @@ mod tests {
     // Scenario "同一文件得到同一公钥".
     #[test]
     fn the_same_file_gives_the_same_key() {
-        let dir = std::env::temp_dir().join(format!("ac-provider-keys-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ac-wallet-kem-key-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("kem.json");
         let _ = std::fs::remove_file(&path);
