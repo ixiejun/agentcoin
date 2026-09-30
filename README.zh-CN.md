@@ -16,7 +16,7 @@
 
 文档语言约定：每份项目文档都有英文版（主版本，位于规范路径）和简体中文版（`*.zh-CN.md`），两者在页首互相链接。
 
-状态：M0（工作区、CI 与抗量子密码库 `ac-crypto`，[crates/ac-crypto](crates/ac-crypto/README.zh-CN.md)）和 M1（抗量子链，[node](node/README.zh-CN.md)）已完成；M2（AC-BFT 终局性、双签证据、commit–reveal 随机数）已完成；M3 经济部分（计划排放、双国库、80/20 手续费分配、PoA 多签、节点执行的供应量不变量）已完成；M3 PoS 部分（质押、Phragmén 选举、按工作量发放奖励、罚没，以及节点强制执行的单向 PoA→PoS 切换）已完成；M4 EVM（带抗量子预编译的 `pallet-revive`、[eth-RPC 适配器](services/eth-rpc/README.zh-CN.md)、作为 Foundry 的 ML-DSA 签名器的 `ac-wallet evm`、[合约](contracts/README.zh-CN.md)）已完成；M5 推理市场进行中：市场登记（参考汇率、模型、提供者、网关与透明额度，见 [pallets](pallets/credits/README.zh-CN.md)，以及 `ac-wallet market`）与工作结算（签名收据、[工作报告与领取](pallets/work/README.zh-CN.md)、市场排放、[TOPLOC 移植](crates/ac-toploc/README.zh-CN.md)）已完成，接下来是网关与提供者服务。规范见 `openspec/specs/`。
+状态：M0（工作区、CI 与抗量子密码库 `ac-crypto`，[crates/ac-crypto](crates/ac-crypto/README.zh-CN.md)）和 M1（抗量子链，[node](node/README.zh-CN.md)）已完成；M2（AC-BFT 终局性、双签证据、commit–reveal 随机数）已完成；M3 经济部分（计划排放、双国库、80/20 手续费分配、PoA 多签、节点执行的供应量不变量）已完成；M3 PoS 部分（质押、Phragmén 选举、按工作量发放奖励、罚没，以及节点强制执行的单向 PoA→PoS 切换）已完成；M4 EVM（带抗量子预编译的 `pallet-revive`、[eth-RPC 适配器](services/eth-rpc/README.zh-CN.md)、作为 Foundry 的 ML-DSA 签名器的 `ac-wallet evm`、[合约](contracts/README.zh-CN.md)）已完成；M5 推理市场进行中：市场登记（参考汇率、模型、提供者、网关与透明额度，见 [pallets](pallets/credits/README.zh-CN.md)，以及 `ac-wallet market`）与工作结算（签名收据、[工作报告与领取](pallets/work/README.zh-CN.md)、市场排放、[TOPLOC 移植](crates/ac-toploc/README.zh-CN.md)）以及[网关](services/gateway/README.zh-CN.md)与[提供者](services/provider/README.zh-CN.md)服务（密封通道、`ac-wallet market serve` 中的本地 OpenAI 兼容代理）已完成，接下来是引擎内的 TOPLOC 证明。规范见 `openspec/specs/`。
 
 ## 本地开发
 
@@ -34,6 +34,7 @@ for c in ac-crypto ac-primitives ac-invariants pallet-pq-accounts pallet-aura-pq
   pallet-work ac-toploc; do
   cargo build -p $c --no-default-features --target wasm32-unknown-unknown
 done
+cargo build -p ac-crypto --no-default-features --features sealed --target wasm32-unknown-unknown
 cargo install --locked cargo-deny cargo-audit   # 仅需一次
 cargo deny check
 cargo audit

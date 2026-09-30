@@ -93,7 +93,7 @@ Rules:
 AGENT.md · CLAUDE.md · README.md · Cargo.toml · rust-toolchain.toml · deny.toml
 docs/{decisions.md, design/, research/, rust-guidelines/}
 openspec/{config.yaml, specs/, changes/(local)}
-crates/      shared libraries: ac-crypto, ac-primitives, ac-invariants, ac-toploc
+crates/      shared libraries: ac-crypto, ac-primitives, ac-invariants, ac-toploc, ac-market-proto
 node/        ac-node: consensus (aura-pq, ac-bft), node invariant checker
 runtime/     WASM runtime assembly
 pallets/     on-chain modules (pq-accounts, emission, credits, work, audit …)
@@ -320,11 +320,12 @@ scripts/benchmark-pallet.sh <pallet> <weights.rs> # regenerate benchmarked weigh
 scripts/gen-toploc-vectors.sh                     # regenerate TOPLOC vectors from the reference (Python)
 
 # Node and end-to-end
-cargo build -p ac-node -p ac-wallet
+cargo build -p ac-node -p ac-wallet -p ac-provider -p ac-gateway -p ac-mock-engine
 scripts/run-local-testnet.sh [--check]            # four-node local testnet (best + finalized)
 AC_E2E=1 cargo test -p ac-e2e -- --test-threads 1  # multi-node acceptance tests
 AC_E2E=1 cargo test -p ac-e2e --test market -- --test-threads 1  # market registration via the wallet
 AC_E2E=1 cargo test -p ac-e2e --test settlement -- --test-threads 1  # receipts, report, claims
+AC_E2E=1 cargo test -p ac-e2e --test inference -- --test-threads 1  # OpenAI SDK through proxy, gateway, providers (Python: pip install -r tests/e2e/python/requirements.txt)
 scripts/measure-finality.sh [seconds]             # finality latency, 4/7/10 nodes (release)
 scripts/wallet-smoke.sh                           # wallet CLI against a dev node
 

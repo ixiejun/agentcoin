@@ -93,7 +93,7 @@ AgentCoin（代币 **ATC**）是一个**抗量子、天生隐私、无许可**�
 AGENT.md · CLAUDE.md · README.md · Cargo.toml · rust-toolchain.toml · deny.toml
 docs/{decisions.md, design/, research/, rust-guidelines/}
 openspec/{config.yaml, specs/, changes/(本地)}
-crates/      通用库：ac-crypto、ac-primitives、ac-invariants、ac-toploc
+crates/      通用库：ac-crypto、ac-primitives、ac-invariants、ac-toploc、ac-market-proto
 node/        ac-node：共识（aura-pq、ac-bft）、节点不变式检查器
 runtime/     WASM runtime 组装
 pallets/     链上模块（pq-accounts、emission、credits、work、audit …）
@@ -320,11 +320,12 @@ scripts/benchmark-pallet.sh <pallet> <weights.rs> # 重新生成基准权重
 scripts/gen-toploc-vectors.sh                     # 由参考实现重新生成 TOPLOC 向量（Python）
 
 # 节点与端到端
-cargo build -p ac-node -p ac-wallet
+cargo build -p ac-node -p ac-wallet -p ac-provider -p ac-gateway -p ac-mock-engine
 scripts/run-local-testnet.sh [--check]            # 四节点本地测试网（检查最佳与已最终确定高度）
 AC_E2E=1 cargo test -p ac-e2e -- --test-threads 1  # 多节点验收测试
 AC_E2E=1 cargo test -p ac-e2e --test market -- --test-threads 1  # 经钱包的市场登记流程
 AC_E2E=1 cargo test -p ac-e2e --test settlement -- --test-threads 1  # 收据、报告与领取
+AC_E2E=1 cargo test -p ac-e2e --test inference -- --test-threads 1  # OpenAI SDK 经代理、网关、提供者（Python：pip install -r tests/e2e/python/requirements.txt）
 scripts/measure-finality.sh [seconds]             # 终局性延迟，4/7/10 节点（release）
 scripts/wallet-smoke.sh                           # 针对开发节点运行钱包命令行
 

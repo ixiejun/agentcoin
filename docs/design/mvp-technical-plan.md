@@ -471,6 +471,15 @@ fn check_block(params: &GenesisParams, n: u64, pre: Ledger, post: Ledger) -> Res
 | **ac-sdk** | **Rust core** (voucher management, PQ signing, STARK proof generation, chain interaction); Python bindings via PyO3, browser / TS bindings via wasm-bindgen, both thin wrappers | Only one Rust implementation of the cryptography, avoiding cross-language inconsistencies |
 | **Block explorer** | Minimal version | Can be adapted from an open-source Substrate-ecosystem explorer |
 
+- **As implemented** (m5-gateway-provider, D60–D62):
+  - `ac-gateway` and `ac-provider` are Rust services; `ac-wallet market serve` gives unmodified OpenAI SDKs a local endpoint. The market carries `/v1/models` and `/v1/chat/completions`, streamed or not.
+  - **Transport**: every hop (proxy → gateway → provider) is a sealed channel. The sender encapsulates to the recipient's X-Wing key: a provider's key is registered on chain, a gateway's is announced at its endpoint and signed by its account key. The sender signs the handshake with its account's ML-DSA key. Each direction is chunked with ChaCha20-Poly1305, and handshakes are fresh (±120 s) and never replayed.
+  - **Payment**: postpaid transparent credits. A request carries a cumulative voucher exactly equal to what was billed, and the escrow must cover the unredeemed bills plus the maximum fee of every request in flight. The proxy checks each double-signed receipt against the chain before paying exactly the new total.
+  - **Routing**: cheapest serviceable provider first, then the lowest smoothed time to first token; the gateway fails over before the first chunk.
+  - **Reports**: submitted automatically every few blocks, at most one emission epoch apart.
+  - **Receipts**: kept by gateway and provider until their challenge period ends, then deleted. Providers heartbeat and claim by themselves.
+  - Nothing of a request's content is logged or stored. Receipts carry an all-zero TOPLOC commitment until engine-side proofs arrive (next change).
+
 ### 7.1 Full flow of one inference request (β)
 
 ```
@@ -570,7 +579,7 @@ agentcoin/
 | **M9 Audit** | 15–18 | External security audit (circuits, consensus, economics) and fixes | No unresolved critical / high findings |
 | **🚀 Mainnet Beta** | ≈18 | Genesis (PoA, no premine); gateways accept only anonymous vouchers | All §0.4 targets met |
 
-**Status** (2026-09): M0–M4 complete; M5 in progress: the market registry (reference rate, models, providers, gateways, transparent credits, wallet `market` commands) and work settlement (signed receipts, work reports, the burn and payment split, the challenge-period delay, market emission and claims, the TOPLOC port, wallet `receipt` / `report` / `claim` commands) are done; the gateway and provider services come next. M4: `pallet-revive` with the PQ precompiles, the eth-RPC adapter and the Foundry external signer, tested end to end with an ERC-20 and the official Uniswap V2 contracts (CREATE2 pairs, liquidity, swaps). Contract weights: the PQ precompiles (`pallet-evm-support`) use weights benchmarked on this runtime; `pallet-revive` keeps its upstream `SubstrateWeight`, because its benchmarks mint funds to set up accounts and this chain's no-mint currency wrapper rejects that. A runtime test checks that the heaviest contract call and deployment still fit a normal extrinsic under those weights.
+**Status** (2026-09): M0–M4 complete; M5 in progress: the market registry (reference rate, models, providers, gateways, transparent credits, wallet `market` commands) work settlement (signed receipts, work reports, the burn and payment split, the challenge-period delay, market emission and claims, the TOPLOC port, wallet `receipt` / `report` / `claim` commands) and the gateway and provider services (sealed channels, the postpaid local proxy for OpenAI SDKs, routing and failover, automatic reports and claims, tested end to end with the OpenAI Python SDK and a mock engine) are done; engine-side TOPLOC proofs come next. M4: `pallet-revive` with the PQ precompiles, the eth-RPC adapter and the Foundry external signer, tested end to end with an ERC-20 and the official Uniswap V2 contracts (CREATE2 pairs, liquidity, swaps). Contract weights: the PQ precompiles (`pallet-evm-support`) use weights benchmarked on this runtime; `pallet-revive` keeps its upstream `SubstrateWeight`, because its benchmarks mint funds to set up accounts and this chain's no-mint currency wrapper rejects that. A runtime test checks that the heaviest contract call and deployment still fit a normal extrinsic under those weights.
 
 **Critical path**: M1 → M2 → M5 → M7 → M9. M7 (STARK circuits) is the riskiest, so it starts in parallel with M5 / M6 and completes its technology selection before month 9.
 
