@@ -15,6 +15,7 @@ path = "src/bin/measure_finality.rs"
 
 [dependencies]
 ac-crypto = { workspace = true, features = ["std", "getrandom", "deterministic"] }
+ac-market-proto = { workspace = true }
 ac-primitives = { workspace = true, features = ["std"] }
 ac-runtime = { workspace = true, features = ["std"] }
 ac-wallet = { workspace = true }
@@ -28,6 +29,7 @@ pallet-staking-pos = { workspace = true, features = ["std"] }
 pallet-treasury-dual = { workspace = true, features = ["std"] }
 frame-support = { workspace = true, features = ["std"] }
 frame-system = { workspace = true, features = ["std"] }
+hex = { workspace = true, features = ["std"] }
 parity-scale-codec = { workspace = true, features = ["std"] }
 pallet-pq-accounts = { workspace = true, features = ["std"] }
 serde_json = { workspace = true, features = ["std"] }

@@ -96,11 +96,13 @@ name = "ac-e2e"
 version = "0.1.0"
 dependencies = [
  "ac-crypto",
+ "ac-market-proto",
  "ac-primitives",
  "ac-runtime",
  "ac-wallet",
  "frame-support",
  "frame-system",
+ "hex",
  "jsonrpsee",
  "pallet-balances",
  "pallet-collective",

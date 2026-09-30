@@ -237,6 +237,7 @@ struct ProviderSetup {
     kem_file: PathBuf,
     port: u16,
     engine_addr: String,
+    toploc: PathBuf,
 }
 
 fn provider_cmd(p: &ProviderSetup, node: &str, model: &str, data: &Path) -> Command {
@@ -262,6 +263,8 @@ fn provider_cmd(p: &ProviderSetup, node: &str, model: &str, data: &Path) -> Comm
         ])
         .arg("--data-dir")
         .arg(data)
+        .arg("--toploc-socket")
+        .arg(&p.toploc)
         .args(["--log-level", "debug"]);
     cmd
 }
@@ -303,10 +306,14 @@ async fn inference_through_the_market() {
     let mut engines = Vec::new();
     let mut providers = Vec::new();
     for (name, price) in [("cheap", "0.1:0.2"), ("dear", "0.3:0.6")] {
+        // The engine plays the vLLM TOPLOC plugin on the provider's socket.
+        let toploc = base.join(format!("{name}-toploc.sock"));
         let (engine, engine_addr) = Proc::start(
             {
                 let mut c = Command::new(bin("ac-mock-engine"));
-                c.args(["--listen", "127.0.0.1:0"]);
+                c.args(["--listen", "127.0.0.1:0"])
+                    .arg("--toploc-socket")
+                    .arg(&toploc);
                 c
             },
             base.join(format!("engine-{name}.log")),
@@ -341,6 +348,7 @@ async fn inference_through_the_market() {
             kem_file,
             port,
             engine_addr,
+            toploc,
         });
     }
     let data = |n: &str| base.join(format!("data-{n}"));
@@ -473,6 +481,24 @@ async fn inference_through_the_market() {
         "extra time to first token {overhead:.1} ms > {MAX_OVERHEAD_MS} ms"
     );
 
+    // m5-engine-toploc 6.2: every one of the 31 requests got a receipt committing to TOPLOC
+    // proofs (the gateway and the proxy checked them before billing and paying); the provider
+    // keeps each co-signed receipt with its proofs.
+    wait_until(
+        "the cheap provider to store 31 co-signed receipts with proofs",
+        Duration::from_secs(30),
+        || async {
+            let files: Vec<String> = std::fs::read_dir(data("cheap").join("receipts"))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+                .collect();
+            files.len() == 31 && files.iter().all(|t| t.contains("\"toploc\""))
+        },
+    )
+    .await;
+
     // Failover: stop the cheap provider; requests are served by the dear one.
     let dear = account(&providers[1].wallet.address());
     running[0] = None;
@@ -515,6 +541,41 @@ async fn inference_through_the_market() {
         api(node, "WorkApi_report", &0u64.encode()).await;
     let report = report.expect("report 0");
     assert_eq!(report.gateway, gw_acct);
+
+    // m5-engine-toploc 6.2: receipts commit to TOPLOC proofs, which the gateway keeps with its
+    // reports and the providers with their receipts. Before the failover every request had
+    // proofs; the gateway and the proxy checked them before billing and paying.
+    assert!(
+        !std::fs::read_to_string(base.join("provider-cheap.log"))
+            .unwrap()
+            .contains("toploc_missing"),
+        "every request before the failover has proofs"
+    );
+    let mut proven = 0usize;
+    for entry in std::fs::read_dir(data("gateway").join("reports"))
+        .unwrap()
+        .flatten()
+    {
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(entry.path()).unwrap()).unwrap();
+        let proofs = v["toploc"].as_object().cloned().unwrap_or_default();
+        for r in v["receipts"].as_array().unwrap() {
+            let bytes = hex::decode(r.as_str().unwrap()).unwrap();
+            let receipt = ac_primitives::market::SignedReceipt::decode(&mut &bytes[..]).unwrap();
+            let kept = proofs.get(&hex::encode(receipt.body.request_id)).map(|h| {
+                let b = hex::decode(h.as_str().unwrap()).unwrap();
+                ac_market_proto::toploc::ToplocProofs::decode(&mut &b[..]).unwrap()
+            });
+            ac_market_proto::toploc::check(&receipt.body, kept.as_ref()).unwrap();
+            if kept.is_some() {
+                proven += 1;
+            }
+        }
+    }
+    assert!(
+        proven > 0,
+        "the gateway keeps the proofs of reported receipts"
+    );
 
     // After the challenge period the dear provider (which served since the failover) and the
     // gateway have claimed, and the gateway deleted the receipts of matured reports.
