@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["clients/wallet-cli", "tests/e2e", "tests/sim", "tests/overmint-runtime", "tests/early-switch-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "crates/ac-toploc", "crates/ac-market-proto", "services/eth-rpc", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "pallets/staking-pos", "pallets/evm-support", "pallets/ref-rate", "pallets/model-registry", "pallets/providers", "pallets/gateways", "pallets/credits", "pallets/work", "runtime"]
+members = ["clients/wallet-cli", "tests/e2e", "tests/mock-engine", "tests/sim", "tests/overmint-runtime", "tests/early-switch-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "crates/ac-toploc", "crates/ac-market-proto", "services/eth-rpc", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "pallets/staking-pos", "pallets/evm-support", "pallets/ref-rate", "pallets/model-registry", "pallets/providers", "pallets/gateways", "pallets/credits", "pallets/work", "runtime"]
 
 [workspace.package]
 version = "0.1.0"
@@ -93,6 +93,13 @@ rpassword = { version = "7.3", default-features = false }
 async-trait = { version = "0.1", default-features = false }
 substrate-prometheus-endpoint = { version = "0.17", default-features = false }
 futures = { version = "0.3", default-features = false }
+# HTTP for the market services and the wallet's local proxy (hyper 1.x, already used through
+# jsonrpsee; no web framework, m5-gateway-provider design D1).
+bytes = { version = "1.12", default-features = false }
+http-body-util = { version = "0.1", default-features = false }
+hyper = { version = "1.11", default-features = false }
+hyper-rustls = { version = "0.27", default-features = false }
+hyper-util = { version = "0.1", default-features = false }
 jsonrpsee = { version = "0.24", default-features = false }
 log = { version = "0.4", default-features = false }
 tokio = { version = "1.45", default-features = false }
@@ -106,6 +113,7 @@ ac-invariants = { path = "crates/ac-invariants", version = "0.1", default-featur
 ac-toploc = { path = "crates/ac-toploc", version = "0.1", default-features = false }
 ac-market-proto = { path = "crates/ac-market-proto", version = "0.1", default-features = false }
 ac-wallet = { path = "clients/wallet-cli", version = "0.1", default-features = false }
+ac-mock-engine = { path = "tests/mock-engine", version = "0.1", default-features = false }
 ac-runtime = { path = "runtime", version = "0.1", default-features = false }
 ac-overmint-runtime = { path = "tests/overmint-runtime", version = "0.1", default-features = false }
 ac-early-switch-runtime = { path = "tests/early-switch-runtime", version = "0.1", default-features = false }

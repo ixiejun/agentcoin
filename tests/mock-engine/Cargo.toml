@@ -1,0 +1,27 @@
+[package]
+name = "ac-mock-engine"
+description = "Deterministic OpenAI-compatible inference engine for AgentCoin tests: echoes the prompt, reports usage, configurable latency and failures"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "GPL-3.0-or-later"
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "ac-mock-engine"
+path = "src/main.rs"
+
+[dependencies]
+ac-wallet = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+serde_json = { workspace = true, features = ["std"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net", "sync"] }
+
+[dev-dependencies]
+ac-market-proto = { workspace = true }
+
+[lints]
+workspace = true

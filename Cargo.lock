@@ -180,6 +180,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ac-mock-engine"
+version = "0.1.0"
+dependencies = [
+ "ac-market-proto",
+ "ac-wallet",
+ "anyhow",
+ "clap",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "ac-node"
 version = "0.1.0"
 dependencies = [
@@ -354,10 +366,15 @@ dependencies = [
  "ac-runtime",
  "alloy-core",
  "anyhow",
+ "bytes",
  "clap",
  "frame-support",
  "frame-system",
  "hex",
+ "http-body-util",
+ "hyper 1.11.1",
+ "hyper-rustls",
+ "hyper-util",
  "jsonrpsee",
  "pallet-balances",
  "pallet-credits",
@@ -4839,6 +4856,7 @@ dependencies = [
  "hyper-util",
  "log",
  "rustls",
+ "rustls-native-certs",
  "tokio",
  "tokio-rustls",
  "tower-service",

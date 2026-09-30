@@ -19,6 +19,11 @@ ac-primitives = { workspace = true, features = ["std"] }
 ac-runtime = { workspace = true, features = ["std"] }
 alloy-core = { workspace = true, features = ["std", "dyn-abi"] }
 anyhow = { workspace = true }
+bytes = { workspace = true, features = ["std"] }
+http-body-util = { workspace = true }
+hyper = { workspace = true, features = ["http1", "server", "client"] }
+hyper-rustls = { workspace = true, features = ["http1", "native-tokio", "ring", "tls12"] }
+hyper-util = { workspace = true, features = ["tokio", "server", "http1", "client-legacy"] }
 clap = { workspace = true }
 frame-support = { workspace = true, features = ["std"] }
 frame-system = { workspace = true, features = ["std"] }
@@ -39,7 +44,7 @@ serde_json = { workspace = true, features = ["std"] }
 sp-core = { workspace = true, features = ["std"] }
 sp-io = { workspace = true, features = ["std"] }
 sp-runtime = { workspace = true, features = ["std"] }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net", "sync", "signal"] }
 zeroize = { workspace = true, features = ["std"] }
 
 [lints]

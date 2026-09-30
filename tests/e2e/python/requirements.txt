@@ -1,0 +1,2 @@
+# Official OpenAI Python SDK for the inference end-to-end test (m5-gateway-provider 3.2).
+openai==3.22.1
