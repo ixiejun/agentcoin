@@ -20,217 +20,25 @@
     missing_docs
 )]
 
-use std::io::{BufRead, BufReader, Write as _};
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+mod common;
 
-use ac_e2e::{TestNode, Testnet, TestnetConfig, enabled, free_port};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::Duration;
+
+use ac_e2e::{Testnet, TestnetConfig, free_port};
 use ac_primitives::market::work::LifetimeWork;
 use ac_runtime::{AccountId, Balance};
+use common::{
+    Proc, W, account, api, bin, field, funded_wallet, import_dev_wallet, openai, run, wait_until,
+};
 use parity_scale_codec::{Decode, Encode};
 
 const START: Duration = Duration::from_secs(180);
-const DEV_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
 const MODEL_NAME: &str = "Qwen2.5-0.5B-Instruct";
 const MARKER: &str = "narwhal-marker-3c7e";
 /// Allowed extra time to first token through proxy, gateway and provider (p95).
 const MAX_OVERHEAD_MS: f64 = 150.0;
-
-macro_rules! require_e2e {
-    () => {
-        if !enabled() {
-            eprintln!("end-to-end test disabled; run with AC_E2E=1 after building the binaries");
-            return;
-        }
-    };
-}
-
-fn bin(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/debug")
-        .join(name)
-}
-
-fn run(cmd: &mut Command) -> String {
-    let out = cmd.output().unwrap_or_else(|e| panic!("{cmd:?}: {e}"));
-    assert!(
-        out.status.success(),
-        "{cmd:?} failed:\n{}\n{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8(out.stdout).unwrap()
-}
-
-fn field(output: &str, key: &str) -> String {
-    output
-        .lines()
-        .find_map(|l| l.strip_prefix(&format!("{key}: ")))
-        .unwrap_or_else(|| panic!("no {key} in:\n{output}"))
-        .trim()
-        .to_string()
-}
-
-/// A long-running service process, killed on drop; its stderr goes to a log file.
-struct Proc {
-    child: Child,
-}
-
-impl Proc {
-    /// Starts `cmd` and waits for its `listening on <addr>` line.
-    fn start(mut cmd: Command, log: PathBuf) -> (Self, String) {
-        let err = std::fs::File::create(&log).unwrap();
-        let mut child = cmd
-            .stdout(Stdio::piped())
-            .stderr(err)
-            .spawn()
-            .unwrap_or_else(|e| panic!("{cmd:?}: {e}"));
-        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
-        let deadline = Instant::now() + Duration::from_secs(120);
-        let addr = loop {
-            assert!(
-                Instant::now() < deadline,
-                "{cmd:?} did not start; see {}",
-                log.display()
-            );
-            match lines.next() {
-                Some(Ok(l)) => {
-                    if let Some(a) = l.strip_prefix("listening on ") {
-                        break a
-                            .trim()
-                            .trim_start_matches("http://")
-                            .trim_end_matches("/v1")
-                            .to_string();
-                    }
-                }
-                _ => panic!(
-                    "{cmd:?} exited: {}",
-                    std::fs::read_to_string(&log).unwrap_or_default()
-                ),
-            }
-        };
-        // Keep draining stdout so the process never blocks on a full pipe.
-        std::thread::spawn(move || for _ in lines {});
-        (Self { child }, addr)
-    }
-}
-
-impl Drop for Proc {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-struct W {
-    file: PathBuf,
-    password: PathBuf,
-    node: String,
-}
-
-impl W {
-    fn cmd(&self, args: &[&str]) -> Command {
-        let mut cmd = Command::new(bin("ac-wallet"));
-        cmd.args(args)
-            .arg("--wallet")
-            .arg(&self.file)
-            .arg("--password-file")
-            .arg(&self.password)
-            .args(["--node", &self.node]);
-        cmd
-    }
-
-    fn address(&self) -> String {
-        run(Command::new(bin("ac-wallet"))
-            .arg("address")
-            .arg("--wallet")
-            .arg(&self.file))
-        .trim()
-        .to_string()
-    }
-}
-
-fn import_dev_wallet(base: &Path, node: &str) -> W {
-    let password = base.join("password");
-    std::fs::write(&password, "e2e-password\n").unwrap();
-    let file = base.join("user.json");
-    let mut import = Command::new(bin("ac-wallet"))
-        .arg("import")
-        .arg("--wallet")
-        .arg(&file)
-        .arg("--password-file")
-        .arg(&password)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    writeln!(import.stdin.take().unwrap(), "{DEV_MNEMONIC}").unwrap();
-    assert!(import.wait().unwrap().success());
-    W {
-        file,
-        password,
-        node: node.to_string(),
-    }
-}
-
-fn funded_wallet(base: &Path, name: &str, from: &W, funds: &str) -> W {
-    let w = W {
-        file: base.join(format!("{name}.json")),
-        password: from.password.clone(),
-        node: from.node.clone(),
-    };
-    run(Command::new(bin("ac-wallet"))
-        .arg("new")
-        .arg("--wallet")
-        .arg(&w.file)
-        .arg("--password-file")
-        .arg(&w.password)
-        .stderr(Stdio::null()));
-    run(&mut from.cmd(&["transfer", "--to", &w.address(), "--amount", funds]));
-    w
-}
-
-async fn api<T: Decode>(node: &TestNode, method: &str, args: &[u8]) -> T {
-    T::decode(&mut &node.state_call(method, args, None).await.unwrap()[..]).unwrap()
-}
-
-fn account(address: &str) -> AccountId {
-    AccountId::new(ac_primitives::decode_address(address).unwrap())
-}
-
-fn python() -> String {
-    std::env::var("AC_E2E_PYTHON").unwrap_or_else(|_| "python3".into())
-}
-
-/// Runs the OpenAI SDK client and returns its JSON report.
-fn openai(base_url: &str, model: &str, runs: u32) -> serde_json::Value {
-    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("python/openai_client.py");
-    let out = run(Command::new(python()).arg(script).args([
-        "--base-url",
-        base_url,
-        "--model",
-        model,
-        "--runs",
-        &runs.to_string(),
-        "--marker",
-        MARKER,
-    ]));
-    serde_json::from_str(&out).unwrap_or_else(|e| panic!("{e}: {out}"))
-}
-
-async fn wait_until<F, Fut>(what: &str, timeout: Duration, mut f: F)
-where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = bool>,
-{
-    let deadline = Instant::now() + timeout;
-    while !f().await {
-        assert!(Instant::now() < deadline, "timed out waiting for {what}");
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    }
-}
 
 struct ProviderSetup {
     wallet: W,
@@ -447,8 +255,9 @@ async fn inference_through_the_market() {
         &format!("http://{}/v1", providers[0].engine_addr),
         "mock-model",
         30,
+        MARKER,
     );
-    let through = openai(&via_proxy, MODEL_NAME, 30);
+    let through = openai(&via_proxy, MODEL_NAME, 30, MARKER);
     for s in through["streamed"].as_array().unwrap() {
         assert!(
             s["text"].as_str().unwrap().contains(MARKER),
@@ -502,7 +311,7 @@ async fn inference_through_the_market() {
     // Failover: stop the cheap provider; requests are served by the dear one.
     let dear = account(&providers[1].wallet.address());
     running[0] = None;
-    let after = openai(&via_proxy, MODEL_NAME, 2);
+    let after = openai(&via_proxy, MODEL_NAME, 2, MARKER);
     assert_eq!(after["streamed"].as_array().unwrap().len(), 2);
     running[0] = Some(
         Proc::start(

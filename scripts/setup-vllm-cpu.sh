@@ -19,9 +19,27 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 failed=0
 
+# Lists the release's wheels with their SHA-256 digests (GitHub API; GITHUB_TOKEN if set), to
+# fix or review the pins.
+list_release_wheels() {
+  "$py" - "$VLLM_VERSION" <<'PY'
+import json, os, sys, urllib.request
+req = urllib.request.Request(f"https://api.github.com/repos/vllm-project/vllm/releases/tags/v{sys.argv[1]}")
+if os.environ.get("GITHUB_TOKEN"):
+    req.add_header("Authorization", f"Bearer {os.environ['GITHUB_TOKEN']}")
+for a in json.load(urllib.request.urlopen(req))["assets"]:
+    if a["name"].endswith(".whl"):
+        print(a["name"], a.get("digest"), a["browser_download_url"])
+PY
+}
+
 # 1. The vLLM wheel, checked against its pinned SHA-256.
 wheel="$tmp/$(basename "$VLLM_WHEEL_URL")"
-curl -fsSL --retry 3 -o "$wheel" "$VLLM_WHEEL_URL"
+if ! curl -fsSL --retry 3 -o "$wheel" "$VLLM_WHEEL_URL"; then
+  echo "cannot download $VLLM_WHEEL_URL; the release's wheels are:" >&2
+  list_release_wheels >&2 || true
+  exit 1
+fi
 actual="$(sha256sum "$wheel" | cut -d' ' -f1)"
 if [ "$actual" != "$VLLM_WHEEL_SHA256" ]; then
   echo "vLLM wheel SHA-256 is $actual; pinned: '${VLLM_WHEEL_SHA256}' (plugins/vllm/ci/pins.env)" >&2
