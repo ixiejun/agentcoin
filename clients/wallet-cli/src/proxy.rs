@@ -14,6 +14,7 @@ use std::time::Duration;
 use ac_crypto::KemPublicKey;
 use ac_crypto::sig::SigningKey;
 use ac_market_proto::openai::{SSE_DONE, error_json, sse_data, usage_of, with_usage};
+use ac_market_proto::toploc::ToplocProofs;
 use ac_market_proto::{ChatRequest, ErrorCode, GatewayMsg, Payment, Usage, UserMsg, msg};
 use ac_primitives::market::voucher::VOUCHER_CONTEXT;
 use ac_primitives::market::{
@@ -379,11 +380,16 @@ impl Proxy {
                             receipt,
                             fee,
                             billed_total,
-                            ..
+                            toploc,
                         }) = drain(&mut resp).await
                         {
                             let _ = self
-                                .settle(&receipt, (fee, billed_total), expected, observed)
+                                .settle(
+                                    (&receipt, toploc.as_ref()),
+                                    (fee, billed_total),
+                                    expected,
+                                    observed,
+                                )
                                 .await;
                         }
                         return;
@@ -393,10 +399,15 @@ impl Proxy {
                     receipt,
                     fee,
                     billed_total,
-                    ..
+                    toploc,
                 } => {
                     if let Err(e) = self
-                        .settle(&receipt, (fee, billed_total), expected, observed)
+                        .settle(
+                            (&receipt, toploc.as_ref()),
+                            (fee, billed_total),
+                            expected,
+                            observed,
+                        )
                         .await
                     {
                         tx.send(sse_data(&error_json(
@@ -436,8 +447,8 @@ impl Proxy {
                 receipt,
                 fee,
                 billed_total,
-                ..
-            }) => (receipt, fee, billed_total),
+                toploc,
+            }) => (receipt, fee, billed_total, toploc),
             Ok(GatewayMsg::Error { code, message }) => {
                 return error(code, &String::from_utf8_lossy(&message));
             }
@@ -445,9 +456,14 @@ impl Proxy {
             Err(e) => return error(ErrorCode::ProviderFailed, &format!("{e:#}")),
         };
         let observed = usage_of(&completion);
-        let (receipt, fee, billed) = billing;
+        let (receipt, fee, billed, toploc) = billing;
         if let Err(e) = self
-            .settle(&receipt, (fee, billed), expected, observed)
+            .settle(
+                (&receipt, toploc.as_ref()),
+                (fee, billed),
+                expected,
+                observed,
+            )
             .await
         {
             return error(ErrorCode::PaymentRequired, &format!("{e:#}"));
@@ -462,15 +478,22 @@ impl Proxy {
     /// Checks a bill and, if it is right, pays exactly the new total.
     async fn settle(
         &self,
-        receipt: &SignedReceipt,
+        (receipt, toploc): (&SignedReceipt, Option<&ToplocProofs>),
         (fee, billed_total): (MicroUsd, MicroUsd),
         expected: Option<ModelId>,
         observed: Option<Usage>,
     ) -> Result<()> {
         let mut state = self.paid.lock().await;
-        let verdict = self
-            .verify(receipt, fee, billed_total, (state.paid, expected, observed))
-            .await;
+        let verdict = match ac_market_proto::toploc::check(&receipt.body, toploc) {
+            // The proofs must be those the double-signed receipt commits to (spec "本地推理代理").
+            Err(e) => Err(anyhow::anyhow!(
+                "TOPLOC proofs do not match the receipt: {e}"
+            )),
+            Ok(()) => {
+                self.verify(receipt, fee, billed_total, (state.paid, expected, observed))
+                    .await
+            }
+        };
         if let Err(e) = verdict {
             self.halt(format!("{e:#}"));
             return Err(e);

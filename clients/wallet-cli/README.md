@@ -163,8 +163,10 @@ for chunk in client.chat.completions.create(
 - Each request is sealed to the gateway (X-Wing + ML-DSA) with a voucher for exactly what you
   have paid so far. After the response the proxy checks the double-signed receipt (signatures,
   chain, gateway, model, token counts against the returned usage, fee at the provider's on-chain
-  price, the gateway's billed total) and only then pays that total. A receipt that fails any
-  check stops all further payments and requests.
+  price, the gateway's billed total) and its TOPLOC proofs (an all-zero commitment comes
+  without proofs; otherwise the market parameters, one proof per chunk of the output and a
+  recomputed commitment equal to the receipt's), and only then pays that total. A receipt that
+  fails any check stops all further payments and requests. The proofs are not stored.
 - `--max-usd` caps the channel's paid total; the paid total is kept in
   `serve-<gateway>.json` next to the wallet (`--state`) so restarts never pay twice.
 - It listens on `127.0.0.1:8411` by default and has no authentication: never expose it. Your

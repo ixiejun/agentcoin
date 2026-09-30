@@ -16,6 +16,7 @@ use ac_crypto::sealed::{Acceptor, ReplayCache, recipient_id};
 use ac_crypto::sig::{SecretSeed, SigningKey};
 use ac_crypto::{KemAlg, KemPublicKey, OsRng, SigAlg, account_id};
 use ac_market_proto::openai::{SseDecoder, SseEvent, usage_of};
+use ac_market_proto::toploc::{MARKET_PARAMS, ToplocProofs};
 use ac_market_proto::{ErrorCode, GatewayMsg, Payment, UserMsg, msg};
 use ac_primitives::market::receipt::{RECEIPT_CONTEXT, fee_for};
 use ac_primitives::market::voucher::key_fingerprint;
@@ -47,7 +48,36 @@ fn account(k: &SigningKey) -> AccountId32 {
     AccountId32::new(*account_id(&k.public_key().unwrap()).as_bytes())
 }
 
-/// A simulated gateway: strict about vouchers, optionally overcharging.
+/// How the simulated gateway bills.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// Correct receipts without TOPLOC proofs.
+    Honest,
+    /// Receipts one micro-dollar above the listed price.
+    Overcharge,
+    /// Correct receipts with matching TOPLOC proofs.
+    Proofs,
+    /// Receipts whose proofs were altered after the commitment was signed.
+    BadProofs,
+}
+
+/// Proofs for `USAGE`: a prefill and 499 decode steps of 256 values.
+fn proofs() -> ToplocProofs {
+    let acts: Vec<Vec<ac_toploc::Bf16>> = (0..USAGE.1)
+        .map(|s| {
+            (0..256u32)
+                .map(|i| ac_toploc::Bf16(u16::try_from((i * 131 + s * 7) % 0x7f00).unwrap()))
+                .collect()
+        })
+        .collect();
+    let refs: Vec<&[ac_toploc::Bf16]> = acts.iter().map(Vec::as_slice).collect();
+    ToplocProofs::new(
+        &MARKET_PARAMS,
+        &ac_toploc::build_proofs(&refs, &MARKET_PARAMS).unwrap(),
+    )
+}
+
+/// A simulated gateway: strict about vouchers, billing as its `Mode` says.
 struct FakeGateway {
     key: SigningKey,
     provider: SigningKey,
@@ -55,12 +85,13 @@ struct FakeGateway {
     kem: KemSecretKey,
     billed: Mutex<u128>,
     vouchers: Mutex<Vec<u128>>,
-    overcharge: bool,
+    mode: Mode,
+    proofs: Option<ToplocProofs>,
     replay: Mutex<ReplayCache>,
 }
 
 impl FakeGateway {
-    fn receipt(&self, fee_bump: u128) -> SignedReceipt {
+    fn receipt(&self, fee_bump: u128, toploc_commit: [u8; 32]) -> SignedReceipt {
         let fee = fee_for(&PRICE, USAGE.0, USAGE.1).unwrap();
         let body = ReceiptBody {
             genesis: GENESIS,
@@ -72,7 +103,7 @@ impl FakeGateway {
             in_tokens: USAGE.0,
             out_tokens: USAGE.1,
             fee: MicroUsd(fee.0 + fee_bump),
-            toploc_commit: [0; 32],
+            toploc_commit,
             ttft_ms: 1,
             total_ms: 2,
         };
@@ -89,6 +120,22 @@ impl FakeGateway {
                 .unwrap(),
             gateway_key: self.key.public_key().unwrap(),
             body,
+        }
+    }
+
+    /// The receipt and proofs of one request.
+    fn bill(&self) -> (SignedReceipt, Option<ToplocProofs>) {
+        match (self.mode, &self.proofs) {
+            (Mode::Overcharge, _) => (self.receipt(1, [0; 32]), None),
+            (Mode::Proofs | Mode::BadProofs, Some(p)) => {
+                let receipt = self.receipt(0, p.commitment().unwrap());
+                let mut sent = p.clone();
+                if self.mode == Mode::BadProofs {
+                    sent.proofs[3][10] ^= 1;
+                }
+                (receipt, Some(sent))
+            }
+            _ => (self.receipt(0, [0; 32]), None),
         }
     }
 
@@ -125,7 +172,7 @@ impl FakeGateway {
                 let stream = serde_json::from_slice::<Value>(&request).unwrap()["stream"]
                     .as_bool()
                     .unwrap_or(false);
-                let receipt = self.receipt(u128::from(self.overcharge));
+                let (receipt, toploc) = self.bill();
                 let fee = receipt.body.fee;
                 *billed += fee.0;
                 let usage = json!({ "prompt_tokens": USAGE.0, "completion_tokens": USAGE.1 });
@@ -133,7 +180,7 @@ impl FakeGateway {
                     receipt,
                     fee,
                     billed_total: MicroUsd(*billed),
-                    toploc: None,
+                    toploc,
                 };
                 if stream {
                     let chunk = |c: &str| json!({ "id": "x", "object": "chat.completion.chunk", "choices": [{ "index": 0, "delta": { "content": c } }] });
@@ -153,7 +200,7 @@ impl FakeGateway {
 }
 
 async fn fake_gateway(
-    overcharge: bool,
+    mode: Mode,
     user_key: &SigningKey,
 ) -> (String, Arc<FakeGateway>, KemPublicKey) {
     let kem = KemSecretKey::from_seed(KemAlg::XWing, &SecretSeed::new([31; 32])).unwrap();
@@ -165,7 +212,8 @@ async fn fake_gateway(
         kem,
         billed: Mutex::new(0),
         vouchers: Mutex::new(Vec::new()),
-        overcharge,
+        mode,
+        proofs: matches!(mode, Mode::Proofs | Mode::BadProofs).then(proofs),
         replay: Mutex::new(ReplayCache::default()),
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -227,9 +275,9 @@ struct Setup {
     kem: KemPublicKey,
 }
 
-async fn setup(label: &str, overcharge: bool, max_usd: Option<MicroUsd>) -> Setup {
+async fn setup(label: &str, mode: Mode, max_usd: Option<MicroUsd>) -> Setup {
     let user = key(20);
-    let (url, gateway, kem) = fake_gateway(overcharge, &user).await;
+    let (url, gateway, kem) = fake_gateway(mode, &user).await;
     let state = std::env::temp_dir().join(format!(
         "ac-wallet-proxy-{label}-{}.json",
         std::process::id()
@@ -308,7 +356,7 @@ async fn chat(base: &str, stream: bool) -> (u16, Vec<u8>) {
 // SSE lines in OpenAI format with [DONE]; usage equals the receipt's; the bill is paid exactly.
 #[tokio::test]
 async fn streams_openai_events_and_pays_each_receipt() {
-    let s = setup("stream", false, None).await;
+    let s = setup("stream", Mode::Honest, None).await;
     let (status, body) = chat(&s.base, true).await;
     assert_eq!(status, 200);
     let text = String::from_utf8(body.clone()).unwrap();
@@ -345,7 +393,7 @@ async fn streams_openai_events_and_pays_each_receipt() {
 // Scenario "费用不符时拒绝付费".
 #[tokio::test]
 async fn overcharged_receipts_halt_payments() {
-    let s = setup("overcharge", true, None).await;
+    let s = setup("overcharge", Mode::Overcharge, None).await;
     let (_, body) = chat(&s.base, true).await;
     assert!(String::from_utf8_lossy(&body).contains("payment_required"));
     assert_eq!(s.proxy.paid().await.total, MicroUsd(0));
@@ -364,7 +412,7 @@ async fn overcharged_receipts_halt_payments() {
 // Scenario "花费上限".
 #[tokio::test]
 async fn the_spending_limit_stops_requests() {
-    let s = setup("limit", false, Some(MicroUsd(200))).await;
+    let s = setup("limit", Mode::Honest, Some(MicroUsd(200))).await;
     assert_eq!(chat(&s.base, false).await.0, 200);
     let before = s.gateway.vouchers.lock().unwrap().len();
     let (status, body) = chat(&s.base, false).await;
@@ -376,7 +424,7 @@ async fn the_spending_limit_stops_requests() {
 // Scenario "重启后不重复付费".
 #[tokio::test]
 async fn restarts_resume_from_the_paid_total() {
-    let s = setup("restart", false, None).await;
+    let s = setup("restart", Mode::Honest, None).await;
     chat(&s.base, false).await;
     chat(&s.base, false).await;
     assert_eq!(s.proxy.paid().await.total, MicroUsd(400));
@@ -398,9 +446,35 @@ async fn restarts_resume_from_the_paid_total() {
 // Two concurrent requests: each voucher equals the gateway's billed total when it arrives.
 #[tokio::test]
 async fn concurrent_requests_carry_exact_vouchers() {
-    let s = setup("concurrent", false, None).await;
+    let s = setup("concurrent", Mode::Honest, None).await;
     let (a, b) = tokio::join!(chat(&s.base, false), chat(&s.base, true));
     assert_eq!((a.0, b.0), (200, 200));
     assert_eq!(s.proxy.paid().await.total, MicroUsd(400));
     assert_eq!(*s.gateway.billed.lock().unwrap(), 400);
+}
+
+// m5-engine-toploc 5.2: correct proofs are paid for; scenario "证明与承诺不符时拒绝付费".
+#[tokio::test]
+async fn proofs_must_match_the_receipt_before_paying() {
+    let s = setup("proofs", Mode::Proofs, None).await;
+    let (status, _) = chat(&s.base, false).await;
+    assert_eq!(status, 200);
+    assert_eq!(s.proxy.paid().await.total, MicroUsd(200));
+
+    let s = setup("bad-proofs", Mode::BadProofs, None).await;
+    let (_, body) = chat(&s.base, true).await;
+    assert!(String::from_utf8_lossy(&body).contains("payment_required"));
+    assert_eq!(s.proxy.paid().await.total, MicroUsd(0));
+    assert!(
+        s.proxy
+            .halted()
+            .unwrap()
+            .contains("TOPLOC proofs do not match"),
+        "{:?}",
+        s.proxy.halted()
+    );
+    assert_eq!(*s.gateway.vouchers.lock().unwrap(), [0]);
+    let (status, _) = chat(&s.base, false).await;
+    assert_eq!(status, 402);
+    assert_eq!(*s.gateway.vouchers.lock().unwrap(), [0]);
 }

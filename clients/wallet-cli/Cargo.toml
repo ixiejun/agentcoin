@@ -49,5 +49,8 @@ sp-runtime = { workspace = true, features = ["std"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net", "sync", "signal"] }
 zeroize = { workspace = true, features = ["std"] }
 
+[dev-dependencies]
+ac-toploc = { workspace = true, features = ["std"] }
+
 [lints]
 workspace = true

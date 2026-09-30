@@ -10,6 +10,7 @@ use ac_crypto::sealed::{Acceptor, ReplayCache, recipient_id};
 use ac_crypto::sig::SigningKey;
 use ac_crypto::{KemPublicKey, OsRng, PqPublicKey};
 use ac_market_proto::openai::{Assembler, has_content};
+use ac_market_proto::toploc::ToplocProofs;
 use ac_market_proto::{
     ChatRequest, ErrorCode, GatewayKey, GatewayMsg, Payment, ProviderMsg, ProviderReq, Usage,
     UserMsg, msg,
@@ -464,7 +465,7 @@ impl Gateway {
         let mut assembler = Assembler::new();
         let mut ttft = None;
         let mut pending = Some(first);
-        let (body, key, signature, usage) = loop {
+        let (body, key, signature, usage, toploc) = loop {
             let next = match pending.take() {
                 Some(d) => ProviderMsg::Delta(d),
                 None => match resp.next().await {
@@ -494,8 +495,8 @@ impl Gateway {
                     key,
                     signature,
                     usage,
-                    ..
-                } => break (body, key, signature, usage),
+                    toploc,
+                } => break (body, key, signature, usage, toploc),
                 ProviderMsg::Error { .. } | ProviderMsg::Ack => {
                     return Err(failed("the provider failed mid-stream"));
                 }
@@ -505,7 +506,7 @@ impl Gateway {
             self.router.observe(&choice.provider, t);
         }
         let receipt = match self
-            .cosign(job, choice, (body, key, signature, usage))
+            .cosign(job, choice, (body, key, signature, usage), toploc.as_ref())
             .await
         {
             Ok(r) => r,
@@ -516,10 +517,13 @@ impl Gateway {
             }
         };
         let fee = receipt.body.fee;
-        let billed_total = self.book.bill(&job.user, receipt.clone()).map_err(|e| {
-            log::warn!(target: TARGET, "ledger write failed: {e:#}");
-            (ErrorCode::Internal, "internal error".to_string())
-        })?;
+        let billed_total = self
+            .book
+            .bill(&job.user, receipt.clone(), toploc.clone())
+            .map_err(|e| {
+                log::warn!(target: TARGET, "ledger write failed: {e:#}");
+                (ErrorCode::Internal, "internal error".to_string())
+            })?;
         if !job.streaming {
             writer
                 .send(
@@ -534,7 +538,7 @@ impl Gateway {
                     receipt: receipt.clone(),
                     fee,
                     billed_total,
-                    toploc: None,
+                    toploc,
                 }),
                 true,
             )
@@ -549,8 +553,8 @@ impl Gateway {
         Ok(())
     }
 
-    /// Checks the provider's receipt against this request and the chain, then adds the
-    /// gateway's signature.
+    /// Checks the provider's receipt and its TOPLOC proofs against this request and the chain,
+    /// then adds the gateway's signature.
     async fn cosign(
         &self,
         job: &Job,
@@ -561,6 +565,7 @@ impl Gateway {
             ac_crypto::PqSignature,
             Usage,
         ),
+        toploc: Option<&ToplocProofs>,
     ) -> Result<SignedReceipt> {
         anyhow::ensure!(body.genesis == self.genesis, "wrong genesis");
         anyhow::ensure!(
@@ -584,6 +589,7 @@ impl Gateway {
             fee_for(&choice.price, body.in_tokens, body.out_tokens) == Some(body.fee),
             "fee differs from the listed price"
         );
+        ac_market_proto::toploc::check(&body, toploc).map_err(|e| anyhow::anyhow!("{e}"))?;
         let registered = self
             .chain
             .current_key(&choice.provider)

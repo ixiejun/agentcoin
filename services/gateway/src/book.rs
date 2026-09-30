@@ -2,15 +2,16 @@
 //!
 //! Per user it keeps the channel number, the billed total, the latest accepted voucher (always
 //! exactly the billed total at some point), the maximum fees of requests in flight (memory
-//! only) and the unreported receipts in billing order, each with the cumulative total after it.
-//! Every change is written to disk (write, sync, rename) before it is acknowledged. Nothing of
-//! a request's content is ever stored.
+//! only) and the unreported receipts in billing order, each with the cumulative total after it
+//! and its TOPLOC proofs. Every change is written to disk (write, sync, rename) before it is
+//! acknowledged. Nothing of a request's content is ever stored.
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use ac_market_proto::toploc::ToplocProofs;
 use ac_primitives::market::usd::to_atc_threshold;
 use ac_primitives::market::work::{MAX_REPORT_ENTRIES, MAX_REPORT_VOUCHERS};
 use ac_primitives::market::{AtcPerUsd, MicroUsd, SignedReceipt, SignedVoucher};
@@ -26,6 +27,8 @@ pub struct Billed {
     pub receipt: SignedReceipt,
     /// Billed total including this receipt.
     pub cumulative: MicroUsd,
+    /// The TOPLOC proofs the receipt commits to (none for an all-zero commitment).
+    pub toploc: Option<ToplocProofs>,
 }
 
 /// One channel's state.
@@ -225,12 +228,18 @@ impl Book {
         }
     }
 
-    /// Bills a completed request: persists the receipt and returns the new billed total.
+    /// Bills a completed request: persists the receipt with its proofs and returns the new
+    /// billed total.
     ///
     /// # Errors
     ///
     /// Storage failures (the request is then not billed).
-    pub fn bill(&self, user: &AccountId32, receipt: SignedReceipt) -> Result<MicroUsd> {
+    pub fn bill(
+        &self,
+        user: &AccountId32,
+        receipt: SignedReceipt,
+        toploc: Option<ToplocProofs>,
+    ) -> Result<MicroUsd> {
         self.with(|channels| {
             let state = channels.get_mut(user).context("no channel state")?;
             state.inflight.remove(&receipt.body.request_id);
@@ -246,6 +255,7 @@ impl Book {
             next.unreported.push(Billed {
                 receipt,
                 cumulative,
+                toploc,
             });
             self.persist(user, &next)?;
             *state = next;
@@ -332,6 +342,7 @@ fn encode_state(user: &AccountId32, s: &ChannelState) -> String {
         "unreported": s.unreported.iter().map(|b| json!({
             "receipt": hex::encode(b.receipt.encode()),
             "cumulative": b.cumulative.0.to_string(),
+            "toploc": b.toploc.as_ref().map(|p| hex::encode(p.encode())),
         })).collect::<Vec<_>>(),
     })
     .to_string()
@@ -364,9 +375,14 @@ fn decode_state(text: &str) -> Result<(AccountId32, ChannelState)> {
                 .context("cumulative")?
                 .parse()?,
         );
+        let toploc = match b.get("toploc").and_then(Value::as_str) {
+            Some(h) => Some(ToplocProofs::decode(&mut &hex::decode(h)?[..])?),
+            None => None,
+        };
         unreported.push(Billed {
             receipt,
             cumulative,
+            toploc,
         });
     }
     Ok((
@@ -390,6 +406,8 @@ pub struct Portion {
     pub voucher: SignedVoucher,
     /// Receipts whose fees sum to the voucher's increment.
     pub receipts: Vec<SignedReceipt>,
+    /// The TOPLOC proofs of those receipts that have them, by request ID.
+    pub proofs: Vec<([u8; 32], ToplocProofs)>,
 }
 
 /// Plans reports: per channel, the receipts covered by the latest voucher (cumulative at most
@@ -408,11 +426,15 @@ pub fn plan(channels: &[(AccountId32, ChannelState)]) -> (Vec<Vec<Portion>>, Vec
         let Some(voucher) = &state.voucher else {
             continue;
         };
-        let covered: Vec<SignedReceipt> = state
+        let billed: Vec<&Billed> = state
             .unreported
             .iter()
             .filter(|b| b.cumulative <= voucher.body.cumulative)
-            .map(|b| b.receipt.clone())
+            .collect();
+        let covered: Vec<SignedReceipt> = billed.iter().map(|b| b.receipt.clone()).collect();
+        let proofs: Vec<([u8; 32], ToplocProofs)> = billed
+            .iter()
+            .filter_map(|b| Some((b.receipt.body.request_id, b.toploc.clone()?)))
             .collect();
         if covered.is_empty() {
             continue;
@@ -440,6 +462,7 @@ pub fn plan(channels: &[(AccountId32, ChannelState)]) -> (Vec<Vec<Portion>>, Vec
             user: user.clone(),
             voucher: voucher.clone(),
             receipts: covered,
+            proofs,
         });
     }
     if !current.is_empty() {
@@ -541,6 +564,15 @@ mod tests {
         }
     }
 
+    fn proofs() -> ToplocProofs {
+        ToplocProofs {
+            decode_batching_size: 32,
+            topk: 128,
+            skip_prefill: false,
+            proofs: vec![vec![0xff, 0xd9, 0, 1]],
+        }
+    }
+
     fn facts(escrow: u128) -> ChannelFacts {
         ChannelFacts {
             number: 0,
@@ -566,7 +598,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(
-            book.bill(&u, receipt(1, 7, 10_000)).unwrap(),
+            book.bill(&u, receipt(1, 7, 10_000), None).unwrap(),
             MicroUsd(10_000)
         );
         // The next request still carries the old voucher: refused.
@@ -667,13 +699,14 @@ mod tests {
             book.admit(&u, facts(ATC), &voucher(&u, 0), ([1; 32], MicroUsd(50)))
                 .unwrap()
                 .unwrap();
-            book.bill(&u, receipt(1, 7, 300)).unwrap();
+            book.bill(&u, receipt(1, 7, 300), Some(proofs())).unwrap();
             book.pay(&u, 0, &voucher(&u, 300)).unwrap().unwrap();
         }
         let again = Book::open(&d).unwrap().get(&u).unwrap();
         assert_eq!(again.billed, MicroUsd(300));
         assert_eq!(again.voucher.unwrap().body.cumulative, MicroUsd(300));
         assert_eq!(again.unreported.len(), 1);
+        assert_eq!(again.unreported[0].toploc, Some(proofs()));
         assert!(again.inflight.is_empty());
     }
 
@@ -690,14 +723,17 @@ mod tests {
                 Billed {
                     receipt: receipt(1, 7, 10),
                     cumulative: MicroUsd(10),
+                    toploc: None,
                 },
                 Billed {
                     receipt: receipt(2, 7, 10),
                     cumulative: MicroUsd(20),
+                    toploc: None,
                 },
                 Billed {
                     receipt: receipt(3, 7, 10),
                     cumulative: MicroUsd(30),
+                    toploc: None,
                 },
             ],
         };
@@ -728,6 +764,7 @@ mod tests {
                     unreported: vec![Billed {
                         receipt: receipt(i, 7, 5),
                         cumulative: MicroUsd(5),
+                        toploc: None,
                     }],
                 };
                 (u, state)

@@ -688,3 +688,202 @@ async fn no_request_content_is_logged_or_stored() {
         }
     }
 }
+
+/// How a lying provider's receipt disagrees with its proofs.
+#[derive(Clone, Copy)]
+enum Lie {
+    /// Proofs that do not hash to the receipt's commitment.
+    Mismatch,
+    /// Proofs with an all-zero commitment.
+    ProofsWithoutCommitment,
+}
+
+/// A provider endpoint (same keys as `provider(seed, ..)`) that answers every request with one
+/// chunk and a correctly priced, signed receipt whose TOPLOC proofs do not fit it.
+async fn lying_provider(seed: u8, gateway: &Party, lie: Lie) -> ProviderNode {
+    use ac_crypto::sealed::{Acceptor, ReplayCache, recipient_id};
+    use ac_market_proto::toploc::{MARKET_PARAMS, ToplocProofs};
+    use ac_market_proto::{ProviderMsg, ProviderReq, Usage};
+    use ac_primitives::market::ReceiptBody;
+    use ac_primitives::market::receipt::{RECEIPT_CONTEXT, fee_for};
+    use ac_primitives::market::work::JobKind;
+    use ac_toploc::{Bf16, build_proofs};
+
+    let mut node = provider(seed, gateway, fast(), CHEAP).await;
+    let kem_secret = KemSecretKey::from_seed(
+        KemAlg::XWing,
+        &SecretSeed::new([seed.wrapping_add(100); 32]),
+    )
+    .unwrap();
+    let recipient = recipient_id(&node.kem).unwrap();
+    let (account, key) = (node.party.account.clone(), node.party.key.clone());
+    let gw_key = gateway.key.public_key().unwrap();
+    let replay = Arc::new(Mutex::new(ReplayCache::default()));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    node.url = format!("http://{}", listener.local_addr().unwrap());
+    let kem_secret = Arc::new(kem_secret);
+    tokio::spawn(ac_wallet::http::serve(listener, move |req| {
+        let (kem_secret, gw_key, replay) =
+            (Arc::clone(&kem_secret), gw_key.clone(), Arc::clone(&replay));
+        let (account, key) = (account.clone(), key.clone());
+        async move {
+            let body = ac_wallet::http::read_body(req.into_body(), 1 << 22)
+                .await
+                .unwrap();
+            let acceptor = Acceptor {
+                secret: &kem_secret,
+                recipient,
+                now: sealed_http::now_secs(),
+            };
+            let request = {
+                let mut replay = replay.lock().unwrap();
+                sealed_http::accept(&body, &acceptor, |_| Some(gw_key.clone()), &mut replay)
+                    .unwrap()
+            };
+            let (mut writer, response, gateway, message) = request.respond();
+            tokio::spawn(async move {
+                let Ok(ProviderReq::Infer {
+                    request_id, model, ..
+                }) = msg::decode::<ProviderReq>(&message)
+                else {
+                    return;
+                };
+                let chunk = serde_json::json!({"id": "x", "object": "chat.completion.chunk",
+                    "choices": [{"index": 0, "delta": {"content": "hi "}}]});
+                writer
+                    .send(
+                        &msg::encode(&ProviderMsg::Delta(chunk.to_string().into_bytes())),
+                        false,
+                    )
+                    .await;
+                let usage = Usage {
+                    prompt_tokens: 1,
+                    completion_tokens: 2,
+                };
+                let acts: Vec<Vec<Bf16>> = (0..2u16)
+                    .map(|s| {
+                        (0..256u16)
+                            .map(|i| Bf16(i.wrapping_mul(97).wrapping_add(s) % 0x7f00))
+                            .collect()
+                    })
+                    .collect();
+                let refs: Vec<&[Bf16]> = acts.iter().map(Vec::as_slice).collect();
+                let mut proofs = ToplocProofs::new(
+                    &MARKET_PARAMS,
+                    &build_proofs(&refs, &MARKET_PARAMS).unwrap(),
+                );
+                let commit = match lie {
+                    Lie::Mismatch => {
+                        let c = proofs.commitment().unwrap();
+                        proofs.proofs[1][3] ^= 1; // tampered after committing
+                        c
+                    }
+                    Lie::ProofsWithoutCommitment => [0; 32],
+                };
+                let body = ReceiptBody {
+                    genesis: GENESIS,
+                    gateway,
+                    provider: account,
+                    kind: JobKind::Inference,
+                    model,
+                    request_id,
+                    in_tokens: 1,
+                    out_tokens: 2,
+                    fee: fee_for(&CHEAP, 1, 2).unwrap(),
+                    toploc_commit: commit,
+                    ttft_ms: 1,
+                    total_ms: 2,
+                };
+                let signature = key
+                    .sign(
+                        &body.payload().unwrap(),
+                        RECEIPT_CONTEXT,
+                        &mut OsRng::new().unwrap(),
+                    )
+                    .unwrap();
+                let receipt = ProviderMsg::Receipt {
+                    body,
+                    key: key.public_key().unwrap(),
+                    signature,
+                    usage,
+                    toploc: Some(proofs),
+                };
+                writer.send(&msg::encode(&receipt), true).await;
+            });
+            response
+        }
+    }));
+    node
+}
+
+// m5-engine-toploc 5.1, scenario "证明与承诺不符" (and proofs with an all-zero commitment): the
+// gateway does not co-sign or bill, and pauses the provider.
+#[tokio::test]
+async fn providers_with_proofs_that_do_not_fit_are_not_billed_and_are_paused() {
+    for (seed, lie) in [(18u8, Lie::Mismatch), (19, Lie::ProofsWithoutCommitment)] {
+        let gw = party(1);
+        let liar = lying_provider(seed, &gw, lie).await;
+        let n = net(&format!("liar-{seed}"), ATC, &[(&liar, CHEAP)]).await;
+        assert_eq!(
+            error_code(&n.chat("Qwen-test", "hi", true, 0).await),
+            ErrorCode::ProviderFailed
+        );
+        assert_eq!(
+            n.gateway.book().get(&n.user.account).unwrap().billed,
+            MicroUsd::ZERO
+        );
+        assert_eq!(
+            error_code(&n.chat("Qwen-test", "hi", true, 0).await),
+            ErrorCode::NoProvider
+        );
+    }
+}
+
+// m5-engine-toploc 5.1, scenarios "用户拿到证明" and the gateway keeping the proofs with the
+// billed receipt (until its report matures: tests/e2e inference).
+#[tokio::test]
+async fn users_get_the_proofs_the_gateway_keeps() {
+    let gw = party(1);
+    let socket = temp("toploc-gw").join("toploc.sock");
+    let honest = provider(
+        20,
+        &gw,
+        ac_mock_engine::Config {
+            toploc: Some(ac_mock_engine::PluginConfig {
+                socket,
+                half_decode: false,
+            }),
+            ..fast()
+        },
+        CHEAP,
+    )
+    .await;
+    let n = net("toploc", ATC, &[(&honest, CHEAP)]).await;
+    let mut paid = 0;
+    for stream in [true, false] {
+        let reply = n.chat("Qwen-test", "one two three", stream, paid).await;
+        let Some(GatewayMsg::Billing {
+            receipt, toploc, ..
+        }) = reply.last().cloned()
+        else {
+            panic!("no billing: {:?}", reply.last());
+        };
+        let proofs = toploc.expect("proofs with the bill");
+        assert_ne!(receipt.body.toploc_commit, [0; 32]);
+        ac_market_proto::toploc::check(&receipt.body, Some(&proofs)).unwrap();
+        let state = n.gateway.book().get(&n.user.account).unwrap();
+        let kept = state
+            .unreported
+            .iter()
+            .find(|b| b.receipt.body.request_id == receipt.body.request_id)
+            .unwrap();
+        assert_eq!(kept.toploc.as_ref(), Some(&proofs));
+        n.pay(state.billed.0).await;
+        paid = state.billed.0;
+    }
+    // The proofs survive a restart of the ledger.
+    let book = ac_gateway::book::Book::open(&n.data.join("channels")).unwrap();
+    let state = book.get(&n.user.account).unwrap();
+    assert_eq!(state.unreported.len(), 2);
+    assert!(state.unreported.iter().all(|b| b.toploc.is_some()));
+}

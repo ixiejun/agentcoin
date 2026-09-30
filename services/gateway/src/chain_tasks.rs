@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use ac_market_proto::toploc::ToplocProofs;
 use ac_primitives::market::SignedReceipt;
 use ac_runtime::{RuntimeCall, RuntimeEvent};
 use ac_wallet::NodeClient;
@@ -154,12 +155,7 @@ async fn submit(
             _ => None,
         })
         .context("no ReportAccepted event")?;
-    save_report(
-        data_dir,
-        id,
-        matures,
-        portions.iter().flat_map(|p| p.receipts.iter()),
-    )?;
+    save_report(data_dir, id, matures, portions)?;
     gateway.book().mark_reported(
         &portions
             .iter()
@@ -179,18 +175,25 @@ fn reports_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("reports")
 }
 
-fn save_report<'a>(
-    data_dir: &Path,
-    id: u64,
-    matures: u64,
-    receipts: impl Iterator<Item = &'a SignedReceipt>,
-) -> Result<()> {
+/// Keeps a report's receipts and their TOPLOC proofs until the report matures.
+fn save_report(data_dir: &Path, id: u64, matures: u64, portions: &[Portion]) -> Result<()> {
     let dir = reports_dir(data_dir);
     std::fs::create_dir_all(&dir)?;
+    let receipts: Vec<String> = portions
+        .iter()
+        .flat_map(|p| p.receipts.iter())
+        .map(|r| hex::encode(r.encode()))
+        .collect();
+    let proofs: serde_json::Map<String, Value> = portions
+        .iter()
+        .flat_map(|p| p.proofs.iter())
+        .map(|(rid, p)| (hex::encode(rid), Value::from(hex::encode(p.encode()))))
+        .collect();
     let body = json!({
         "id": id,
         "matures": matures,
-        "receipts": receipts.map(|r| hex::encode(r.encode())).collect::<Vec<_>>(),
+        "receipts": receipts,
+        "toploc": proofs,
     });
     let tmp = dir.join(format!("{id}.tmp"));
     std::fs::write(&tmp, body.to_string())?;
@@ -198,12 +201,16 @@ fn save_report<'a>(
     Ok(())
 }
 
-/// Receipts of a saved report (for audits and disputes until it matures).
+/// A report kept until it matures: its maturity epoch, receipts and their TOPLOC proofs (by
+/// request ID), for audits and disputes.
+pub type SavedReport = (u64, Vec<SignedReceipt>, Vec<([u8; 32], ToplocProofs)>);
+
+/// Receipts and proofs of a saved report (for audits and disputes until it matures).
 ///
 /// # Errors
 ///
 /// Unreadable or malformed files.
-pub fn load_report(data_dir: &Path, id: u64) -> Result<(u64, Vec<SignedReceipt>)> {
+pub fn load_report(data_dir: &Path, id: u64) -> Result<SavedReport> {
     let text = std::fs::read_to_string(reports_dir(data_dir).join(format!("{id}.json")))?;
     let v: Value = serde_json::from_str(&text)?;
     let matures = v
@@ -220,7 +227,17 @@ pub fn load_report(data_dir: &Path, id: u64) -> Result<(u64, Vec<SignedReceipt>)
             &mut &hex::decode(h.as_str().context("receipt")?)?[..],
         )?);
     }
-    Ok((matures, out))
+    let mut proofs = Vec::new();
+    if let Some(map) = v.get("toploc").and_then(Value::as_object) {
+        for (rid, h) in map {
+            let rid: [u8; 32] = hex::decode(rid)?
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("bad request ID"))?;
+            let bytes = hex::decode(h.as_str().context("proofs")?)?;
+            proofs.push((rid, ToplocProofs::decode(&mut &bytes[..])?));
+        }
+    }
+    Ok((matures, out, proofs))
 }
 
 /// Claims the gateway's matured fees, then deletes the receipts of reports whose maturity epoch
@@ -257,11 +274,104 @@ pub async fn claim_and_clean(node: &NodeClient, signer: &Signer, data_dir: &Path
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
-        let (matures, _) = load_report(data_dir, id)?;
+        let (matures, _, _) = load_report(data_dir, id)?;
         if node.work_epoch(matures).await?.market.is_some() {
             std::fs::remove_file(&path)?;
-            log::info!(target: TARGET, "deleted the receipts of report {id} (challenge period over)");
+            log::info!(target: TARGET, "deleted the receipts and proofs of report {id} (challenge period over)");
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ac_crypto::sig::{SecretSeed, SigningKey};
+    use ac_crypto::{OsRng, SigAlg};
+    use ac_primitives::market::receipt::RECEIPT_CONTEXT;
+    use ac_primitives::market::voucher::VOUCHER_CONTEXT;
+    use ac_primitives::market::work::JobKind;
+    use ac_primitives::market::{MicroUsd, ModelId, ReceiptBody, SignedVoucher, VoucherBody};
+    use sp_core::H256;
+
+    fn receipt(id: u8) -> SignedReceipt {
+        let key = SigningKey::from_seed(SigAlg::MlDsa44, &SecretSeed::new([1; 32])).unwrap();
+        let body = ReceiptBody {
+            genesis: H256([0; 32]),
+            gateway: AccountId32::new([2; 32]),
+            provider: AccountId32::new([3; 32]),
+            kind: JobKind::Inference,
+            model: ModelId([4; 32]),
+            request_id: [id; 32],
+            in_tokens: 1,
+            out_tokens: 1,
+            fee: MicroUsd(1),
+            toploc_commit: [0; 32],
+            ttft_ms: 1,
+            total_ms: 2,
+        };
+        let sig = key
+            .sign(
+                &body.payload().unwrap(),
+                RECEIPT_CONTEXT,
+                &mut OsRng::new().unwrap(),
+            )
+            .unwrap();
+        SignedReceipt {
+            body,
+            provider_key: key.public_key().unwrap(),
+            provider_sig: sig.clone(),
+            gateway_key: key.public_key().unwrap(),
+            gateway_sig: sig,
+        }
+    }
+
+    fn voucher() -> SignedVoucher {
+        let key = SigningKey::from_seed(SigAlg::MlDsa44, &SecretSeed::new([5; 32])).unwrap();
+        let body = VoucherBody {
+            genesis: H256([0; 32]),
+            user: AccountId32::new([6; 32]),
+            gateway: AccountId32::new([2; 32]),
+            channel: 0,
+            cumulative: MicroUsd(2),
+        };
+        SignedVoucher {
+            signature: key
+                .sign(
+                    &body.payload().unwrap(),
+                    VOUCHER_CONTEXT,
+                    &mut OsRng::new().unwrap(),
+                )
+                .unwrap(),
+            public_key: key.public_key().unwrap(),
+            body,
+        }
+    }
+
+    // m5-engine-toploc 5.1: a report keeps its receipts' proofs until it is deleted at maturity.
+    #[test]
+    fn reports_keep_their_proofs() {
+        let dir = std::env::temp_dir().join(format!("ac-gateway-reports-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let proofs = ToplocProofs {
+            decode_batching_size: 32,
+            topk: 128,
+            skip_prefill: false,
+            proofs: vec![vec![0xff, 0xd9, 0, 7]],
+        };
+        // Signatures are randomized: compare with the very receipts saved.
+        let saved = vec![receipt(1), receipt(2)];
+        let portion = Portion {
+            user: AccountId32::new([6; 32]),
+            voucher: voucher(),
+            receipts: saved.clone(),
+            proofs: vec![([2; 32], proofs.clone())],
+        };
+        save_report(&dir, 9, 40, &[portion]).unwrap();
+        let (matures, receipts, kept) = load_report(&dir, 9).unwrap();
+        assert_eq!(matures, 40);
+        assert_eq!(receipts, saved);
+        assert_eq!(kept, [([2; 32], proofs)]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

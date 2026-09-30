@@ -20,13 +20,18 @@ endpoint. The gateway:
   error and nothing is billed. Unreachable providers are paused 30 s, providers that sign an
   invalid receipt one hour; T0/TEE providers are not used in this phase;
 - checks every provider receipt (parties, request, token counts equal to the usage and within the
-  request's bounds, fee equal to the on-chain price), co-signs it, bills it, returns it to the
-  user with the fee and the new total, and hands it back to the provider;
+  request's bounds, fee equal to the on-chain price) and its TOPLOC proofs (an all-zero
+  commitment comes without proofs; otherwise the market parameters, one proof per chunk of the
+  output and a recomputed commitment equal to the receipt's, `ac_market_proto::toploc::check`),
+  co-signs it, bills it, returns it to the user with the fee, the new total and the proofs, and
+  hands it back to the provider; a receipt whose proofs do not fit counts as invalid;
 - submits work reports every `--report-interval` blocks with the receipts each channel's latest
   voucher covers (at most 16 vouchers and 128 entries per report, split otherwise), keeps the
-  receipts of each report until its maturity epoch is settled, then claims its gateway fee;
-- **never logs or stores prompts or outputs**: the data directory holds the channel ledger and
-  receipts only, log lines carry IDs, token counts, fees, latencies and error codes.
+  receipts and proofs of each report until its maturity epoch is settled, then claims its
+  gateway fee;
+- **never logs or stores prompts or outputs**: the data directory holds the channel ledger,
+  receipts and TOPLOC proofs only, log lines carry IDs, token counts, fees, latencies and error
+  codes.
 
 ## Usage
 
@@ -47,8 +52,8 @@ gives none, default 4,096), `--log-level`.
   end to end regardless. Rate limiting belongs in the proxy too.
 - **Clock**: handshakes are valid for ±120 s, so run NTP.
 - **Data directory**: `channels/` (one JSON file per user: channel number, billed total, latest
-  voucher, unreported receipts; written and synced before a bill is acknowledged) and
-  `reports/` (receipts of submitted reports until they mature). Back it up: unreported receipts
+  voucher, unreported receipts with their TOPLOC proofs; written and synced before a bill is
+  acknowledged) and `reports/` (receipts and proofs of submitted reports until they mature). Back it up: unreported receipts
   are money owed to providers.
 
 ## Feature flags
