@@ -34,7 +34,8 @@ PY
 }
 
 # 1. The vLLM wheel, checked against its pinned SHA-256.
-wheel="$tmp/$(basename "$VLLM_WHEEL_URL")"
+name="$(basename "$VLLM_WHEEL_URL")"
+wheel="$tmp/${name//%2B/+}" # pip needs the real file name
 if ! curl -fsSL --retry 3 -o "$wheel" "$VLLM_WHEEL_URL"; then
   echo "cannot download $VLLM_WHEEL_URL; the release's wheels are:" >&2
   list_release_wheels >&2 || true
