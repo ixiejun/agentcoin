@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentcoin-vllm"
+version = "0.1.0"
+description = "AgentCoin TOPLOC plugin for vLLM: hands the top-k final-layer activations of every request to the local AgentCoin provider agent"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+requires-python = ">=3.10"
+dependencies = ["vllm>=0.30.0,<0.31"]
+
+[project.urls]
+Repository = "https://github.com/ixiejun/agentcoin"
+
+[project.entry-points."vllm.general_plugins"]
+agentcoin_toploc = "agentcoin_vllm:register"
+
+[tool.setuptools]
+packages = ["agentcoin_vllm"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

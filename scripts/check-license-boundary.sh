@@ -11,6 +11,10 @@
 #    in that directory that lists each file's SHA-256 (they keep their upstream licence and need
 #    no SPDX line).
 #
+# Python packages follow the zones too:
+# 5. Every `pyproject.toml` declares its zone's licence expression as its `project.license`
+#    (a PEP 639 SPDX string).
+#
 # Three rules are checked for every workspace crate:
 # 1. The distributed build of a permissive-zone crate (every feature except the internal ones in
 #    INTERNAL_FEATURES) has a normal + build dependency closure with no crate that can only be
@@ -191,6 +195,37 @@ for f in sorted(files):
                 fail(f"licence record out of date: {rel(source)} lacks the SHA-256 of {rel(f)} ({digest})")
 sys.exit(1 if failed else 0)
 ' "$root" "$SOL_GPL_ZONES"
+}
+
+# Checks every Python package (pyproject.toml) under "$1" (build output and environments
+# excluded): its `project.license` is its zone's expression.
+check_python() {
+  local root="$1"
+  find "$root" \( -name .git -o -name target -o -name node_modules -o -name .venv -o -name venv \
+    -o -name build -o -name dist \) -prune -o -name pyproject.toml -print0 |
+    python3 -c '
+import os, sys, tomllib
+root = os.path.realpath(sys.argv[1])
+zones = sys.argv[2].split()
+gpl, permissive = sys.argv[3], sys.argv[4]
+failed = False
+for f in sorted(x for x in sys.stdin.read().split("\0") if x):
+    rel = os.path.relpath(os.path.realpath(f), root)
+    d = os.path.dirname(rel)
+    zone = "gpl" if any(d == z or d.startswith(z + "/") for z in zones) else "permissive"
+    expected = gpl if zone == "gpl" else permissive
+    try:
+        with open(f, "rb") as fh:
+            license = tomllib.load(fh).get("project", {}).get("license")
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        print(f"licence zone violated: {rel} cannot be read: {e}", file=sys.stderr)
+        failed = True
+        continue
+    if license != expected:
+        print(f"licence zone violated: {rel} ({zone} zone) declares {license!r}, expected \"{expected}\"", file=sys.stderr)
+        failed = True
+sys.exit(1 if failed else 0)
+' "$root" "$GPL_ZONES" "$GPL_LICENSE" "$PERMISSIVE_LICENSE"
 }
 
 # --- self-test ---------------------------------------------------------------------------------
@@ -389,6 +424,35 @@ self_test() {
   rm "$ws/contracts/acceptance/lib/SOURCE.md"
   expect_sol_fail "vendored sources without SOURCE.md" "without a SOURCE.md"
 
+  # Scenario: Python packages declare their zone's licence.
+  rm -rf "$ws/plugins" "$ws/scripts/py"
+  mkdir -p "$ws/plugins/p" "$ws/scripts/py"
+  printf '[project]\nname = "p"\nlicense = "MIT OR Apache-2.0"\n' >"$ws/plugins/p/pyproject.toml"
+  printf '[project]\nname = "s"\nlicense = "GPL-3.0-or-later"\n' >"$ws/scripts/py/pyproject.toml"
+  if ! check_python "$ws"; then
+    echo "self-test failed: the Python baseline was rejected" >&2
+    return 1
+  fi
+  expect_py_fail() {
+    local what="$1" pattern="$2" err
+    if err="$(check_python "$ws" 2>&1 >/dev/null)"; then
+      echo "self-test failed: $what was not detected" >&2
+      return 1
+    fi
+    if ! grep -q "$pattern" <<<"$err"; then
+      echo "self-test failed: $what failed for an unexpected reason:" >&2
+      echo "$err" | sed 's/^/  /' >&2
+      return 1
+    fi
+  }
+  printf '[project]\nname = "p"\nlicense = "GPL-3.0-or-later"\n' >"$ws/plugins/p/pyproject.toml"
+  expect_py_fail "a GPL Python package under plugins/" "plugins/p/pyproject.toml (permissive zone) declares 'GPL-3.0-or-later'"
+  printf '[project]\nname = "p"\n' >"$ws/plugins/p/pyproject.toml"
+  expect_py_fail "a Python package without a licence" "plugins/p/pyproject.toml (permissive zone) declares None"
+  printf '[project]\nname = "p"\nlicense = "MIT OR Apache-2.0"\n' >"$ws/plugins/p/pyproject.toml"
+  printf '[project]\nname = "s"\nlicense = "MIT"\n' >"$ws/scripts/py/pyproject.toml"
+  expect_py_fail "a permissive Python package under scripts/" "scripts/py/pyproject.toml (gpl zone) declares 'MIT'"
+
   echo "licence boundary self-test passed"
 }
 
@@ -407,7 +471,8 @@ check_pure_protocol() {
 case "${1:-}" in
   --self-test) self_test ;;
   --manifest-path) check "$2" && echo "licence boundary ok" ;;
-  "") check "$manifest" && check_solidity "$repo_root" && check_pure_protocol &&
+  "") check "$manifest" && check_solidity "$repo_root" && check_python "$repo_root" &&
+    check_pure_protocol &&
     echo "licence boundary ok" ;;
   *) echo "usage: $0 [--manifest-path <Cargo.toml>] [--self-test]" >&2; exit 2 ;;
 esac
