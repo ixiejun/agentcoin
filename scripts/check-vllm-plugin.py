@@ -33,6 +33,8 @@ REPO = Path(__file__).resolve().parent.parent
 MODEL = os.environ["AC_VLLM_MODEL"]
 REVISION = os.environ["AC_VLLM_REVISION"]
 TOPK, BATCH = 128, 32
+# On the CPU backend this is the share of RAM vLLM reserves; runners have about 16 GB.
+MEMORY = 0.3
 MARKER = "quokka-marker-7b1e"
 PROMPT = (
     f"Please repeat {MARKER} and then describe, in plain words, how a lighthouse keeper "
@@ -133,7 +135,8 @@ def refused(kwargs: str, needle: str) -> None:
     """A second engine with a bad configuration must fail to start, naming the reason."""
     code = (
         "from vllm import LLM\n"
-        f"LLM(model={MODEL!r}, revision={REVISION!r}, max_model_len=512, enforce_eager=True, {kwargs})\n"
+        f"LLM(model={MODEL!r}, revision={REVISION!r}, max_model_len=512, enforce_eager=True,\n"
+        f"    gpu_memory_utilization={MEMORY}, {kwargs})\n"
     )
     with tempfile.TemporaryDirectory() as d:
         env = dict(os.environ, AGENTCOIN_TOPLOC_SOCKET=os.path.join(d, "t.sock"))
@@ -142,8 +145,8 @@ def refused(kwargs: str, needle: str) -> None:
 
 
 def main() -> int:
-    refused("dtype='float16', enable_prefix_caching=False", "bfloat16")
-    refused("dtype='bfloat16', enable_prefix_caching=True", "--no-enable-prefix-caching")
+    refused("dtype='float16', enable_prefix_caching=False", "agentcoin toploc: the model runs in torch.float16")
+    refused("dtype='bfloat16', enable_prefix_caching=True", "agentcoin toploc: prefix caching")
 
     records: list[str] = []
 
@@ -173,6 +176,7 @@ def main() -> int:
         enable_chunked_prefill=True,
         max_num_batched_tokens=64,  # the prompt's prefill takes several steps
         seed=0,
+        gpu_memory_utilization=MEMORY,
     )
     captured: list = []
 
