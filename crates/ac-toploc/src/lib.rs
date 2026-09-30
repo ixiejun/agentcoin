@@ -3,9 +3,11 @@
 
 extern crate alloc;
 
+mod candidates;
 mod field;
 mod proof;
 
+pub use candidates::{Candidate, Phase, Segment, build_proofs_from_candidates, top_k_candidates};
 pub use proof::{
     Comparison, ProofPoly, TOPLOC_COMMIT_CONTEXT, build_proofs, commitment, compare,
     injective_modulus,
@@ -87,6 +89,14 @@ pub enum Error {
         /// Chunks of the activations.
         chunks: usize,
     },
+    /// A segment's candidates are not its top `min(k, len)`: wrong count, an index out of the
+    /// segment or repeated.
+    BadCandidates {
+        /// Index of the segment.
+        segment: usize,
+    },
+    /// A prefill segment follows a decode segment.
+    SegmentOrder,
 }
 
 impl core::fmt::Display for Error {
@@ -106,6 +116,10 @@ impl core::fmt::Display for Error {
             Self::ChunkCountMismatch { proofs, chunks } => {
                 write!(f, "{proofs} proofs for {chunks} chunks")
             }
+            Self::BadCandidates { segment } => {
+                write!(f, "segment {segment} does not carry valid top-k candidates")
+            }
+            Self::SegmentOrder => f.write_str("a prefill segment follows a decode segment"),
         }
     }
 }

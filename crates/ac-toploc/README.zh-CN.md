@@ -18,6 +18,36 @@ TOPLOC 是局部敏感哈希，不是密码学原语：它用来发现被替换�
 - **阈值**：通过与否的阈值不在这里决定，由审计（M6）按硬件和引擎校准。
 - **承诺**：`derive("agentcoin 2026-09 toploc-commit v1", SCALE(decode_batching_size u32, topk u32, skip_prefill bool, [各块证明编码]))`。
 
+## 由引擎候选构造证明
+
+推理引擎插件不发送完整的激活值。对每个前向步骤，它为每个请求发送一个*段*：阶段（预填充或解码）、元素个数，以及按绝对值最大的 `min(k, len)` 个值和它们的下标（[`top_k_candidates`]）。[`build_proofs_from_candidates`] 把预填充的各段拼成预填充激活，每个解码段作为一个激活，按 [`build_proofs`] 的规则分块（段内下标加上块内在它之前各段的元素数），每块从候选中取 top-k。块的 top-k 一定落在各段 top-k 的并集里，所以结果与由全量激活值调用 [`build_proofs`] 逐字节相同；唯一例外是段内第 k 与第 k+1 名幅值相等时，引擎可能选中另一个，这与参考实现的 `torch.topk` 一样不确定。候选数量不是 `min(k, len)`、下标越出段或重复、值不是有限数、或预填充段出现在解码段之后时，构造返回错误。
+
+`examples/toploc_from_candidates.rs` 以 JSON 读入这样的段，输出证明与承诺（CI 用它把 vLLM 插件与参考实现比对）。
+
+```rust
+use ac_toploc::{Bf16, Params, Phase, Segment, build_proofs, build_proofs_from_candidates, top_k_candidates};
+
+let prefill: Vec<Bf16> = (0..12u16).map(|i| Bf16(0x3f80 + 7 * i)).collect();
+let token: Vec<Bf16> = (0..4u16).map(|i| Bf16(0xbf80 + 3 * i)).collect();
+let params = Params { decode_batching_size: 2, topk: 4, skip_prefill: false };
+
+// 预填充分两步计算，之后是两个解码步骤。
+let (a, b) = prefill.split_at(8);
+let segment = |phase, v: &[Bf16]| Segment {
+    phase,
+    len: v.len() as u32,
+    candidates: top_k_candidates(v, 4),
+};
+let segments = [
+    segment(Phase::Prefill, a),
+    segment(Phase::Prefill, b),
+    segment(Phase::Decode, &token),
+    segment(Phase::Decode, &token),
+];
+let whole: Vec<&[Bf16]> = vec![&prefill, &token, &token];
+assert_eq!(build_proofs_from_candidates(&segments, &params)?, build_proofs(&whole, &params)?);
+```
+
 ## 功能开关
 
 | 开关 | 默认 | 用途 |

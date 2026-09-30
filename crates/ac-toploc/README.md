@@ -42,6 +42,48 @@ ML-DSA signatures.
 - **Commitment**: `derive("agentcoin 2026-09 toploc-commit v1", SCALE(decode_batching_size u32,
   topk u32, skip_prefill bool, [proof encodings]))`.
 
+## Proofs from engine candidates
+
+An inference engine plugin does not ship whole activations. For every forward step it sends, per
+request, a *segment*: its phase (prefill or decode), its number of values and its top
+`min(k, len)` values by magnitude with their indices ([`top_k_candidates`]).
+[`build_proofs_from_candidates`] joins the prefill segments into the prefill activation, takes one
+activation per decode segment, chunks them as [`build_proofs`] does (a segment's indices offset by
+the segments before it in its chunk) and keeps each chunk's top-k of the candidates. A chunk's
+top-k always lies in the union of its segments' top-k, so the proofs are byte-identical to
+[`build_proofs`] on the whole activations. The only exception is a tie between a segment's k-th
+and (k+1)-th value, which the engine may break differently, as the reference's `torch.topk` may.
+Candidates are refused when their count is not `min(k, len)`, an index is outside the segment or
+repeated, a value is not finite, or a prefill segment follows a decode segment.
+
+`examples/toploc_from_candidates.rs` reads such segments as JSON and prints the proofs and the
+commitment (used by CI to compare the vLLM plugin with the reference implementation).
+
+```rust
+use ac_toploc::{Bf16, Params, Phase, Segment, build_proofs, build_proofs_from_candidates, top_k_candidates};
+
+let prefill: Vec<Bf16> = (0..12u16).map(|i| Bf16(0x3f80 + 7 * i)).collect();
+let token: Vec<Bf16> = (0..4u16).map(|i| Bf16(0xbf80 + 3 * i)).collect();
+let params = Params { decode_batching_size: 2, topk: 4, skip_prefill: false };
+
+// The prefill computed in two steps, then two decode steps.
+let (a, b) = prefill.split_at(8);
+let segment = |phase, v: &[Bf16]| Segment {
+    phase,
+    len: v.len() as u32,
+    candidates: top_k_candidates(v, 4),
+};
+let segments = [
+    segment(Phase::Prefill, a),
+    segment(Phase::Prefill, b),
+    segment(Phase::Decode, &token),
+    segment(Phase::Decode, &token),
+];
+let whole: Vec<&[Bf16]> = vec![&prefill, &token, &token];
+assert_eq!(build_proofs_from_candidates(&segments, &params)?, build_proofs(&whole, &params)?);
+# Ok::<(), ac_toploc::Error>(())
+```
+
 ## Features
 
 | Feature | Default | Purpose |

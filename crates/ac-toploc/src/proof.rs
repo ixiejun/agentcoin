@@ -81,7 +81,7 @@ fn reduce_index(index: usize, modulus: u16) -> u32 {
         .unwrap_or(0)
 }
 
-fn check(params: &Params) -> Result<(usize, usize), Error> {
+pub(crate) fn check(params: &Params) -> Result<(usize, usize), Error> {
     let batch = usize::try_from(params.decode_batching_size).map_err(|_| Error::ZeroParameter)?;
     let topk = usize::try_from(params.topk).map_err(|_| Error::ZeroParameter)?;
     if batch == 0 || topk == 0 {
@@ -142,22 +142,31 @@ pub fn build_proofs(activations: &[&[Bf16]], params: &Params) -> Result<Vec<Proo
         .enumerate()
         .map(|(n, chunk)| {
             let idx = top_k(chunk, topk, n)?;
-            let modulus = injective_modulus(&idx)?;
-            let x: Vec<u32> = idx.iter().map(|i| reduce_index(*i, modulus)).collect();
-            let y: Vec<u32> = idx
+            let points: Vec<(usize, Bf16)> = idx
                 .iter()
-                .map(|i| u32::from(chunk.get(*i).map_or(0, |v| v.0)))
+                .map(|i| (*i, chunk.get(*i).copied().unwrap_or(Bf16(0))))
                 .collect();
-            let coeffs = field::interpolate(&x, &y).ok_or(Error::NoInjectiveModulus)?;
-            Ok(ProofPoly {
-                modulus,
-                coeffs: coeffs
-                    .into_iter()
-                    .map(|c| u16::try_from(c).unwrap_or(0))
-                    .collect(),
-            })
+            prove_points(&points)
         })
         .collect()
+}
+
+/// The proof of one chunk from its chosen top-k `(index in chunk, value)` points: the
+/// modulus that keeps the indices distinct and the polynomial through
+/// `(index mod modulus, bf16 bits)` (the polynomial does not depend on the points' order).
+pub(crate) fn prove_points(points: &[(usize, Bf16)]) -> Result<ProofPoly, Error> {
+    let idx: Vec<usize> = points.iter().map(|(i, _)| *i).collect();
+    let modulus = injective_modulus(&idx)?;
+    let x: Vec<u32> = idx.iter().map(|i| reduce_index(*i, modulus)).collect();
+    let y: Vec<u32> = points.iter().map(|(_, v)| u32::from(v.0)).collect();
+    let coeffs = field::interpolate(&x, &y).ok_or(Error::NoInjectiveModulus)?;
+    Ok(ProofPoly {
+        modulus,
+        coeffs: coeffs
+            .into_iter()
+            .map(|c| u16::try_from(c).unwrap_or(0))
+            .collect(),
+    })
 }
 
 /// Result of comparing one chunk of recomputed activations with its proof, in integers.
