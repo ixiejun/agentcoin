@@ -142,6 +142,8 @@ async fn inference_through_vllm_with_toploc_proofs() {
                     "--port",
                     &engine_port.to_string(),
                 ])
+                // On the CPU backend: the share of RAM vLLM reserves (runners have ~16 GB).
+                .args(["--gpu-memory-utilization", "0.3"])
                 .env("AGENTCOIN_TOPLOC_SOCKET", &socket)
                 .env("VLLM_USE_V2_MODEL_RUNNER", "0");
             c
