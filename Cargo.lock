@@ -164,6 +164,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ac-market-proto"
+version = "0.1.0"
+dependencies = [
+ "ac-crypto",
+ "ac-primitives",
+ "hex",
+ "parity-scale-codec",
+ "proptest",
+ "rand_core 0.10.1",
+ "serde",
+ "serde_json",
+ "sp-core",
+ "sp-runtime",
+]
+
+[[package]]
 name = "ac-node"
 version = "0.1.0"
 dependencies = [

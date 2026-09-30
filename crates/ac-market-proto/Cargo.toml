@@ -1,0 +1,40 @@
+[package]
+name = "ac-market-proto"
+description = "AgentCoin inference-market wire protocol: sealed-channel framing, gateway and provider messages, the OpenAI Chat Completions subset and gateway key announcements"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+ac-crypto = { workspace = true, features = ["std", "sealed"] }
+ac-primitives = { workspace = true, features = ["std"] }
+hex = { workspace = true, features = ["std"] }
+parity-scale-codec = { workspace = true, features = ["std", "derive"] }
+rand_core = { workspace = true }
+serde = { workspace = true, features = ["std", "derive"] }
+serde_json = { workspace = true, features = ["std"] }
+sp-core = { workspace = true, features = ["std"] }
+sp-runtime = { workspace = true, features = ["std"] }
+
+[dev-dependencies]
+ac-crypto = { workspace = true, features = ["std", "sealed", "getrandom", "deterministic"] }
+proptest = { workspace = true, features = ["std"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+dbg_macro = "deny"
+wildcard_imports = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
