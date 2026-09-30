@@ -28,7 +28,7 @@ AgentCoin (token **ATC**) is a **post-quantum, privacy-native, permissionless** 
 
 | Document | Purpose | When to read |
 |---|---|---|
-| `docs/decisions.md` (Chinese: `.zh-CN.md`) | **All confirmed decisions D1–D59 (highest design authority)** | At the start of every task |
+| `docs/decisions.md` (Chinese: `.zh-CN.md`) | **All confirmed decisions D1–D62 (highest design authority)** | At the start of every task |
 | `docs/design/mvp-technical-plan.md` | MVP architecture, modules, data structures, milestones | For MVP tasks |
 | `docs/design/full-technical-plan.md` | Full-version architecture and interfaces the MVP must reserve (§11) | When designing any interface |
 | `docs/research/01–07` | Research and discussion behind the decisions | When you need the "why" |
