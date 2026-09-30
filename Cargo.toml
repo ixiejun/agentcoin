@@ -164,6 +164,36 @@ debug = "line-tables-only"
 # cloud containers; full rebuilds of changed crates are fast enough.
 incremental = false
 
+# Post-quantum signatures and KEMs, AEADs and hashes: unoptimized, one ML-DSA signature takes tens
+# of milliseconds, and every market request signs and verifies several (sealed-channel
+# handshakes, vouchers, receipts), which would dominate the time-to-first-token budget of the
+# debug-built end-to-end test (m5-gateway-provider design D9).
+[profile.dev.package.ml-dsa]
+opt-level = 3
+[profile.dev.package.ml-kem]
+opt-level = 3
+[profile.dev.package.x-wing]
+opt-level = 3
+[profile.dev.package.module-lattice]
+opt-level = 3
+[profile.dev.package.hybrid-array]
+opt-level = 3
+[profile.dev.package.sha3]
+opt-level = 3
+[profile.dev.package.keccak]
+opt-level = 3
+[profile.dev.package.chacha20]
+opt-level = 3
+[profile.dev.package.poly1305]
+opt-level = 3
+[profile.dev.package.chacha20poly1305]
+opt-level = 3
+[profile.dev.package.curve25519-dalek]
+opt-level = 3
+[profile.dev.package.x25519-dalek]
+opt-level = 3
+[profile.dev.package.blake3]
+opt-level = 3
 # Argon2id with production parameters (64 MiB) is too slow unoptimized for tests.
 [profile.dev.package.argon2]
 opt-level = 3

@@ -62,6 +62,8 @@ jobs:
             pallet-work ac-toploc; do
             cargo build -p "$crate" --no-default-features --target wasm32-unknown-unknown
           done
+          # The sealed channel stays usable without std (m5-gateway-provider 7.3).
+          cargo build -p ac-crypto --no-default-features --features sealed --target wasm32-unknown-unknown
 
   runtime-wasm:
     runs-on: ubuntu-latest
@@ -84,7 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-substrate
-      - run: cargo build -p ac-node -p ac-wallet -p ac-eth-rpc
+      - run: cargo build -p ac-node -p ac-wallet -p ac-eth-rpc -p ac-provider -p ac-gateway -p ac-mock-engine
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: v1.7.1
@@ -103,6 +105,13 @@ jobs:
         run: cargo test -p ac-e2e --test market -- --test-threads 1
       - name: Work settlement through the wallet (receipts, report, challenge period, emission, claims)
         run: cargo test -p ac-e2e --test settlement -- --test-threads 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: OpenAI SDK for the inference test
+        run: pip install -r tests/e2e/python/requirements.txt
+      - name: Inference through the market (OpenAI SDK, proxy, gateway, providers, reports, claims, latency, no content in logs)
+        run: cargo test -p ac-e2e --test inference -- --test-threads 1 --nocapture
       - name: Local testnet script
         run: AC_TESTNET_DIR="$AC_E2E_LOGS/testnet" scripts/run-local-testnet.sh --check
       - name: Wallet README commands

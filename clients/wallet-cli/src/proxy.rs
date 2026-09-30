@@ -79,13 +79,26 @@ pub struct Paid {
     pub total: MicroUsd,
 }
 
+/// The paid total and the voucher that paid it: requests reuse that voucher, so the gateway
+/// recognizes it and need not check it on chain again.
+struct PaidState {
+    paid: Paid,
+    voucher: Option<SignedVoucher>,
+}
+
+type ModelCache = Option<(std::time::Instant, Vec<(ModelId, String)>)>;
+
+/// How long the gateway's model list is cached.
+const MODEL_CACHE: Duration = Duration::from_secs(30);
+
 /// The running proxy.
 pub struct Proxy {
     cfg: Config,
     http: Client,
     facts: Box<dyn Facts>,
-    paid: Mutex<Paid>,
+    paid: Mutex<PaidState>,
     halted: std::sync::Mutex<Option<String>>,
+    models: std::sync::Mutex<ModelCache>,
 }
 
 impl Proxy {
@@ -100,15 +113,19 @@ impl Proxy {
         Ok(Arc::new(Self {
             http: Client::new()?,
             facts,
-            paid: Mutex::new(paid),
+            paid: Mutex::new(PaidState {
+                paid,
+                voucher: None,
+            }),
             halted: std::sync::Mutex::new(None),
+            models: std::sync::Mutex::new(None),
             cfg,
         }))
     }
 
     /// The paid total.
     pub async fn paid(&self) -> Paid {
-        *self.paid.lock().await
+        self.paid.lock().await.paid
     }
 
     /// Why payments stopped, if they did.
@@ -150,6 +167,25 @@ impl Proxy {
     }
 
     async fn model_ids(&self) -> Vec<(ModelId, String)> {
+        let cached = self
+            .models
+            .lock()
+            .ok()
+            .and_then(|m| m.clone())
+            .filter(|(at, _)| at.elapsed() < MODEL_CACHE);
+        if let Some((_, list)) = cached {
+            return list;
+        }
+        let list = self.fetch_model_ids().await;
+        if !list.is_empty()
+            && let Ok(mut m) = self.models.lock()
+        {
+            *m = Some((std::time::Instant::now(), list.clone()));
+        }
+        list
+    }
+
+    async fn fetch_model_ids(&self) -> Vec<(ModelId, String)> {
         let url = http::join(&self.cfg.gateway_url, "/ac/v1/models");
         let Ok(b) = self.http.get_bytes(&url, 4 << 20).await else {
             return Vec::new();
@@ -254,10 +290,17 @@ impl Proxy {
         let (resp, first) = loop {
             attempt = attempt.saturating_add(1);
             let voucher = {
-                let paid = self.paid.lock().await;
-                match self.voucher(paid.total) {
-                    Ok(v) => v,
-                    Err(e) => return error(ErrorCode::Internal, &format!("{e:#}")),
+                let mut state = self.paid.lock().await;
+                let total = state.paid.total;
+                match state.voucher.clone().filter(|v| v.body.cumulative == total) {
+                    Some(v) => v,
+                    None => match self.voucher(total) {
+                        Ok(v) => {
+                            state.voucher = Some(v.clone());
+                            v
+                        }
+                        Err(e) => return error(ErrorCode::Internal, &format!("{e:#}")),
+                    },
                 }
             };
             let mut resp = match self
@@ -421,9 +464,9 @@ impl Proxy {
         expected: Option<ModelId>,
         observed: Option<Usage>,
     ) -> Result<()> {
-        let mut paid = self.paid.lock().await;
+        let mut state = self.paid.lock().await;
         let verdict = self
-            .verify(receipt, fee, billed_total, (*paid, expected, observed))
+            .verify(receipt, fee, billed_total, (state.paid, expected, observed))
             .await;
         if let Err(e) = verdict {
             self.halt(format!("{e:#}"));
@@ -432,7 +475,7 @@ impl Proxy {
         let voucher = self.voucher(billed_total)?;
         let mut resp = self
             .send(&UserMsg::Pay {
-                payment: Payment::Transparent(voucher),
+                payment: Payment::Transparent(voucher.clone()),
             })
             .await?;
         match next_msg(&mut resp).await? {
@@ -449,8 +492,9 @@ impl Proxy {
             }
             _ => bail!("unexpected answer to a payment"),
         }
-        paid.total = billed_total;
-        save_state(&self.cfg, *paid)?;
+        state.paid.total = billed_total;
+        state.voucher = Some(voucher);
+        save_state(&self.cfg, state.paid)?;
         Ok(())
     }
 

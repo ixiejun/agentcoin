@@ -17,8 +17,9 @@ use ac_market_proto::{
 use ac_primitives::market::receipt::{RECEIPT_CONTEXT, ReceiptContext, check_receipt, fee_for};
 use ac_primitives::market::voucher::key_fingerprint;
 use ac_primitives::market::work::JobKind;
-use ac_primitives::market::{ModelId, ReceiptBody, SignedReceipt, SignedVoucher};
+use ac_primitives::market::{AtcPerUsd, ModelId, ReceiptBody, SignedReceipt, SignedVoucher};
 use ac_wallet::http::{self, Client, Request, Response};
+use ac_wallet::market::Channel;
 use ac_wallet::sealed_http::{self, SealedWriter, now_secs};
 use anyhow::{Context, Result};
 use serde_json::json;
@@ -37,6 +38,10 @@ pub const UNREACHABLE_PAUSE: Duration = Duration::from_secs(30);
 /// How long a provider that signed an invalid receipt is skipped.
 pub const INVALID_RECEIPT_PAUSE: Duration = Duration::from_secs(3600);
 const KEY_CACHE: Duration = Duration::from_secs(12);
+/// How long channel records and the reference rate are reused. Escrow only shrinks through this
+/// gateway's own redemptions or withdrawals delayed by a day, so a stale view is at most a
+/// couple of seconds behind and bounded by one request's maximum fee.
+const CHANNEL_CACHE: Duration = Duration::from_secs(2);
 
 /// Static configuration.
 pub struct Config {
@@ -71,6 +76,8 @@ pub struct Gateway {
     book: Book,
     replay: Mutex<ReplayCache>,
     keys: Mutex<HashMap<AccountId32, (Instant, Option<PqPublicKey>)>>,
+    channels: Mutex<HashMap<AccountId32, (Instant, Option<Channel>)>>,
+    rate: Mutex<Option<(Instant, Option<AtcPerUsd>)>>,
     http: Client,
 }
 
@@ -103,6 +110,8 @@ impl Gateway {
             book: Book::open(&config.data_dir.join("channels"))?,
             replay: Mutex::new(ReplayCache::default()),
             keys: Mutex::new(HashMap::new()),
+            channels: Mutex::new(HashMap::new()),
+            rate: Mutex::new(None),
             http: Client::new()?,
         }))
     }
@@ -255,7 +264,7 @@ impl Gateway {
         if voucher.body.user != *user {
             return Ok(Err("the voucher belongs to another user".into()));
         }
-        let Some(channel) = self.chain.channel(user, &self.account).await? else {
+        let Some(channel) = self.cached_channel(user).await? else {
             return Ok(Err("no credit channel with this gateway".into()));
         };
         if self.book.voucher(user).as_ref() != Some(voucher)
@@ -267,8 +276,41 @@ impl Gateway {
             number: channel.number,
             escrow: channel.escrow,
             redeemed: channel.redeemed,
-            rate: self.chain.rate().await?,
+            rate: self.cached_rate().await?,
         }))
+    }
+
+    async fn cached_channel(&self, user: &AccountId32) -> Result<Option<Channel>> {
+        let hit = self.channels.lock().ok().and_then(|c| {
+            c.get(user)
+                .filter(|(at, _)| at.elapsed() < CHANNEL_CACHE)
+                .map(|(_, v)| *v)
+        });
+        if let Some(v) = hit {
+            return Ok(v);
+        }
+        let fresh = self.chain.channel(user, &self.account).await?;
+        if let Ok(mut c) = self.channels.lock() {
+            c.insert(user.clone(), (Instant::now(), fresh));
+        }
+        Ok(fresh)
+    }
+
+    async fn cached_rate(&self) -> Result<Option<AtcPerUsd>> {
+        let hit = self
+            .rate
+            .lock()
+            .ok()
+            .and_then(|r| *r)
+            .filter(|(at, _)| at.elapsed() < CHANNEL_CACHE);
+        if let Some((_, rate)) = hit {
+            return Ok(rate);
+        }
+        let fresh = self.chain.rate().await?;
+        if let Ok(mut r) = self.rate.lock() {
+            *r = Some((Instant::now(), fresh));
+        }
+        Ok(fresh)
     }
 
     async fn pay(&self, user: &AccountId32, voucher: &SignedVoucher) -> GatewayMsg {
