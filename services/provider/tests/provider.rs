@@ -301,6 +301,7 @@ async fn receipts_charge_the_listed_price_and_are_kept() {
             key,
             signature,
             usage,
+            ..
         },
     )) = reply.last().cloned()
     else {

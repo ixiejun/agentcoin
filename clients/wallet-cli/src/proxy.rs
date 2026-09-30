@@ -379,6 +379,7 @@ impl Proxy {
                             receipt,
                             fee,
                             billed_total,
+                            ..
                         }) = drain(&mut resp).await
                         {
                             let _ = self
@@ -392,6 +393,7 @@ impl Proxy {
                     receipt,
                     fee,
                     billed_total,
+                    ..
                 } => {
                     if let Err(e) = self
                         .settle(&receipt, (fee, billed_total), expected, observed)
@@ -434,6 +436,7 @@ impl Proxy {
                 receipt,
                 fee,
                 billed_total,
+                ..
             }) => (receipt, fee, billed_total),
             Ok(GatewayMsg::Error { code, message }) => {
                 return error(code, &String::from_utf8_lossy(&message));

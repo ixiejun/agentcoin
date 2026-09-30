@@ -11,7 +11,7 @@ AgentCoin 推理市场的线协议：钱包本地代理、网关（`ac-gateway`�
 
 ## 消息
 
-每条消息都是版本字节（`PROTOCOL_VERSION` = 1）加 SCALE 编码。枚举序号即线格式，永不改变。
+每条消息都是版本字节（`PROTOCOL_VERSION` = 2；版本 1 不带 TOPLOC 证明，已不再接受）加 SCALE 编码。枚举序号即线格式，永不改变。
 
 | 方向 | 消息 | 序号 | 含义 |
 |---|---|---|---|
@@ -19,17 +19,25 @@ AgentCoin 推理市场的线协议：钱包本地代理、网关（`ac-gateway`�
 | | `UserMsg::Pay` | 1 | 单独的凭证，在收到账单后发送 |
 | 网关 → 用户 | `GatewayMsg::Delta` | 0 | 一个流式块（JSON） |
 | | `GatewayMsg::Completion` | 1 | 完整的非流式响应（JSON） |
-| | `GatewayMsg::Billing` | 2 | 双签收据、本次费用与新的已计费总额 |
+| | `GatewayMsg::Billing` | 2 | 双签收据、本次费用、新的已计费总额，以及 TOPLOC 证明（若有） |
 | | `GatewayMsg::Error` | 3 | 错误码与说明（从不包含请求内容） |
 | | `GatewayMsg::Paid` | 4 | 付款已被接受 |
 | 网关 → 提供者 | `ProviderReq::Infer` | 0 | 请求 ID、任务类型、模型 ID、请求（JSON） |
 | | `ProviderReq::Cosigned` | 1 | 网关追加签名后的收据，供提供者留存 |
 | 提供者 → 网关 | `ProviderMsg::Delta` | 0 | 一个流式块（JSON） |
-| | `ProviderMsg::Receipt` | 1 | 收据、提供者公钥与签名，以及引擎报告的用量 |
+| | `ProviderMsg::Receipt` | 1 | 收据、提供者公钥与签名、引擎报告的用量，以及 TOPLOC 证明（若有） |
 | | `ProviderMsg::Error` | 2 | 错误码与说明 |
 | | `ProviderMsg::Ack` | 3 | 确认收到 `Cosigned` |
 
 `Payment` 目前只有 `Transparent`（序号 0，累计式通道凭证，D54）；序号 1 预留给屏蔽凭证。
+
+## TOPLOC 证明
+
+`toploc::ToplocProofs` 携带一次推理的证明及其参数（规格 `market/toploc`）。市场使用 `MARKET_PARAMS`：top-k 128、解码每 32 步一块、预填充单独一块，因此输出 `n` 个 token 的推理有 `1 + ⌈(n − 1) / 32⌉` 份各 258 字节的证明。`toploc::check` 是网关与钱包代理对每张收据运行的检查：承诺为全零时不得带证明；否则参数、证明份数、编码与复算出的承诺都必须与收据一致。
+
+## 引擎插件协议
+
+`engine` 是推理引擎插件与提供者代理之间的本机协议（规格 `market/engine-plugin`，版本 `ENGINE_PROTOCOL_VERSION` = 1）：帧为 4 字节大端长度加固定的大端布局（至多 1 MiB），Python 插件用 `struct` 即可编码。插件发送 `Hello`（魔数 `ACTL`、版本、隐藏维度），提供者回复 `Welcome`（版本、top-k）；之后插件为每个前向步骤的每个请求发送一个 `Segment`（引擎请求 ID、阶段、元素个数、top-k 候选），每个请求结束时发送 `Finish`。`market_request_id` 从引擎请求 ID 中找出市场请求 ID：提供者转发时把 `X-Request-Id` 设为它的 64 位小写十六进制，vLLM 把请求命名为 `chatcmpl-<X-Request-Id>-<后缀>`。与插件测试共用的字节级向量在 `tests/vectors/engine_protocol.json`。
 
 ## OpenAI 子集
 

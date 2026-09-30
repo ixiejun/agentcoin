@@ -194,6 +194,7 @@ version = "0.1.0"
 dependencies = [
  "ac-crypto",
  "ac-primitives",
+ "ac-toploc",
  "hex",
  "parity-scale-codec",
  "proptest",

@@ -390,6 +390,7 @@ fn billing(reply: &[GatewayMsg]) -> (ac_primitives::market::SignedReceipt, Micro
             receipt,
             fee,
             billed_total,
+            ..
         }) => (receipt.clone(), *fee, *billed_total),
         other => panic!("no billing: {other:?}"),
     }

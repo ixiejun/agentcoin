@@ -11,6 +11,7 @@ authors.workspace = true
 [dependencies]
 ac-crypto = { workspace = true, features = ["std", "sealed"] }
 ac-primitives = { workspace = true, features = ["std"] }
+ac-toploc = { workspace = true, features = ["std"] }
 hex = { workspace = true, features = ["std"] }
 parity-scale-codec = { workspace = true, features = ["std", "derive"] }
 rand_core = { workspace = true }

@@ -19,8 +19,8 @@ can reuse it.
 
 ## Messages
 
-Every message is SCALE-encoded behind a version byte (`PROTOCOL_VERSION` = 1). Enum indices are
-wire format and never change.
+Every message is SCALE-encoded behind a version byte (`PROTOCOL_VERSION` = 2; version 1
+carried no TOPLOC proofs and is refused). Enum indices are wire format and never change.
 
 | Direction | Message | Index | Meaning |
 |---|---|---|---|
@@ -28,18 +28,40 @@ wire format and never change.
 | | `UserMsg::Pay` | 1 | a voucher on its own, sent after a bill |
 | gateway → user | `GatewayMsg::Delta` | 0 | one streamed chunk (JSON) |
 | | `GatewayMsg::Completion` | 1 | a whole non-streamed response (JSON) |
-| | `GatewayMsg::Billing` | 2 | the double-signed receipt, its fee and the new billed total |
+| | `GatewayMsg::Billing` | 2 | the double-signed receipt, its fee, the new billed total and the TOPLOC proofs (if any) |
 | | `GatewayMsg::Error` | 3 | error code and message (never request content) |
 | | `GatewayMsg::Paid` | 4 | a payment was accepted |
 | gateway → provider | `ProviderReq::Infer` | 0 | request ID, job kind, model ID, request (JSON) |
 | | `ProviderReq::Cosigned` | 1 | the co-signed receipt, for the provider's records |
 | provider → gateway | `ProviderMsg::Delta` | 0 | one streamed chunk (JSON) |
-| | `ProviderMsg::Receipt` | 1 | the receipt with the provider's key and signature, and the engine's usage |
+| | `ProviderMsg::Receipt` | 1 | the receipt with the provider's key and signature, the engine's usage and the TOPLOC proofs (if any) |
 | | `ProviderMsg::Error` | 2 | error code and message |
 | | `ProviderMsg::Ack` | 3 | acknowledges `Cosigned` |
 
 `Payment` has one variant, `Transparent` (index 0, a cumulative channel voucher, D54); index 1
 is reserved for shielded vouchers.
+
+## TOPLOC proofs
+
+`toploc::ToplocProofs` carries the proofs of one inference with their parameters (spec
+`market/toploc`). The market uses `MARKET_PARAMS`: top-k 128, decode batches of 32 and a prefill
+chunk, so an inference with `n` output tokens has `1 + ⌈(n − 1) / 32⌉` proofs of 258 bytes.
+`toploc::check` is what gateways and wallet proxies run on every receipt: an all-zero commitment
+goes with no proofs; otherwise the parameters, the number of proofs, their encodings and the
+recomputed commitment must all match the receipt.
+
+## Engine plugin protocol
+
+`engine` is the local protocol between an inference engine plugin and the provider agent (spec
+`market/engine-plugin`, version `ENGINE_PROTOCOL_VERSION` = 1): frames of a 4-byte big-endian
+length and a fixed big-endian layout (at most 1 MiB), so that the Python plugin encodes them with
+`struct`. The plugin sends `Hello` (magic `ACTL`, version, hidden size), the provider answers
+`Welcome` (version, top-k); then the plugin sends one `Segment` per forward step and request
+(engine request ID, phase, number of values, top-k candidates) and a `Finish` per request.
+`market_request_id` finds the market request ID in an engine request ID: providers forward with
+`X-Request-Id` set to its 64 lowercase hex digits and vLLM names requests
+`chatcmpl-<X-Request-Id>-<suffix>`. Byte-level vectors shared with the plugin's tests are in
+`tests/vectors/engine_protocol.json`.
 
 ## OpenAI subset
 

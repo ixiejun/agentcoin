@@ -494,6 +494,7 @@ impl Gateway {
                     key,
                     signature,
                     usage,
+                    ..
                 } => break (body, key, signature, usage),
                 ProviderMsg::Error { .. } | ProviderMsg::Ack => {
                     return Err(failed("the provider failed mid-stream"));
@@ -533,6 +534,7 @@ impl Gateway {
                     receipt: receipt.clone(),
                     fee,
                     billed_total,
+                    toploc: None,
                 }),
                 true,
             )

@@ -133,6 +133,7 @@ impl FakeGateway {
                     receipt,
                     fee,
                     billed_total: MicroUsd(*billed),
+                    toploc: None,
                 };
                 if stream {
                     let chunk = |c: &str| json!({ "id": "x", "object": "chat.completion.chunk", "choices": [{ "index": 0, "delta": { "content": c } }] });

@@ -2,10 +2,12 @@
 #![forbid(unsafe_code)]
 
 pub mod announce;
+pub mod engine;
 pub mod frame;
 pub mod msg;
 pub mod openai;
 pub mod route;
+pub mod toploc;
 
 use core::fmt;
 
@@ -15,6 +17,7 @@ pub use msg::{
 };
 pub use openai::ChatRequest;
 pub use route::{Candidate, PriceThenLatency, RouteScore, max_fee};
+pub use toploc::{MARKET_PARAMS, ToplocError, ToplocProofs};
 
 /// Protocol errors. None of them carries request content.
 #[non_exhaustive]

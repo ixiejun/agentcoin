@@ -321,6 +321,7 @@ impl Service {
             key,
             signature,
             usage,
+            toploc: None,
         };
         if !writer.send(&msg::encode(&receipt), true).await {
             return Ok(None);

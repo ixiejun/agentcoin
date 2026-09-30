@@ -9,9 +9,10 @@ use ac_primitives::market::{MicroUsd, ModelId, ReceiptBody, SignedReceipt, Signe
 use parity_scale_codec::{Decode, Encode};
 
 use crate::Error;
+use crate::toploc::ToplocProofs;
 
 /// Version byte in front of every message.
-pub const PROTOCOL_VERSION: u8 = 1;
+pub const PROTOCOL_VERSION: u8 = 2;
 
 /// How a request is paid. Index 1 is reserved for shielded vouchers (β, full plan §11 `Credit`).
 #[allow(clippy::large_enum_variant)] // One voucher per message; boxing buys nothing here.
@@ -138,6 +139,8 @@ pub enum GatewayMsg {
         fee: MicroUsd,
         /// The channel's billed total including this request.
         billed_total: MicroUsd,
+        /// The TOPLOC proofs the receipt commits to; `None` for an all-zero commitment.
+        toploc: Option<ToplocProofs>,
     },
     /// The request failed; nothing is billed.
     #[codec(index = 3)]
@@ -195,6 +198,8 @@ pub enum ProviderMsg {
         signature: PqSignature,
         /// Usage reported by the engine.
         usage: Usage,
+        /// The TOPLOC proofs the receipt commits to; `None` for an all-zero commitment.
+        toploc: Option<ToplocProofs>,
     },
     /// The job failed; no receipt.
     #[codec(index = 2)]
@@ -242,20 +247,20 @@ mod tests {
 
     #[test]
     fn wire_indices_are_fixed() {
-        assert_eq!(encode(&GatewayMsg::Delta(vec![7])), [1, 0, 4, 7]);
+        assert_eq!(encode(&GatewayMsg::Delta(vec![7])), [2, 0, 4, 7]);
         assert_eq!(
             encode(&GatewayMsg::Paid {
                 billed_total: MicroUsd(5)
             })[..2],
-            [1, 4]
+            [2, 4]
         );
-        assert_eq!(encode(&ProviderMsg::Ack), [1, 3]);
+        assert_eq!(encode(&ProviderMsg::Ack), [2, 3]);
         assert_eq!(
             encode(&ProviderMsg::Error {
                 code: ErrorCode::EngineFailed,
                 message: vec![]
             }),
-            [1, 2, 8, 0]
+            [2, 2, 8, 0]
         );
         assert_eq!(ErrorCode::Internal.encode(), [9]);
         assert_eq!(
@@ -265,17 +270,23 @@ mod tests {
                 model: ModelId([0; 32]),
                 request: vec![],
             })[..2],
-            [1, 0]
+            [2, 0]
         );
     }
 
     #[test]
     fn unknown_versions_and_trailing_bytes_are_rejected() {
+        // Version 1 carried receipts without TOPLOC proofs; it is no longer understood.
         let mut bytes = encode(&ProviderMsg::Ack);
-        bytes[0] = 2;
+        bytes[0] = 1;
         assert_eq!(
             decode::<ProviderMsg>(&bytes).unwrap_err(),
-            Error::UnsupportedVersion(2)
+            Error::UnsupportedVersion(1)
+        );
+        bytes[0] = 3;
+        assert_eq!(
+            decode::<ProviderMsg>(&bytes).unwrap_err(),
+            Error::UnsupportedVersion(3)
         );
         let mut bytes = encode(&ProviderMsg::Ack);
         bytes.push(0);
