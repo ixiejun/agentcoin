@@ -40,8 +40,25 @@ def spans(req_ids, scheduled, computed, prompt_lens) -> list[Span]:
 
 
 @torch.no_grad()
+def top_k_indices(flat: torch.Tensor, k: int) -> torch.Tensor:
+    """Indices of the first `min(k, n)` values in the order larger magnitude first, lower index
+    first among equal magnitudes: the order `ac-toploc` builds and checks proofs with, so that a
+    tie at the k-th place never makes the plugin and an auditor pick different values."""
+    n = flat.numel()
+    count = min(k, n)
+    if count == n:
+        return torch.arange(n, device=flat.device)
+    mag = flat.abs()
+    kth = mag.topk(count, sorted=False).values.min()
+    above = (mag > kth).nonzero().flatten()
+    ties = (mag == kth).nonzero().flatten()[: count - above.numel()]
+    return torch.cat([above, ties])
+
+
+@torch.no_grad()
 def candidates(hidden: torch.Tensor, step: list[Span], k: int):
-    """Top-k by magnitude of each span's flattened activations, on the device.
+    """Top-k by magnitude (ties: lower index first) of each span's flattened activations, on the
+    device.
 
     Returns `(meta, indices, bits)`: `meta` holds `(request, phase, values, count)` per span in
     order; `indices` (int64) and `bits` (the bfloat16 values reinterpreted as int16) hold every
@@ -53,8 +70,8 @@ def candidates(hidden: torch.Tensor, step: list[Span], k: int):
     hidden_size = hidden.shape[-1]
     for s in step:
         flat = hidden[s.start : s.start + s.tokens].reshape(-1)
-        count = min(k, flat.numel())
-        top = flat.abs().topk(count, sorted=False).indices
+        top = top_k_indices(flat, k)
+        count = top.numel()
         meta.append((s.request, s.phase, s.tokens * hidden_size, count))
         idx.append(top)
         bits.append(flat[top].view(torch.int16))

@@ -50,9 +50,12 @@ request, a *segment*: its phase (prefill or decode), its number of values and it
 [`build_proofs_from_candidates`] joins the prefill segments into the prefill activation, takes one
 activation per decode segment, chunks them as [`build_proofs`] does (a segment's indices offset by
 the segments before it in its chunk) and keeps each chunk's top-k of the candidates. A chunk's
-top-k always lies in the union of its segments' top-k, so the proofs are byte-identical to
-[`build_proofs`] on the whole activations. The only exception is a tie between a segment's k-th
-and (k+1)-th value, which the engine may break differently, as the reference's `torch.topk` may.
+top-k always lies in the union of its segments' top-k under the same order (larger magnitude,
+then lower index), so as long as the plugin picks each segment's candidates in that order — the
+vLLM plugin does — the proofs are byte-identical to [`build_proofs`] on the whole activations,
+ties included. The reference implementation leaves ties to `torch.topk`, so it agrees byte for
+byte only on chunks without a tie at the k-th place; real bfloat16 activations have such ties
+often.
 Candidates are refused when their count is not `min(k, len)`, an index is outside the segment or
 repeated, a value is not finite, or a prefill segment follows a decode segment.
 

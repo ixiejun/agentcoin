@@ -10,9 +10,10 @@ def bf16_bits(t: torch.Tensor) -> list[int]:
 
 
 def reference_topk(values: torch.Tensor, k: int) -> set[tuple[int, int]]:
+    """The first k of (larger magnitude, lower index), as ac-toploc orders them."""
     flat = values.reshape(-1)
-    idx = flat.abs().topk(min(k, flat.numel())).indices
-    return set(zip(idx.tolist(), bf16_bits(flat[idx])))
+    order = sorted(range(flat.numel()), key=lambda i: (-abs(float(flat[i])), i))[:k]
+    return set(zip(order, bf16_bits(flat[order])))
 
 
 def test_spans_split_a_mixed_batch():
@@ -65,3 +66,19 @@ def test_other_dtypes_are_refused():
 def test_an_empty_step():
     meta, idx, bits = extract.candidates(torch.zeros(0, 4, dtype=torch.bfloat16), [], k=4)
     assert meta == [] and idx.numel() == 0 and bits.numel() == 0
+
+
+# m5-engine-toploc 3.5, scenario "第 k 名处的并列": ties at the k-th place go to the lower index.
+def test_ties_at_the_kth_place_take_the_lower_index():
+    # Magnitudes 3, 2 (x4, one negative), 1: the top 3 are index 1 (3.0) and the two lowest
+    # indices of the 2.0s.
+    flat = torch.tensor([2.0, 3.0, -2.0, 1.0, 2.0, 2.0], dtype=torch.bfloat16)
+    assert extract.top_k_indices(flat, 3).tolist() == [1, 0, 2]
+    # Many ties: a coarse grid of values in random order.
+    torch.manual_seed(3)
+    flat = (torch.randint(-6, 7, (4096,)).to(torch.bfloat16) / 2).contiguous()
+    got = extract.top_k_indices(flat, 128)
+    assert set(zip(got.tolist(), bf16_bits(flat[got]))) == reference_topk(flat, 128)
+    step = extract.spans(["a"], [16], [0], [16])
+    ((_, _, _, pairs),) = extract.frames(*extract.candidates(flat.reshape(16, 256), step, k=128))
+    assert set(pairs) == reference_topk(flat, 128)

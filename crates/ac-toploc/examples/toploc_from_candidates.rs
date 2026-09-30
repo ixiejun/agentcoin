@@ -5,12 +5,17 @@
 //! `{"params": {"decode_batching_size": 32, "topk": 128, "skip_prefill": false},
 //!   "segments": [{"phase": "prefill" | "decode", "len": N, "candidates": [[index, bits], …]}, …]}`
 //!
+//! A segment may give `"values": [bits, …]` (its whole activations) instead of `len` and
+//! `candidates`; its candidates are then chosen here with the proof order
+//! ([`top_k_candidates`]), which makes the output the proofs of the whole activations.
+//!
 //! Output on stdout (JSON): `{"proofs": ["<hex>", …], "commitment": "<hex>"}`.
 
 use std::io::Read;
 
 use ac_toploc::{
     Bf16, Candidate, Params, Phase, Segment, build_proofs_from_candidates, commitment,
+    top_k_candidates,
 };
 use serde::Deserialize;
 
@@ -30,8 +35,11 @@ struct InputParams {
 #[derive(Deserialize)]
 struct InputSegment {
     phase: String,
+    #[serde(default)]
     len: u32,
+    #[serde(default)]
     candidates: Vec<(u32, u16)>,
+    values: Option<Vec<u16>>,
 }
 
 fn to_hex(bytes: &[u8]) -> String {
@@ -59,6 +67,15 @@ pub fn run(input: &str) -> Result<String, String> {
                 "decode" => Phase::Decode,
                 other => return Err(format!("unknown phase {other:?}")),
             };
+            if let Some(values) = s.values {
+                let values: Vec<Bf16> = values.into_iter().map(Bf16).collect();
+                let topk = usize::try_from(params.topk).map_err(|e| e.to_string())?;
+                return Ok(Segment {
+                    phase,
+                    len: u32::try_from(values.len()).map_err(|e| e.to_string())?,
+                    candidates: top_k_candidates(&values, topk),
+                });
+            }
             Ok(Segment {
                 phase,
                 len: s.len,

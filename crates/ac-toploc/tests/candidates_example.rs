@@ -55,6 +55,41 @@ fn example_output_matches_build_proofs() {
     );
 }
 
+// Whole activations given as `values` give the proofs of `build_proofs`, ties included (lower
+// index first, the order the vLLM plugin uses).
+#[test]
+fn example_accepts_whole_activations() {
+    // Heavy ties: values from a grid of 7 magnitudes.
+    let tied = |seed: u16, n: u16| -> Vec<Bf16> {
+        (0..n)
+            .map(|i| Bf16(0x3f80 + 0x80 * (i.wrapping_mul(31).wrapping_add(seed) % 7)))
+            .collect()
+    };
+    let (prefill, decode) = (tied(1, 64), [tied(2, 16), tied(3, 16), tied(4, 16)]);
+    let params = Params {
+        decode_batching_size: 2,
+        topk: 8,
+        skip_prefill: false,
+    };
+    let mut acts: Vec<&[Bf16]> = vec![&prefill];
+    acts.extend(decode.iter().map(Vec::as_slice));
+    let proofs = build_proofs(&acts, &params).unwrap();
+    let whole = |phase: &str, v: &[Bf16]| serde_json::json!({"phase": phase, "values": v.iter().map(|b| b.0).collect::<Vec<_>>()});
+    let mut segs = vec![
+        whole("prefill", &prefill[..40]),
+        whole("prefill", &prefill[40..]),
+    ];
+    segs.extend(decode.iter().map(|d| whole("decode", d)));
+    let input = serde_json::json!({
+        "params": {"decode_batching_size": 2, "topk": 8, "skip_prefill": false},
+        "segments": segs,
+    });
+    let out: serde_json::Value =
+        serde_json::from_str(&example::run(&input.to_string()).unwrap()).unwrap();
+    let expected: Vec<String> = proofs.iter().map(|p| hex(&p.to_bytes())).collect();
+    assert_eq!(out["proofs"], serde_json::json!(expected));
+}
+
 #[test]
 fn example_rejects_bad_input() {
     assert!(example::run("{").is_err());
