@@ -16,7 +16,8 @@ scripts are copyleft.
   or the Apache License 2.0 (LICENSE-APACHE), at your option.
 - GPL zone: GNU General Public License v3.0 or (at your option) any later
   version (LICENSE-GPL).
-- Each Cargo package declares its zone's expression in its `license` field;
+- Each Cargo package declares its zone's expression in its `license` field,
+  each Python package in its `pyproject.toml` `project.license`;
   `scripts/check-license-boundary.sh` enforces the zones in CI.
 - Third-party snapshots keep their upstream licence
   (docs/rust-guidelines/ is MIT, see its own notice).

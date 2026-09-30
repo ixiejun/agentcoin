@@ -22,7 +22,7 @@ AgentCoin（代币 **ATC**）是一个**抗量子、天生隐私、无许可**�
 - 链框架：Polkadot SDK（Substrate）独立链；EVM 用 `pallet-revive`
 - 主要语言：**Rust**（D31）；Python 仅限推理/训练引擎内部的薄插件
 - 开发方式：**规格驱动开发（SDD）+ OpenSpec**（D32）
-- 当前阶段：MVP；M0（工程底座 + PQ 密码库）、M1（PQ 链）、M2（AC-BFT 终局性）、M3（排放、国库、PoA 多签、提名式 PoS 与 PoA→PoS 切换）和 M4（EVM：`pallet-revive`、PQ 预编译、eth-RPC 适配器、经钱包使用 Foundry）已完成
+- 当前阶段：MVP；M0（工程底座 + PQ 密码库）、M1（PQ 链）、M2（AC-BFT 终局性）、M3（排放、国库、PoA 多签、提名式 PoS 与 PoA→PoS 切换）、M4（EVM：`pallet-revive`、PQ 预编译、eth-RPC 适配器、经钱包使用 Foundry）和 M5（推理市场：登记、工作结算、网关、提供者、本地代理、vLLM TOPLOC 插件）已完成
 
 ### 1.1 权威文档地图
 
@@ -101,11 +101,12 @@ circuits/    STARK 电路（β）
 services/    gateway、provider、auditor、eth-rpc
 clients/     wallet-cli、sdk（Rust 核心）、sdk-bindings（PyO3 / wasm-bindgen）
 contracts/   示例 Solidity 合约
+plugins/     推理引擎内的 Python 插件（vllm：TOPLOC 激活值，D31）
 tests/       e2e、经济仿真
 scripts/     工具脚本
 ```
 
-- **许可证分区（D47）**：`node/`、`services/`、`clients/wallet-cli/`、`tests/`、`scripts/` 采用 `GPL-3.0-or-later`；其余部分（包括任何新目录）采用 `MIT OR Apache-2.0`，不得依赖 GPL，包括本仓库自己的 GPL crate。每个 crate 在 `Cargo.toml` 中声明所在区的许可证，详见 `LICENSE`。
+- **许可证分区（D47）**：`node/`、`services/`、`clients/wallet-cli/`、`tests/`、`scripts/` 采用 `GPL-3.0-or-later`；其余部分（包括任何新目录）采用 `MIT OR Apache-2.0`，不得依赖 GPL，包括本仓库自己的 GPL crate。每个 crate 在 `Cargo.toml`、每个 Python 包在 `pyproject.toml` 中声明所在区的许可证，详见 `LICENSE`。
 - **目录按需创建**：不要为未来模块预先建空目录或空 crate。
 - **依赖方向**：`crates/*` 不依赖 `node`/`runtime`/`pallets`/`services`；`pallets` 只依赖 `crates` 与 Polkadot SDK；`services`/`clients` 不依赖 `node` 内部实现，只通过 RPC / 公共类型交互。
 - **密码学只在 `ac-crypto`**；共享数据类型只在 `ac-primitives`；节点不变式是 `ac-invariants` 中的**纯函数**（便于形式化验证）。
@@ -326,6 +327,10 @@ AC_E2E=1 cargo test -p ac-e2e -- --test-threads 1  # 多节点验收测试
 AC_E2E=1 cargo test -p ac-e2e --test market -- --test-threads 1  # 经钱包的市场登记流程
 AC_E2E=1 cargo test -p ac-e2e --test settlement -- --test-threads 1  # 收据、报告与领取
 AC_E2E=1 cargo test -p ac-e2e --test inference -- --test-threads 1  # OpenAI SDK 经代理、网关、提供者（Python：pip install -r tests/e2e/python/requirements.txt）
+scripts/setup-vllm-cpu.sh                         # 安装固定版本的 CPU 版 vLLM、TOPLOC 插件、参考实现与模型（plugins/vllm/ci/pins.env）
+python -m pytest plugins/vllm                     # 插件单元测试（PyTorch）
+python scripts/check-vllm-plugin.py               # 在真实 vLLM 中把插件与激活值、参考实现的证明比对
+AC_E2E=1 AC_VLLM_E2E=1 cargo test -p ac-e2e --test vllm -- --test-threads 1  # 经 vLLM 推理，带 TOPLOC 证明
 scripts/measure-finality.sh [seconds]             # 终局性延迟，4/7/10 节点（release）
 scripts/wallet-smoke.sh                           # 针对开发节点运行钱包命令行
 

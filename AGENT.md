@@ -22,7 +22,7 @@ AgentCoin (token **ATC**) is a **post-quantum, privacy-native, permissionless** 
 - Chain framework: standalone Polkadot SDK (Substrate) chain; EVM via `pallet-revive`
 - Primary language: **Rust** (D31); Python only for thin plugins inside inference/training engines
 - Development method: **spec-driven development (SDD) + OpenSpec** (D32)
-- Current stage: MVP; M0 (engineering foundation + PQ crypto library), M1 (PQ chain), M2 (AC-BFT finality), M3 (emission, treasury, PoA multisig, nominated PoS and the PoA → PoS switch) and M4 (EVM: `pallet-revive`, PQ precompiles, eth-RPC adapter, Foundry via the wallet) complete
+- Current stage: MVP; M0 (engineering foundation + PQ crypto library), M1 (PQ chain), M2 (AC-BFT finality), M3 (emission, treasury, PoA multisig, nominated PoS and the PoA → PoS switch) M4 (EVM: `pallet-revive`, PQ precompiles, eth-RPC adapter, Foundry via the wallet) and M5 (inference market: registry, work settlement, gateway, provider, local proxy, the vLLM TOPLOC plugin) complete
 
 ### 1.1 Authoritative document map
 
@@ -101,11 +101,12 @@ circuits/    STARK circuits (β)
 services/    gateway, provider, auditor, eth-rpc
 clients/     wallet-cli, sdk (Rust core), sdk-bindings (PyO3 / wasm-bindgen)
 contracts/   example Solidity contracts
+plugins/     Python plugins inside inference engines (vllm: TOPLOC activations, D31)
 tests/       e2e, economic simulation
 scripts/     tooling scripts
 ```
 
-- **Licence zones (D47)**: `node/`, `services/`, `clients/wallet-cli/`, `tests/` and `scripts/` are `GPL-3.0-or-later`; everything else (including any new directory) is `MIT OR Apache-2.0` and must stay GPL-free, including toward the repository's own GPL crates. Each crate declares its zone's licence in `Cargo.toml`; see `LICENSE`.
+- **Licence zones (D47)**: `node/`, `services/`, `clients/wallet-cli/`, `tests/` and `scripts/` are `GPL-3.0-or-later`; everything else (including any new directory) is `MIT OR Apache-2.0` and must stay GPL-free, including toward the repository's own GPL crates. Each crate declares its zone's licence in `Cargo.toml`, each Python package in `pyproject.toml`; see `LICENSE`.
 - **Create directories on demand**: never pre-create empty directories or crates for future modules.
 - **Dependency direction**: `crates/*` never depend on `node` / `runtime` / `pallets` / `services`; `pallets` depend only on `crates` and the Polkadot SDK; `services` / `clients` never depend on `node` internals and interact only through RPC / shared types.
 - **Cryptography lives only in `ac-crypto`**; shared data types only in `ac-primitives`; node invariants are **pure functions** in `ac-invariants` (to enable formal verification).
@@ -326,6 +327,10 @@ AC_E2E=1 cargo test -p ac-e2e -- --test-threads 1  # multi-node acceptance tests
 AC_E2E=1 cargo test -p ac-e2e --test market -- --test-threads 1  # market registration via the wallet
 AC_E2E=1 cargo test -p ac-e2e --test settlement -- --test-threads 1  # receipts, report, claims
 AC_E2E=1 cargo test -p ac-e2e --test inference -- --test-threads 1  # OpenAI SDK through proxy, gateway, providers (Python: pip install -r tests/e2e/python/requirements.txt)
+scripts/setup-vllm-cpu.sh                         # pinned CPU vLLM, the TOPLOC plugin, the reference, the model (plugins/vllm/ci/pins.env)
+python -m pytest plugins/vllm                     # plugin unit tests (PyTorch)
+python scripts/check-vllm-plugin.py               # the plugin in a real vLLM against the activations and the reference proofs
+AC_E2E=1 AC_VLLM_E2E=1 cargo test -p ac-e2e --test vllm -- --test-threads 1  # inference through vLLM with TOPLOC proofs
 scripts/measure-finality.sh [seconds]             # finality latency, 4/7/10 nodes (release)
 scripts/wallet-smoke.sh                           # wallet CLI against a dev node
 
