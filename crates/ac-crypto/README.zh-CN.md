@@ -49,6 +49,7 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 | `mnemonic` | 钱包熵的 24 词 BIP-39（英文）编码（`no_std`） | 钱包 |
 | `keystore` | 口令加密的私钥文件（同时启用 `std`、`rand` 与 `getrandom`） | 节点、钱包 |
 | `poseidon2` | Goldilocks 域上的 Poseidon2-256（`no_std`），见下文 | EVM 预编译（runtime） |
+| `sealed` | 密封请求通道（同时启用 `kem` 与 `rand`；`no_std`），见下文 | 网关、提供者、钱包 |
 
 密钥种子派生（`wallet_key_seed`、`dev_seed`）始终可用：种子为 `derive_key(上下文, 输入)`，上下文见下表。开发种子是**公开的**，只能用于开发链和本地链。
 
@@ -76,6 +77,10 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 | `agentcoin 2026-09 receipt-leaf v1` | 哈希 | 工作报告收据树的叶子：签名收据的 SCALE 编码 | 自 M5 起使用 |
 | `agentcoin 2026-09 receipt-node v1` | 哈希 | 收据树的内部节点：`左 ‖ 右` | 自 M5 起使用 |
 | `agentcoin 2026-09 toploc-commit v1` | 哈希 | 收据中的 TOPLOC 承诺：参数与各块证明编码 | 自 M5 起使用 |
+| `agentcoin 2026-09 sealed-recipient v1` | 哈希 | 密封通道：接收方封装公钥的摘要 | 自 M5 起使用 |
+| `agentcoin 2026-09 sealed-handshake v1` | 哈希 | 密封通道：握手中被签名的消息；重放缓存的键 | 自 M5 起使用 |
+| `agentcoin 2026-09 sealed-key v1` | 哈希 | 密封通道：由共享秘密与签名握手派生两个方向的密钥 | 自 M5 起使用 |
+| `agentcoin 2026-09 gateway-kem-payload v1` | 哈希 | 网关公布封装公钥时签名的载荷 | 自 M5 起使用 |
 | `agentcoin/tx/v1` | 签名 | 交易签名 | 自 M1 起使用（共识关键） |
 | `agentcoin/aura-seal/v1` | 签名 | Aura-PQ 区块封印 | 自 M1 起使用（共识关键） |
 | `agentcoin/key-rotation/v1` | 签名 | 轮换新密钥的持有证明 | 自 M1 起使用（共识关键） |
@@ -84,6 +89,8 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 | `agentcoin/evm-verify/v1` | 签名 | 合约通过 `pq_verify` 预编译验证的消息 | 自 M4 起使用 |
 | `agentcoin/voucher/v1` | 签名 | 透明额度凭证（按通道累计） | 自 M5 起使用 |
 | `agentcoin/receipt/v1` | 签名 | 推理收据（提供者与网关各签一次） | 自 M5 起使用 |
+| `agentcoin/sealed-channel/v1` | 签名 | 密封通道握手（发送方身份认证） | 自 M5 起使用 |
+| `agentcoin/gateway-kem/v1` | 签名 | 网关公布自己的封装公钥 | 自 M5 起使用 |
 
 ## Poseidon2
 
@@ -96,9 +103,19 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 
 示例代码见英文版 [README.md](README.md)（作为 doctest 运行）：空输入的哈希与回归向量一致，末尾多一个零字节会改变哈希。
 
+## 密封请求通道
+
+`sealed`（特性 `sealed`）在链下服务之间（钱包代理 → 网关 → 提供者）传送一次请求及其流式响应，端到端加密，并绑定到发送方账户：
+
+- **握手**（协议版本 1）：发送方对接收方的 X-Wing 公钥封装，以其 ML-DSA 密钥在 `agentcoin/sealed-channel/v1` 下对 `{版本, 接收方摘要, KEM 密文, 发送方账户, 发送方公钥, 创建时间, 随机数}` 签名。接收方依次检查摘要、±120 秒时效窗口、公钥是否为该账户链上当前公钥（由调用方提供查询）、签名，以及以 KEM 密文为键的重放缓存。
+- **密钥**：每个方向一把 ChaCha20-Poly1305 密钥，`derive_key("agentcoin 2026-09 sealed-key v1", 方向 ‖ 共享秘密 ‖ 签名握手)`。
+- **分块**：每块明文至多 64 KiB；随机数为块序号，附加数据绑定方向、序号与最后一块标记，因此篡改、重排、最后一块之后的数据与截断（`Opener::finish`）都会报错。响应不另签名：只有持有接收方私钥者能派生其密钥。
+
+示例代码见英文版 [README.md](README.md)（作为 doctest 运行）：网关向提供者建立会话，提供者接受握手并解密请求块。
+
 ## 加密私钥文件（格式 v1）
 
-JSON 文档，字段包括：`version`（1）、`kind`（`signing-seed` 或 `wallet-entropy`）、`alg` 与 `public_key`（规范编码的十六进制，仅签名种子有）、`kdf`（`argon2id`，含 `m_kib`、`t`、`p` 和 16 字节 `salt`）、`cipher`（`xchacha20poly1305`，含 24 字节 `nonce` 和 `ciphertext`）。附加认证数据为对全部元数据字段计算的 `derive_key("agentcoin 2026-09 keystore-aad v1", …)`，因此篡改任一字段都会导致解密失败。KDF 参数低于 64 MiB / 3 轮 / 1 路并行的文件会被拒绝。
+JSON 文档，字段包括：`version`（1）、`kind`（`signing-seed`、`wallet-entropy` 或 `kem-seed`）、`alg` 与 `public_key`（规范编码的十六进制：签名种子记录签名公钥，KEM 种子记录封装公钥，钱包熵没有）、`kdf`（`argon2id`，含 `m_kib`、`t`、`p` 和 16 字节 `salt`）、`cipher`（`xchacha20poly1305`，含 24 字节 `nonce` 和 `ciphertext`）。附加认证数据为对全部元数据字段计算的 `derive_key("agentcoin 2026-09 keystore-aad v1", …)`，因此篡改任一字段都会导致解密失败。KDF 参数低于 64 MiB / 3 轮 / 1 路并行的文件会被拒绝。
 
 ## 新增一个算法
 
@@ -110,4 +127,4 @@ JSON 文档，字段包括：`version`（1）、`kind`（`signing-seed` 或 `wal
 
 ## 测试向量
 
-`tests/vectors/` 存放筛选后的 NIST ACVP（ML-DSA、ML-KEM-768）、X-Wing、Argon2id（RFC 9106）、XChaCha20-Poly1305（draft-irtf-cfrg-xchacha-03）、BIP-39 向量和 Plonky3 的 Poseidon2 置换向量（可通过 `scripts/fetch-test-vectors.sh` 复现），以及本仓库生成的回归向量（含 Poseidon2 哈希），详见 `tests/vectors/SOURCES.md`。
+`tests/vectors/` 存放筛选后的 NIST ACVP（ML-DSA、ML-KEM-768）、X-Wing、Argon2id（RFC 9106）、XChaCha20-Poly1305（draft-irtf-cfrg-xchacha-03）、ChaCha20-Poly1305（RFC 8439）、BIP-39 向量和 Plonky3 的 Poseidon2 置换向量（可通过 `scripts/fetch-test-vectors.sh` 复现），以及本仓库生成的回归向量（含 Poseidon2 哈希与一次密封通道会话），详见 `tests/vectors/SOURCES.md`。

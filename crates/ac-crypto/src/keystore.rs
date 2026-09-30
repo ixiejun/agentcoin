@@ -1,6 +1,6 @@
 //! Password-encrypted secret files (format v1).
 //!
-//! A 32-byte secret (a signing seed or wallet entropy) is encrypted with XChaCha20-Poly1305
+//! A 32-byte secret (a signing seed, wallet entropy or a KEM key seed) is encrypted with XChaCha20-Poly1305
 //! under a key derived from the passphrase with Argon2id. Both primitives have 256-bit
 //! symmetric strength, which stays adequate against quantum adversaries. All metadata
 //! (format version, kind, algorithm, public key, KDF parameters) is bound to the ciphertext as
@@ -15,10 +15,10 @@ use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
-use crate::alg::SigAlg;
+use crate::alg::{KemAlg, SigAlg};
 use crate::error::Error;
 use crate::hash::derive;
-use crate::tagged::PqPublicKey;
+use crate::tagged::{KemPublicKey, PqPublicKey};
 
 /// Current file format version.
 pub const FORMAT_VERSION: u8 = 1;
@@ -40,6 +40,8 @@ pub enum SecretKind {
     SigningSeed,
     /// Wallet entropy (the secret behind a mnemonic).
     WalletEntropy,
+    /// A KEM key-generation seed; the file records the KEM algorithm and encapsulation key.
+    KemSeed,
 }
 
 impl SecretKind {
@@ -47,6 +49,7 @@ impl SecretKind {
         match self {
             Self::SigningSeed => "signing-seed",
             Self::WalletEntropy => "wallet-entropy",
+            Self::KemSeed => "kem-seed",
         }
     }
 
@@ -54,6 +57,7 @@ impl SecretKind {
         match self {
             Self::SigningSeed => 1,
             Self::WalletEntropy => 2,
+            Self::KemSeed => 3,
         }
     }
 
@@ -61,6 +65,7 @@ impl SecretKind {
         match label {
             "signing-seed" => Ok(Self::SigningSeed),
             "wallet-entropy" => Ok(Self::WalletEntropy),
+            "kem-seed" => Ok(Self::KemSeed),
             _ => Err(Error::InvalidKeystore),
         }
     }
@@ -134,11 +139,52 @@ struct FileJson {
     cipher: CipherJson,
 }
 
+/// The public key a file records next to its secret.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum RecordedKey {
+    Signing(PqPublicKey),
+    Kem(KemPublicKey),
+}
+
+impl RecordedKey {
+    fn alg_id(&self) -> u8 {
+        match self {
+            Self::Signing(pk) => pk.alg().id(),
+            Self::Kem(pk) => pk.alg().id(),
+        }
+    }
+
+    fn to_canonical(&self) -> Vec<u8> {
+        match self {
+            Self::Signing(pk) => pk.to_canonical(),
+            Self::Kem(pk) => pk.to_canonical(),
+        }
+    }
+
+    /// Marker byte in the associated data: signing keys keep the original `1`.
+    const fn aad_marker(&self) -> u8 {
+        match self {
+            Self::Signing(_) => 1,
+            Self::Kem(_) => 2,
+        }
+    }
+
+    /// Whether `kind` must record this sort of key (wallet entropy records none).
+    const fn matches(key: Option<&Self>, kind: SecretKind) -> bool {
+        matches!(
+            (kind, key),
+            (SecretKind::SigningSeed, Some(Self::Signing(_)))
+                | (SecretKind::KemSeed, Some(Self::Kem(_)))
+                | (SecretKind::WalletEntropy, None)
+        )
+    }
+}
+
 /// A parsed, well-formed encrypted secret file.
 #[derive(Clone)]
 pub struct EncryptedSecret {
     kind: SecretKind,
-    public_key: Option<PqPublicKey>,
+    public_key: Option<RecordedKey>,
     kdf: KdfParams,
     salt: [u8; SALT_LEN],
     nonce: [u8; NONCE_LEN],
@@ -172,9 +218,28 @@ impl EncryptedSecret {
         passphrase: &[u8],
         rng: &mut R,
     ) -> Result<Self, Error> {
+        let key = public_key.cloned().map(RecordedKey::Signing);
+        Self::encrypt_with(secret, (kind, key), passphrase, KdfParams::MINIMUM, rng)
+    }
+
+    /// Encrypts a KEM key seed ([`SecretKind::KemSeed`]) whose encapsulation key is
+    /// `public_key`, with the default (minimum) KDF parameters.
+    ///
+    /// # Errors
+    ///
+    /// An encryption failure.
+    pub fn encrypt_kem<R: rand_core::CryptoRng + ?Sized>(
+        secret: &[u8; SECRET_LEN],
+        public_key: &KemPublicKey,
+        passphrase: &[u8],
+        rng: &mut R,
+    ) -> Result<Self, Error> {
         Self::encrypt_with(
             secret,
-            (kind, public_key),
+            (
+                SecretKind::KemSeed,
+                Some(RecordedKey::Kem(public_key.clone())),
+            ),
             passphrase,
             KdfParams::MINIMUM,
             rng,
@@ -183,12 +248,12 @@ impl EncryptedSecret {
 
     fn encrypt_with<R: rand_core::CryptoRng + ?Sized>(
         secret: &[u8; SECRET_LEN],
-        (kind, public_key): (SecretKind, Option<&PqPublicKey>),
+        (kind, public_key): (SecretKind, Option<RecordedKey>),
         passphrase: &[u8],
         kdf: KdfParams,
         rng: &mut R,
     ) -> Result<Self, Error> {
-        if (kind == SecretKind::SigningSeed) != public_key.is_some() {
+        if !RecordedKey::matches(public_key.as_ref(), kind) {
             return Err(Error::InvalidKeystore);
         }
         let mut salt = [0u8; SALT_LEN];
@@ -197,7 +262,7 @@ impl EncryptedSecret {
         rng.fill_bytes(&mut nonce);
         let mut file = Self {
             kind,
-            public_key: public_key.cloned(),
+            public_key,
             kdf,
             salt,
             nonce,
@@ -254,7 +319,19 @@ impl EncryptedSecret {
     /// The recorded public key (signing seeds only), readable without the passphrase.
     #[must_use]
     pub const fn public_key(&self) -> Option<&PqPublicKey> {
-        self.public_key.as_ref()
+        match &self.public_key {
+            Some(RecordedKey::Signing(pk)) => Some(pk),
+            _ => None,
+        }
+    }
+
+    /// The recorded encapsulation key (KEM seeds only), readable without the passphrase.
+    #[must_use]
+    pub const fn kem_public_key(&self) -> Option<&KemPublicKey> {
+        match &self.public_key {
+            Some(RecordedKey::Kem(pk)) => Some(pk),
+            _ => None,
+        }
     }
 
     /// The KDF parameters of this file.
@@ -269,7 +346,7 @@ impl EncryptedSecret {
         let file = FileJson {
             version: FORMAT_VERSION,
             kind: self.kind.label().to_string(),
-            alg: self.public_key.as_ref().map(|pk| pk.alg().id()),
+            alg: self.public_key.as_ref().map(RecordedKey::alg_id),
             public_key: self
                 .public_key
                 .as_ref()
@@ -309,16 +386,24 @@ impl EncryptedSecret {
         let public_key = match (&file.alg, &file.public_key) {
             (Some(alg), Some(pk)) => {
                 let bytes = hex::decode(pk).map_err(|_| Error::InvalidKeystore)?;
-                let pk = PqPublicKey::from_canonical(&bytes)?;
-                if pk.alg() != SigAlg::from_id(*alg)? {
-                    return Err(Error::InvalidKeystore);
+                if kind == SecretKind::KemSeed {
+                    let pk = KemPublicKey::from_canonical(&bytes)?;
+                    if pk.alg() != KemAlg::from_id(*alg)? {
+                        return Err(Error::InvalidKeystore);
+                    }
+                    Some(RecordedKey::Kem(pk))
+                } else {
+                    let pk = PqPublicKey::from_canonical(&bytes)?;
+                    if pk.alg() != SigAlg::from_id(*alg)? {
+                        return Err(Error::InvalidKeystore);
+                    }
+                    Some(RecordedKey::Signing(pk))
                 }
-                Some(pk)
             }
             (None, None) => None,
             _ => return Err(Error::InvalidKeystore),
         };
-        if (kind == SecretKind::SigningSeed) != public_key.is_some() {
+        if !RecordedKey::matches(public_key.as_ref(), kind) {
             return Err(Error::InvalidKeystore);
         }
         let kdf = KdfParams {
@@ -357,7 +442,7 @@ impl EncryptedSecret {
         match &self.public_key {
             Some(pk) => {
                 let canonical = pk.to_canonical();
-                data.push(1);
+                data.push(pk.aad_marker());
                 let len = u32::try_from(canonical.len()).map_err(|_| Error::InvalidKeystore)?;
                 data.extend_from_slice(&len.to_le_bytes());
                 data.extend_from_slice(&canonical);
@@ -420,7 +505,10 @@ pub(crate) mod tests {
             .unwrap();
         let file = EncryptedSecret::encrypt_with(
             seed.expose(),
-            (SecretKind::SigningSeed, Some(&pk)),
+            (
+                SecretKind::SigningSeed,
+                Some(RecordedKey::Signing(pk.clone())),
+            ),
             pass,
             TEST_KDF,
             rng,
@@ -515,6 +603,48 @@ pub(crate) mod tests {
                 &mut rng
             )
             .is_err()
+        );
+    }
+
+    // Scenario "KEM 密钥种子" (m5-gateway-provider 1.1).
+    #[cfg(feature = "kem")]
+    #[test]
+    fn kem_seed_round_trip() {
+        use crate::kem::KemSecretKey;
+        let seed = SecretSeed::new([5; 32]);
+        let pk = KemSecretKey::from_seed(KemAlg::XWing, &seed)
+            .unwrap()
+            .public_key()
+            .unwrap();
+        let file =
+            EncryptedSecret::encrypt_kem(seed.expose(), &pk, b"pw", &mut TestRng(8)).unwrap();
+        let parsed = EncryptedSecret::from_json(&file.to_json()).unwrap();
+        assert_eq!(parsed.kind(), SecretKind::KemSeed);
+        assert_eq!(parsed.kem_public_key(), Some(&pk));
+        assert_eq!(parsed.public_key(), None);
+        let plain = parsed.decrypt(b"pw").unwrap();
+        assert_eq!(&*plain, seed.expose());
+        let derived = KemSecretKey::from_seed(KemAlg::XWing, &SecretSeed::new(*plain))
+            .unwrap()
+            .public_key()
+            .unwrap();
+        assert_eq!(derived, pk);
+
+        // Read as a signing-key file: the kind or the key type does not match.
+        let mut json: serde_json::Value = serde_json::from_str(&file.to_json()).unwrap();
+        json["kind"] = "signing-seed".into();
+        assert!(EncryptedSecret::from_json(&json.to_string()).is_err());
+        // A tampered encapsulation key fails authentication.
+        let other = KemSecretKey::from_seed(KemAlg::XWing, &SecretSeed::new([6; 32]))
+            .unwrap()
+            .public_key()
+            .unwrap();
+        let mut json: serde_json::Value = serde_json::from_str(&file.to_json()).unwrap();
+        json["public_key"] = hex::encode(other.to_canonical()).into();
+        let tampered = EncryptedSecret::from_json(&json.to_string()).unwrap();
+        assert_eq!(
+            tampered.decrypt(b"pw").unwrap_err(),
+            Error::DecryptionFailed
         );
     }
 

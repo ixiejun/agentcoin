@@ -26,6 +26,8 @@ scale = ["dep:parity-scale-codec", "dep:scale-info"]
 serde = ["dep:serde", "dep:hex"]
 # Password-encrypted secret files (Argon2id + XChaCha20-Poly1305); wallets and nodes only.
 keystore = ["std", "rand", "getrandom", "serde", "dep:argon2", "dep:chacha20poly1305", "dep:serde_json"]
+# Sealed request channel (X-Wing + ChaCha20-Poly1305, ML-DSA sender authentication).
+sealed = ["kem", "rand", "dep:chacha20poly1305"]
 # 24-word BIP-39 encoding of wallet entropy.
 mnemonic = ["dep:bip39"]
 # Poseidon2 over Goldilocks (Plonky3's instance), for the EVM precompile and future STARK use.
@@ -87,6 +89,10 @@ subtle = { workspace = true }
 [[example]]
 name = "gen_wallet_key_vectors"
 required-features = ["mnemonic"]
+
+[[example]]
+name = "gen_sealed_channel_vectors"
+required-features = ["sealed", "deterministic"]
 
 [[example]]
 name = "gen_poseidon2_vectors"

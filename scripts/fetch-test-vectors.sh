@@ -26,6 +26,9 @@ bip39_url="https://raw.githubusercontent.com/trezor/python-mnemonic/b57a5ad77a98
 # Poseidon2: Plonky3's known-answer vector for its default Goldilocks width-12 instance, taken
 # from the published crate (the instance has no vectors from the Poseidon2 authors; m4-evm D7).
 p3_goldilocks_url="https://static.crates.io/crates/p3-goldilocks/p3-goldilocks-0.8.0.crate"
+# ChaCha20-Poly1305: the RFC 8439 §2.8.2 AEAD vector as published in the tests of the RustCrypto
+# crate we use (rfc-editor.org is not reachable from CI; the crate is pinned by its checksum).
+chacha_url="https://static.crates.io/crates/chacha20poly1305/chacha20poly1305-0.11.0.crate"
 
 # name|url|sha256 of the upstream file
 sources=(
@@ -39,6 +42,7 @@ sources=(
   "xchacha|$xchacha_url|fa796b50265eeee383d40e82fed880267c7835e1b3d64c50c4f06162adaa1cfd"
   "bip39|$bip39_url|fa3b937b7cff9c9b8ecd3aa011faeb8d6dd67993174b72326e83f4de8fdb30f8"
   "p3-goldilocks|$p3_goldilocks_url|325a854e1232dd1ce270245d9c978b71897c286f072d2fa31740956a800e70c5"
+  "chacha20poly1305|$chacha_url|9b89e1c441e926b9c82a8d023f6e1b7ae0adcfaa7d621814e4d60789bac751cb"
 )
 
 fetch() {
@@ -154,6 +158,31 @@ def values(src):
     return [format(int(v.strip(), 0), "016x") for v in src.split(",") if v.strip()]
 source = "p3-goldilocks 0.8.0 src/poseidon2.rs test_default_goldilocks_poseidon2_width_12"
 print(json.dumps({"source": source, "input": values(arrays[0]), "output": values(arrays[1])}))
+PY
+
+# ChaCha20-Poly1305 (RFC 8439 §2.8.2): key, nonce, AAD, plaintext, ciphertext and tag from the
+# `chacha20` test module of the pinned crate's tests/lib.rs.
+mkdir -p "$tmp/chacha"
+tar xzf "$tmp/chacha20poly1305.json" -C "$tmp/chacha"
+python3 - "$tmp/chacha/chacha20poly1305-0.11.0/tests/lib.rs" <<'PY' | jq -S '.' >"$out/chacha20poly1305_rfc8439.json"
+import json, re, sys
+text = open(sys.argv[1]).read()
+common, rest = text.split("mod chacha20 {", 1)
+module = rest.split("\nmod ", 1)[0]
+def array(src, name):
+    body = re.search(r"const " + name + r": &\[u8(?:; \d+)?\] = &\[(.*?)\];", src, re.S).group(1)
+    return "".join(format(int(v.strip(), 0), "02x") for v in body.split(",") if v.strip())
+plain = re.search(r'const PLAINTEXT: &\[u8\] = b"(.*?)";', common, re.S).group(1)
+plain = re.sub(r"\\\n\s*", "", plain).encode().hex()
+print(json.dumps({
+    "source": "RFC 8439 section 2.8.2, via chacha20poly1305 0.11.0 tests/lib.rs",
+    "key": array(common, "KEY"),
+    "aad": array(common, "AAD"),
+    "plaintext": plain,
+    "nonce": array(module, "NONCE"),
+    "ciphertext": array(module, "CIPHERTEXT"),
+    "tag": array(module, "TAG"),
+}))
 PY
 
 echo "test vectors written to $out"

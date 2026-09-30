@@ -42,6 +42,42 @@ pub enum Error {
     InvalidKeystore,
     /// A hash input exceeds the length the encoding supports.
     InputTooLong,
+    /// A sealed-channel handshake or chunk was rejected.
+    Sealed(SealedError),
+}
+
+/// Why a sealed-channel handshake or chunk was rejected.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SealedError {
+    /// The encoding is malformed.
+    Malformed,
+    /// The handshake names another recipient key.
+    WrongRecipient,
+    /// The handshake's creation time is outside the validity window.
+    Expired,
+    /// The sender account has no registered key.
+    UnknownSender,
+    /// The handshake's key is not the sender account's current key.
+    KeyMismatch,
+    /// This handshake was already accepted.
+    Replayed,
+    /// Too many live handshakes to remember; try again later.
+    ReplayCacheFull,
+    /// A chunk failed authentication (tampered, reordered or foreign).
+    Authentication,
+    /// A chunk arrived after the last one.
+    AfterFinal,
+    /// The stream ended before its last chunk.
+    Truncated,
+    /// A chunk's plaintext exceeds the maximum size.
+    ChunkTooLarge,
+}
+
+impl From<SealedError> for Error {
+    fn from(e: SealedError) -> Self {
+        Self::Sealed(e)
+    }
 }
 
 /// Why a mnemonic was rejected.
@@ -85,7 +121,26 @@ impl fmt::Display for Error {
             Self::WeakKdfParams => f.write_str("KDF parameters below the accepted minimum"),
             Self::InvalidKeystore => f.write_str("malformed or unsupported encrypted secret file"),
             Self::InputTooLong => f.write_str("hash input too long"),
+            Self::Sealed(e) => write!(f, "sealed channel: {e}"),
         }
+    }
+}
+
+impl fmt::Display for SealedError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Malformed => "malformed input",
+            Self::WrongRecipient => "handshake is for another recipient",
+            Self::Expired => "handshake outside the validity window (check the clock)",
+            Self::UnknownSender => "sender account has no registered key",
+            Self::KeyMismatch => "handshake key is not the sender's current key",
+            Self::Replayed => "handshake already used",
+            Self::ReplayCacheFull => "too many recent handshakes, try again later",
+            Self::Authentication => "chunk failed authentication",
+            Self::AfterFinal => "data after the last chunk",
+            Self::Truncated => "stream truncated before its last chunk",
+            Self::ChunkTooLarge => "chunk too large",
+        })
     }
 }
 

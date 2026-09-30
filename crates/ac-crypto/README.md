@@ -78,6 +78,7 @@ Unknown AlgIds, reserved AlgIds, wrong lengths and trailing bytes are rejected w
 | `mnemonic` | 24-word BIP-39 (English) encoding of wallet entropy (`no_std`) | wallets |
 | `keystore` | password-encrypted secret files (implies `std`, `rand` and `getrandom`) | nodes, wallets |
 | `poseidon2` | Poseidon2-256 over Goldilocks (`no_std`), see below | EVM precompile (runtime) |
+| `sealed` | sealed request channel (implies `kem` and `rand`; `no_std`), see below | gateways, providers, wallets |
 
 Key-seed derivation (`wallet_key_seed`, `dev_seed`) is always available: a seed is
 `derive_key(context, input)` with the contexts below. Development seeds are **public** and only
@@ -109,6 +110,10 @@ reused for another purpose.
 | `agentcoin 2026-09 receipt-leaf v1` | hash | leaves of a work report's receipt tree: SCALE encoding of the signed receipt | in use from M5 |
 | `agentcoin 2026-09 receipt-node v1` | hash | inner nodes of a receipt tree: `left ‖ right` | in use from M5 |
 | `agentcoin 2026-09 toploc-commit v1` | hash | TOPLOC commitment in a receipt: parameters and proof encodings | in use from M5 |
+| `agentcoin 2026-09 sealed-recipient v1` | hash | sealed channel: digest of the recipient's encapsulation key | in use from M5 |
+| `agentcoin 2026-09 sealed-handshake v1` | hash | sealed channel: message signed in a handshake; replay-cache key | in use from M5 |
+| `agentcoin 2026-09 sealed-key v1` | hash | sealed channel: per-direction keys from the shared secret and the signed handshake | in use from M5 |
+| `agentcoin 2026-09 gateway-kem-payload v1` | hash | payload signed when a gateway announces its encapsulation key | in use from M5 |
 | `agentcoin/tx/v1` | signature | transaction signatures | in use from M1 (consensus-critical) |
 | `agentcoin/aura-seal/v1` | signature | Aura-PQ block seals | in use from M1 (consensus-critical) |
 | `agentcoin/key-rotation/v1` | signature | proof of possession of a rotated-in key | in use from M1 (consensus-critical) |
@@ -117,6 +122,8 @@ reused for another purpose.
 | `agentcoin/evm-verify/v1` | signature | messages verified by contracts through the `pq_verify` precompile | in use from M4 |
 | `agentcoin/voucher/v1` | signature | transparent credit vouchers (cumulative, per channel) | in use from M5 |
 | `agentcoin/receipt/v1` | signature | inference receipts (signed by provider and gateway) | in use from M5 |
+| `agentcoin/sealed-channel/v1` | signature | sealed-channel handshakes (sender authentication) | in use from M5 |
+| `agentcoin/gateway-kem/v1` | signature | a gateway's announcement of its encapsulation key | in use from M5 |
 
 ## Poseidon2
 
@@ -149,10 +156,55 @@ assert_ne!(poseidon2::hash(b"abc")?, poseidon2::hash(b"abc\0")?);
 # Ok::<(), ac_crypto::Error>(())
 ```
 
+## Sealed request channel
+
+`sealed` (feature `sealed`) carries one request and its streamed response between off-chain
+services (wallet proxy → gateway → provider), encrypted end to end and bound to the sender's
+account:
+
+- **Handshake** (protocol version 1): the sender encapsulates to the recipient's X-Wing key and
+  signs `{version, recipient digest, KEM ciphertext, sender account, sender key, creation time,
+  nonce}` with its ML-DSA key under `agentcoin/sealed-channel/v1`. The recipient checks the
+  digest, a ±120 s freshness window, that the key is the account's current on-chain key (the
+  caller supplies the lookup), the signature and a replay cache keyed by the KEM ciphertext.
+- **Keys**: one ChaCha20-Poly1305 key per direction,
+  `derive_key("agentcoin 2026-09 sealed-key v1", direction ‖ shared secret ‖ signed handshake)`.
+- **Chunks**: at most 64 KiB of plaintext each; the nonce is the chunk number and the
+  associated data binds direction, number and the final flag, so tampering, reordering, data
+  after the last chunk and truncation (`Opener::finish`) are all errors. The response is not
+  signed: only the holder of the recipient key can derive its key.
+
+```rust
+# #[cfg(all(feature = "sealed", feature = "getrandom"))] {
+use ac_crypto::kem::KemSecretKey;
+use ac_crypto::sealed::{Acceptor, ReplayCache, accept_session, open_session, recipient_id};
+use ac_crypto::sig::{SecretSeed, SigningKey};
+use ac_crypto::{KemAlg, OsRng, SigAlg, account_id};
+
+let provider = KemSecretKey::from_seed(KemAlg::XWing, &SecretSeed::new([7; 32]))?;
+let gateway = SigningKey::from_seed(SigAlg::MlDsa44, &SecretSeed::new([8; 32]))?;
+let (me, now) = (account_id(&gateway.public_key()?), 1_800_000_000);
+
+let (handshake, mut tx) = open_session(&provider.public_key()?, &gateway, me, now, &mut OsRng::new()?)?;
+let key = gateway.public_key()?;
+let mut rx = accept_session(
+    &handshake,
+    &Acceptor { secret: &provider, recipient: recipient_id(&provider.public_key()?)?, now },
+    |who| (*who == me).then_some(key),
+    &mut ReplayCache::default(),
+)?;
+let chunk = tx.request.seal(b"prompt", true)?;
+assert_eq!(rx.request.open(&chunk)?, (b"prompt".to_vec(), true));
+rx.request.finish()?;
+# }
+# Ok::<(), ac_crypto::Error>(())
+```
+
 ## Encrypted secret files (format v1)
 
-A JSON document with `version` (1), `kind` (`signing-seed` or `wallet-entropy`), `alg` and
-`public_key` (canonical hex, signing seeds only), `kdf` (`argon2id` with `m_kib`, `t`, `p`, 16-byte
+A JSON document with `version` (1), `kind` (`signing-seed`, `wallet-entropy` or `kem-seed`),
+`alg` and `public_key` (canonical hex: the signing key for signing seeds, the encapsulation key
+for KEM seeds; absent for wallet entropy), `kdf` (`argon2id` with `m_kib`, `t`, `p`, 16-byte
 `salt`) and `cipher` (`xchacha20poly1305` with a 24-byte `nonce` and the `ciphertext`). The
 associated data is `derive_key("agentcoin 2026-09 keystore-aad v1", …)` over every metadata field,
 so tampering with any field makes decryption fail. Files whose KDF parameters are below
@@ -173,6 +225,6 @@ so tampering with any field makes decryption fail. Files whose KDF parameters ar
 ## Test vectors
 
 `tests/vectors/` holds filtered NIST ACVP (ML-DSA, ML-KEM-768), X-Wing, Argon2id (RFC 9106),
-XChaCha20-Poly1305 (draft-irtf-cfrg-xchacha-03) and BIP-39 vectors and Plonky3's Poseidon2
+XChaCha20-Poly1305 (draft-irtf-cfrg-xchacha-03), ChaCha20-Poly1305 (RFC 8439) and BIP-39 vectors and Plonky3's Poseidon2
 permutation vector, reproducible with `scripts/fetch-test-vectors.sh`, plus repository
-regression vectors (including Poseidon2 hashes); see `tests/vectors/SOURCES.md`.
+regression vectors (including Poseidon2 hashes and a sealed-channel session); see `tests/vectors/SOURCES.md`.

@@ -22,12 +22,14 @@ pub mod mnemonic;
 mod os_rng;
 #[cfg(feature = "poseidon2")]
 pub mod poseidon2;
+#[cfg(feature = "sealed")]
+pub mod sealed;
 pub mod sig;
 mod tagged;
 
 pub use account::{ACCOUNT_ID_CONTEXT, AccountId, account_id};
 pub use alg::{EXTENSION_MARKER, KemAlg, SigAlg};
-pub use error::{Error, MnemonicError};
+pub use error::{Error, MnemonicError, SealedError};
 pub use keys::{
     DEV_SEED_CONTEXT, ENTROPY_LEN, RANDOMNESS_COMMIT_CONTEXT, RANDOMNESS_SECRET_CONTEXT,
     RandomnessSecret, WALLET_KEY_CONTEXT, WalletEntropy, dev_seed, randomness_commit,
