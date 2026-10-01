@@ -71,11 +71,13 @@ Byte-level vectors shared with the plugin's tests are in `tests/vectors/engine_p
 ## Audit thresholds
 
 `toploc::judge` is the audit's pass / fail rule over `ac_toploc::compare`'s per-chunk results
-(spec `market/toploc` "复核判定规则与阈值"): a chunk passes if its exponent mismatches, its mean
-mantissa error (as `sum ≤ bound × count`) and its median mantissa error stay within the
-`Thresholds` and at least one exponent matches; an inference passes if every chunk does, and
-otherwise fails on the first chunk out of bounds. `AUDIT_THRESHOLDS` are versioned and come from
-the calibration of `scripts/calibrate-toploc.py`.
+(spec `market/toploc` "复核判定规则与阈值"). `Thresholds` hold two sets of `ChunkBounds`: strict
+ones for the prefill chunk (the prompt, which the auditor knows exactly and recomputes the way
+the provider did) and wider ones for the decode chunks. A chunk passes if its exponent
+mismatches, its mean mantissa error (in hundredths, as `sum × 100 ≤ bound × count`) and its
+median mantissa error stay within its set and at least one exponent matches; an inference passes
+if every chunk does, and otherwise fails on the first chunk out of bounds. `AUDIT_THRESHOLDS`
+are versioned and come from the calibration of `scripts/calibrate-toploc.py`.
 
 ## OpenAI subset
 

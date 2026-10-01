@@ -159,28 +159,47 @@ pub fn check(body: &ReceiptBody, proofs: Option<&ToplocProofs>) -> Result<(), To
     Ok(())
 }
 
-/// Bounds a chunk's comparison must stay within for an audit to pass it. Versioned: an audit
-/// verdict names the version it was judged under, and every change of a bound is a new
-/// version, calibrated anew.
+/// Bounds one chunk's comparison must stay within.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Thresholds {
-    /// Version of this set of bounds.
-    pub version: u16,
+pub struct ChunkBounds {
     /// Most top-k positions whose exponent may differ from the proof's.
     pub exp_mismatches: u32,
-    /// Largest mean mantissa error over the positions whose exponent matches.
-    pub mant_mean: u32,
+    /// Largest mean mantissa error over the positions whose exponent matches, in hundredths
+    /// (`mant_err_sum × 100 ≤ mant_mean_centi × mant_count`).
+    pub mant_mean_centi: u32,
     /// Largest median mantissa error (the sorted errors' element `⌊n/2⌋`).
     pub mant_median: u8,
 }
 
-/// The bounds audits judge by. Version 1 is provisional, to be replaced by the values of the
-/// calibration run (m6-toploc-verify group 8).
+/// The bounds audits judge by: strict ones for the prefill chunk (the prompt, which the
+/// auditor knows exactly and recomputes the way the provider computed it) and wider ones for
+/// the decode chunks (whose activations an auditor recomputes in a prefill, a different
+/// computation path). Versioned: an audit verdict names the version it was judged under, and
+/// every change of a bound is a new version, calibrated anew.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Thresholds {
+    /// Version of this set of bounds.
+    pub version: u16,
+    /// Bounds of the prefill chunk (chunk 0).
+    pub prefill: ChunkBounds,
+    /// Bounds of every decode chunk.
+    pub decode: ChunkBounds,
+}
+
+/// The bounds audits judge by. Version 2 is provisional (CPU calibration of m6-toploc-verify;
+/// the values are fixed by the large calibration run of group 8).
 pub const AUDIT_THRESHOLDS: Thresholds = Thresholds {
-    version: 1,
-    exp_mismatches: 16,
-    mant_mean: 10,
-    mant_median: 8,
+    version: 2,
+    prefill: ChunkBounds {
+        exp_mismatches: 2,
+        mant_mean_centi: 50,
+        mant_median: 1,
+    },
+    decode: ChunkBounds {
+        exp_mismatches: 20,
+        mant_mean_centi: 800,
+        mant_median: 8,
+    },
 };
 
 /// The bound a chunk exceeded.
@@ -221,34 +240,35 @@ pub enum Judgement {
     Fail {
         /// The first chunk out of bounds (0 is the prefill).
         chunk: usize,
-        /// The first bound it exceeds, in the order of [`Thresholds`]' fields.
+        /// The first bound it exceeds, in the order of [`ChunkBounds`]' fields.
         metric: Metric,
     },
 }
 
 /// The bound one chunk exceeds, if any: exponent mismatches, then a matching exponent at
-/// all, then the mean (`mant_err_sum ≤ mant_mean × mant_count`, integers only), then the
-/// median.
+/// all, then the mean (`mant_err_sum × 100 ≤ mant_mean_centi × mant_count`, integers only),
+/// then the median.
 #[must_use]
-pub fn judge_chunk(c: &Comparison, t: &Thresholds) -> Option<Metric> {
-    if c.exp_mismatches > t.exp_mismatches {
+pub fn judge_chunk(c: &Comparison, b: &ChunkBounds) -> Option<Metric> {
+    if c.exp_mismatches > b.exp_mismatches {
         return Some(Metric::ExpMismatches);
     }
     if c.mant_count == 0 {
         return Some(Metric::NoMatchingExponent);
     }
-    let limit = u64::from(t.mant_mean).saturating_mul(u64::from(c.mant_count));
-    if u64::from(c.mant_err_sum) > limit {
+    let limit = u64::from(b.mant_mean_centi).saturating_mul(u64::from(c.mant_count));
+    if u64::from(c.mant_err_sum).saturating_mul(100) > limit {
         return Some(Metric::MantissaMean);
     }
     match c.median_upper {
-        Some(m) if m <= t.mant_median => None,
+        Some(m) if m <= b.mant_median => None,
         _ => Some(Metric::MantissaMedian),
     }
 }
 
-/// Judges an inference: it passes if and only if every chunk does (and there is one); else it
-/// fails on the first chunk out of bounds.
+/// Judges an inference under [`MARKET_PARAMS`] (chunk 0 is the prefill): it passes if and only
+/// if every chunk is within its bounds (and there is one); else it fails on the first chunk out
+/// of bounds.
 #[must_use]
 pub fn judge(comparisons: &[Comparison], t: &Thresholds) -> Judgement {
     if comparisons.is_empty() {
@@ -260,7 +280,10 @@ pub fn judge(comparisons: &[Comparison], t: &Thresholds) -> Judgement {
     comparisons
         .iter()
         .enumerate()
-        .find_map(|(chunk, c)| judge_chunk(c, t).map(|metric| Judgement::Fail { chunk, metric }))
+        .find_map(|(chunk, c)| {
+            let bounds = if chunk == 0 { &t.prefill } else { &t.decode };
+            judge_chunk(c, bounds).map(|metric| Judgement::Fail { chunk, metric })
+        })
         .unwrap_or(Judgement::Pass)
 }
 
@@ -371,11 +394,16 @@ mod tests {
         );
     }
 
+    const B: ChunkBounds = ChunkBounds {
+        exp_mismatches: 4,
+        mant_mean_centi: 300,
+        mant_median: 2,
+    };
+    /// The same bounds for every chunk.
     const T: Thresholds = Thresholds {
         version: 9,
-        exp_mismatches: 4,
-        mant_mean: 3,
-        mant_median: 2,
+        prefill: B,
+        decode: B,
     };
 
     fn chunk(exp: u32, sum: u32, count: u32, median: Option<u8>) -> Comparison {
@@ -414,8 +442,13 @@ mod tests {
     // Scenario "没有指数相同的项".
     #[test]
     fn a_chunk_without_a_matching_exponent_fails() {
-        let all_wrong = Thresholds {
+        let lax = ChunkBounds {
             exp_mismatches: 128,
+            ..B
+        };
+        let all_wrong = Thresholds {
+            prefill: lax,
+            decode: lax,
             ..T
         };
         assert_eq!(
@@ -455,6 +488,36 @@ mod tests {
                 metric: Metric::NoChunks
             }
         );
+    }
+
+    // The prefill chunk is judged by its own, stricter bounds.
+    #[test]
+    fn the_prefill_has_its_own_bounds() {
+        let t = Thresholds {
+            version: 9,
+            prefill: ChunkBounds {
+                exp_mismatches: 0,
+                mant_mean_centi: 50,
+                mant_median: 0,
+            },
+            decode: B,
+        };
+        let slightly_off = chunk(0, 100, 128, Some(0)); // mean 0.78
+        assert_eq!(
+            judge(&[slightly_off, slightly_off], &t),
+            Judgement::Fail {
+                chunk: 0,
+                metric: Metric::MantissaMean
+            }
+        );
+        let exact = chunk(0, 0, 128, Some(0));
+        assert_eq!(judge(&[exact, slightly_off], &t), Judgement::Pass);
+        // Half a unit is the bound in hundredths: 64 / 128 = 0.50 passes, 65 / 128 does not.
+        assert_eq!(judge(&[chunk(0, 64, 128, Some(0))], &t), Judgement::Pass);
+        assert!(matches!(
+            judge(&[chunk(0, 65, 128, Some(0))], &t),
+            Judgement::Fail { chunk: 0, .. }
+        ));
     }
 
     // Recomputing the very activations passes; another model's do not.
