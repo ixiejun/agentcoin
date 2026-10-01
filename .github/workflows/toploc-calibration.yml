@@ -63,7 +63,11 @@ jobs:
         run: |
           # A push run takes the counts from calibration.env; a dispatch overrides them. The
           # counts are totals over all shards.
+          # `set -a` exports what calibration.env sets, such as an engine environment variable
+          # (ONEDNN_MAX_CPU_ISA) for a controlled experiment.
+          set -a
           source plugins/vllm/ci/calibration.env
+          set +a
           shards=$CALIBRATION_SHARDS
           honest=$(( ${HONEST:-$CALIBRATION_HONEST} / shards ))
           cheat=$(( ${CHEAT:-$CALIBRATION_CHEAT} / shards ))

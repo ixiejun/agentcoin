@@ -410,7 +410,8 @@ CPU_FLAGS = ("avx2", "avx512f", "avx512_bf16", "amx_bf16", "amx_tile", "amx_int8
 def host() -> dict:
     """The machine the shard ran on: honest prefill chunks matched bit for bit on some CPUs and
     not on others, so every report records the CPU model and the flags that pick kernels."""
-    info = {"model": "", "flags": [], "cpus": os.cpu_count()}
+    info = {"model": "", "flags": [], "cpus": os.cpu_count(),
+            "onednn_max_cpu_isa": os.environ.get("ONEDNN_MAX_CPU_ISA", "")}
     try:
         text = Path("/proc/cpuinfo").read_text()
     except OSError:
@@ -432,7 +433,8 @@ def by_host(samples: list[dict]) -> dict:
         if not x["case"].startswith("honest-"):
             continue
         h = x.get("host") or {}
-        key = f'{h.get("model", "?")} [{" ".join(h.get("flags", []))}]'
+        isa = h.get("onednn_max_cpu_isa") or "default ISA"
+        key = f'{h.get("model", "?")} [{" ".join(h.get("flags", []))}] ({isa})'
         o = out.setdefault(key, {"shards": set(), "pass": 0, "fail": 0, "inconclusive": 0, "inexact_prefill": 0})
         o["shards"].add(x.get("seed"))
         o[x["outcome"]] += 1
@@ -528,12 +530,15 @@ def main() -> int:
         if MARKER in f.read_text(errors="replace"):
             failures.append(f"{f.name} contains request content")
     if args.quick:
+        # User decision (2026-10-01): an answer that cannot be re-tokenized is inconclusive, not a
+        # miss; at most one per variant is tolerated, while any honest failure or cheating pass
+        # fails the regression.
         h = s.get("honest", {}).get("outcomes", {})
-        if h.get("pass") != honest:
+        if h.get("fail", 0) or h.get("inconclusive", 0) > 1:
             failures.append(f"honest samples: {h}")
         for v in CHEATS:
             o = s.get(v, {}).get("outcomes", {})
-            if o.get("fail") != cheat:
+            if o.get("pass", 0) or o.get("inconclusive", 0) > 1:
                 failures.append(f"{v} samples: {o} of {cheat}")
     print("FAILED:" if failures else "calibration done", *failures, sep="\n  ")
     return 1 if failures else 0
