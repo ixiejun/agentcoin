@@ -331,6 +331,9 @@ scripts/setup-vllm-cpu.sh                         # 安装固定版本的 CPU �
 python -m pytest plugins/vllm                     # 插件单元测试（PyTorch）
 python scripts/check-vllm-plugin.py               # 在真实 vLLM 中把插件与激活值、参考实现的证明比对
 AC_E2E=1 AC_VLLM_E2E=1 cargo test -p ac-e2e --test vllm -- --test-threads 1  # 经 vLLM 推理，带 TOPLOC 证明
+python scripts/probe-vllm-recheck.py             # 审计员复核所依赖的 vLLM 接口
+cargo build -p ac-auditor && python scripts/calibrate-toploc.py --quick  # 复核回归（诚实样本通过、作弊样本不通过）；不加 --quick 为完整校准
+ac-auditor recheck --engine <url> --socket <path> --quant bf16 --cases <dir>  # 按 TOPLOC 证明复核推理
 scripts/measure-finality.sh [seconds]             # 终局性延迟，4/7/10 节点（release）
 scripts/wallet-smoke.sh                           # 针对开发节点运行钱包命令行
 

@@ -48,13 +48,17 @@ only), and when the engine has answered waits up to 2 s for the plugin's end mar
 checks the candidates against the engine's usage (the prefill is the prompt tokens times the
 hidden size; one decode step per output token but the last), builds the proofs with `ac-toploc`
 (top-k 128, decode batches of 32) and puts their commitment in the receipt; the proofs travel to
-the gateway with the receipt and are stored with the co-signed receipt.
+the gateway with the receipt and are stored with the co-signed receipt. The plugin must run in
+its prove mode (the default; plugin protocol version 2): a plugin in the verify mode, which is
+for auditors' re-checks, is turned away.
 
 Without the socket, for requests asking for several choices (`n > 1`), when the plugin sends no
 end marker in time, or when the candidates do not fit (for example a request the engine
 preempted and recomputed), the receipt carries an all-zero commitment and no proofs, and a
 `toploc_missing` line is logged with the request ID prefix and the reason. Receipts without
-proofs are still valid until the M6 audits decide otherwise (issue I-008).
+proofs stay valid for users, but an auditor's re-check fails a request without proofs
+(spec `market/auditor-agent`), and providers cannot tell audit requests from others: run the
+plugin.
 
 ## Operation
 
