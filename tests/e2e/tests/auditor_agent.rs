@@ -428,7 +428,11 @@ async fn agents_find_a_provider_that_starts_cheating() {
     });
     eprintln!("audit detection latency: {latency}");
     if let Some(path) = std::env::var_os("AC_E2E_LATENCY") {
-        std::fs::write(path, latency.to_string()).unwrap();
+        let path = PathBuf::from(path);
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(&path, latency.to_string()).unwrap();
     }
 }
 

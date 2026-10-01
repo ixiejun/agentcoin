@@ -31,7 +31,17 @@ quorum 2, 20-block vote deadline). After a full round of honest service, one pro
 switches to another model in the middle of a round (`tests/e2e/tests/auditor_agent.rs`; the CI
 job prints the numbers in its summary).
 
-The measured blocks (switch → first failing verdict → dispute → jail) are added here from the first CI run of this test.
+A local run (2026-10-01) switched at block 91, the middle of round 4 (blocks 81–100):
+
+| From the switch to | Blocks | Rounds |
+|---|---|---|
+| the first failing verdict | 4 | 0.2 |
+| the dispute (second failing verdict) | 24 | 1.2 |
+| the jail (quorum of reviewers confirms) | 26 | 1.3 |
+
+The analytic worst case for these parameters is 20 + 15 + submit + review ≈ 40 blocks; the test
+allows three rounds (up to 69 blocks here). The reviewers needed 2 blocks from the dispute to
+the jail. CI reruns this on every push and prints the same numbers in its job summary.
 
 ## Converted to live parameters
 
