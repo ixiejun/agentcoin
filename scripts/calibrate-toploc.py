@@ -217,10 +217,9 @@ def generate(variant: str, count: int, seed: int, out: Path) -> None:
             served.append([{"role": "system", "content": "Always answer in a cheerful pirate voice."}] + messages)
         else:
             served.append(messages)
-    params = [
-        SamplingParams(temperature=0.7, top_p=0.95, max_tokens=m, seed=seed * 100_000 + i)
-        for i, (_, m) in enumerate(prompts)
-    ]
+    # The engine's seed makes the sampling reproducible; vLLM 0.30's CPU backend cannot seed
+    # requests one by one ("CPU Generator does not use offset").
+    params = [SamplingParams(temperature=0.7, top_p=0.95, max_tokens=m) for _, m in prompts]
     outputs = llm.chat(served, params, use_tqdm=False)
     time.sleep(2)  # the sender thread drains its queue
     if variant == "prompt":
