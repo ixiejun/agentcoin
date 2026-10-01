@@ -375,6 +375,9 @@ async fn agents_find_a_provider_that_starts_cheating() {
     let s = stats(node, &honest).await;
     assert_eq!(s.fail, 0, "{s:?}");
     assert!(open_dispute(node, &honest).await.is_none());
+    // Assignment is random, so a single auditor may never have been drawn; together they
+    // submitted verdicts and at least a quorum (2) of reviewers voted.
+    let (mut verdicts, mut votes) = (0, 0);
     for a in &auditors {
         let shown = run(&mut user.query(&[
             "audit",
@@ -385,8 +388,13 @@ async fn agents_find_a_provider_that_starts_cheating() {
         assert_eq!(field(&shown, "status"), "Active");
         assert_eq!(field(&shown, "stake"), "1000 ATC");
         let activity: AuditorStats = api(node, "AuditApi_auditor_stats", &a.encode()).await;
-        assert!(activity.verdicts > 0);
+        verdicts += activity.verdicts;
+        votes += activity.votes;
     }
+    assert!(
+        verdicts > 0 && votes >= 2,
+        "verdicts {verdicts}, votes {votes}"
+    );
     // Some reviewers re-checked the evidence their accusers served and confirmed.
     let r = round(node).await.0;
     let mut fails = Vec::<VerdictRecord<AccountId>>::new();
