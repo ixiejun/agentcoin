@@ -202,9 +202,15 @@ def generate(variant: str, count: int, seed: int, out: Path) -> None:
     elif variant in ("int8", "int4"):
         model = quantized_checkpoint(8, None, workdir) if variant == "int8" else quantized_checkpoint(4, 128, workdir)
         revision = None
+    # The swapped-in model is served with the registered model's tokenizer and chat template, as
+    # a provider faking the model must (its own template renders other prompt tokens).
+    extra = {}
+    if variant == "swap":
+        extra = {"tokenizer": os.environ["AC_VLLM_MODEL"], "tokenizer_revision": os.environ["AC_VLLM_REVISION"]}
     llm = LLM(
         model=model,
         revision=revision,
+        **extra,
         dtype="bfloat16",
         enable_prefix_caching=False,
         max_model_len=1024,
