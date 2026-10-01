@@ -321,7 +321,7 @@ scripts/benchmark-pallet.sh <pallet> <weights.rs> # regenerate benchmarked weigh
 scripts/gen-toploc-vectors.sh                     # regenerate TOPLOC vectors from the reference (Python)
 
 # Node and end-to-end
-cargo build -p ac-node -p ac-wallet -p ac-provider -p ac-gateway -p ac-mock-engine
+cargo build -p ac-node -p ac-wallet -p ac-provider -p ac-gateway -p ac-mock-engine -p ac-auditor
 scripts/run-local-testnet.sh [--check]            # four-node local testnet (best + finalized)
 AC_E2E=1 cargo test -p ac-e2e -- --test-threads 1  # multi-node acceptance tests
 AC_E2E=1 cargo test -p ac-e2e --test market -- --test-threads 1  # market registration via the wallet
@@ -334,6 +334,9 @@ AC_E2E=1 AC_VLLM_E2E=1 cargo test -p ac-e2e --test vllm -- --test-threads 1  # i
 python scripts/probe-vllm-recheck.py             # the vLLM interfaces the auditor's re-check needs
 cargo build -p ac-auditor && python scripts/calibrate-toploc.py --quick  # re-check regression (honest pass, cheats fail); without --quick: the full calibration
 ac-auditor recheck --engine <url> --socket <path> --quant bf16 --cases <dir>  # re-check inferences against their TOPLOC proofs
+ac-auditor evidence --case <file> --out <evidence.bin>  # a failing verdict's evidence and its commitment
+ac-wallet audit verdict --report <line.json> --case <file>  # submit a verdict (also: audit register / vote / disputes)
+AC_E2E=1 cargo test -p ac-e2e --test audit -- --test-threads 1  # audits on chain: verdicts, disputes, slashing
 scripts/measure-finality.sh [seconds]             # finality latency, 4/7/10 nodes (release)
 scripts/wallet-smoke.sh                           # wallet CLI against a dev node
 

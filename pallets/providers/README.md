@@ -46,13 +46,15 @@ providers of a model in account order (the runtime exposes it through `MarketApi
 
 When the unbonding list is full (8 chunks), a new chunk merges into the last one.
 
-## Penalties (for M6)
+## Penalties (audits)
 
 `ProviderPenalty::slash(who, ratio)` takes `ratio` of the whole stake — bonded first, then
 unbonding chunks in unlock order — and burns it through `Config::Slash` (`Emission` in the
 runtime, counted in `TotalBurned`). `ProviderPenalty::jail(who)` makes a provider permanently
-unserviceable. No call reaches either, not even the PoA administration (D6: no blacklists); the
-audit module (M6) will.
+unserviceable. Only `pallet-audit` calls them, when a dispute is confirmed (m6-audit-chain); no
+transaction reaches either directly, not even the PoA administration (D6: no blacklists). A
+jailed provider can still exit and withdraw what is left of its stake after unbonding.
+`ProviderAudit` tells audits whether an account is a provider and its current price for a model.
 
 ## Features
 

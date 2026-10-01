@@ -321,7 +321,7 @@ scripts/benchmark-pallet.sh <pallet> <weights.rs> # 重新生成基准权重
 scripts/gen-toploc-vectors.sh                     # 由参考实现重新生成 TOPLOC 向量（Python）
 
 # 节点与端到端
-cargo build -p ac-node -p ac-wallet -p ac-provider -p ac-gateway -p ac-mock-engine
+cargo build -p ac-node -p ac-wallet -p ac-provider -p ac-gateway -p ac-mock-engine -p ac-auditor
 scripts/run-local-testnet.sh [--check]            # 四节点本地测试网（检查最佳与已最终确定高度）
 AC_E2E=1 cargo test -p ac-e2e -- --test-threads 1  # 多节点验收测试
 AC_E2E=1 cargo test -p ac-e2e --test market -- --test-threads 1  # 经钱包的市场登记流程
@@ -334,6 +334,9 @@ AC_E2E=1 AC_VLLM_E2E=1 cargo test -p ac-e2e --test vllm -- --test-threads 1  # �
 python scripts/probe-vllm-recheck.py             # 审计员复核所依赖的 vLLM 接口
 cargo build -p ac-auditor && python scripts/calibrate-toploc.py --quick  # 复核回归（诚实样本通过、作弊样本不通过）；不加 --quick 为完整校准
 ac-auditor recheck --engine <url> --socket <path> --quant bf16 --cases <dir>  # 按 TOPLOC 证明复核推理
+ac-auditor evidence --case <file> --out <evidence.bin>  # 不通过裁决的证据及其承诺
+ac-wallet audit verdict --report <line.json> --case <file>  # 提交裁决（另有 audit register / vote / disputes）
+AC_E2E=1 cargo test -p ac-e2e --test audit -- --test-threads 1  # 链上审计：裁决、争议、罚没
 scripts/measure-finality.sh [seconds]             # 终局性延迟，4/7/10 节点（release）
 scripts/wallet-smoke.sh                           # 针对开发节点运行钱包命令行
 

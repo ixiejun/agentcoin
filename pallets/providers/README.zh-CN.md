@@ -39,9 +39,9 @@
 
 解绑列表已满（8 段）时，新的一段合并到最后一段。
 
-## 罚没（供 M6 使用）
+## 罚没（审计）
 
-`ProviderPenalty::slash(who, ratio)` 按比例扣除全部质押——先扣已绑定部分，再按解锁先后扣解绑中的部分——并经 `Config::Slash` 销毁（runtime 中为 `Emission`，计入 `TotalBurned`）。`ProviderPenalty::jail(who)` 使提供者永久不可服务。没有任何交易能调用它们，PoA 管理多签也不能（D6：不设黑名单）；由审计模块（M6）接入。
+`ProviderPenalty::slash(who, ratio)` 按比例扣除全部质押——先扣已绑定部分，再按解锁先后扣解绑中的部分——并经 `Config::Slash` 销毁（runtime 中为 `Emission`，计入 `TotalBurned`）。`ProviderPenalty::jail(who)` 使提供者永久不可服务。只有 `pallet-audit` 在争议被确认时调用它们（m6-audit-chain）；没有任何交易能直接调用，PoA 管理多签也不能（D6：不设黑名单）。被禁闭的提供者仍可退出，并在解绑期后取回剩余的质押。`ProviderAudit` 向审计模块提供“是否为提供者”与其对某模型的当前价格。
 
 ## 功能开关
 
