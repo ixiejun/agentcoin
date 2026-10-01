@@ -87,6 +87,36 @@ assert_eq!(build_proofs_from_candidates(&segments, &params)?, build_proofs(&whol
 # Ok::<(), ac_toploc::Error>(())
 ```
 
+## Comparison from candidates
+
+A verifier needs no whole activations either. [`compare_from_candidates`] takes the
+recomputed activations as segments of candidates, chunks them as above and compares each
+chunk's top-k with its proof; when every segment's candidates are its true top-k the result
+equals [`compare`] on the whole activations. An auditor's engine prefills the prompt and the
+output in one pass and sends one segment per token row; the rows of the prompt are prefill
+segments, every later row a decode step, which rebuilds the chunks of the original inference.
+
+```rust
+use ac_toploc::{Bf16, Params, Phase, Segment, build_proofs, compare, compare_from_candidates, top_k_candidates};
+
+let hidden = 4;
+let prompt: Vec<Bf16> = (0..12u16).map(|i| Bf16(0x3f80 + 7 * i)).collect(); // 3 rows
+let token: Vec<Bf16> = (0..4u16).map(|i| Bf16(0xbf80 + 3 * i)).collect();
+let params = Params { decode_batching_size: 2, topk: 4, skip_prefill: false };
+let proofs = build_proofs(&[&prompt, &token, &token], &params)?;
+
+// The verifier's rows: three prompt rows, then the two forwarded output tokens.
+let row = |phase, v: &[Bf16]| Segment { phase, len: v.len() as u32, candidates: top_k_candidates(v, 4) };
+let mut rows: Vec<Segment> = prompt.chunks(hidden).map(|r| row(Phase::Prefill, r)).collect();
+rows.push(row(Phase::Decode, &token));
+rows.push(row(Phase::Decode, &token));
+assert_eq!(
+    compare_from_candidates(&rows, &proofs, &params)?,
+    compare(&[&prompt, &token, &token], &proofs, &params)?,
+);
+# Ok::<(), ac_toploc::Error>(())
+```
+
 ## Features
 
 | Feature | Default | Purpose |

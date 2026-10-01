@@ -48,6 +48,31 @@ let whole: Vec<&[Bf16]> = vec![&prefill, &token, &token];
 assert_eq!(build_proofs_from_candidates(&segments, &params)?, build_proofs(&whole, &params)?);
 ```
 
+## 由候选比对
+
+复核方同样不需要完整的激活值。[`compare_from_candidates`] 以候选段的形式接收复算的激活值，按上面的规则分块，再把每块的 top-k 与证明比对；只要每段候选都是该段真实的 top-k，结果就与对完整激活值调用 [`compare`] 相同。审计员的引擎对 prompt 与输出做一次预填充，每个 token 行发送一段；prompt 的各行作为预填充段，其后每行作为一个解码步骤，这样就重建了原推理的分块。
+
+```rust
+use ac_toploc::{Bf16, Params, Phase, Segment, build_proofs, compare, compare_from_candidates, top_k_candidates};
+
+let hidden = 4;
+let prompt: Vec<Bf16> = (0..12u16).map(|i| Bf16(0x3f80 + 7 * i)).collect(); // 3 行
+let token: Vec<Bf16> = (0..4u16).map(|i| Bf16(0xbf80 + 3 * i)).collect();
+let params = Params { decode_batching_size: 2, topk: 4, skip_prefill: false };
+let proofs = build_proofs(&[&prompt, &token, &token], &params)?;
+
+// 复核方的行：三个 prompt 行，然后是经过前向计算的两个输出 token。
+let row = |phase, v: &[Bf16]| Segment { phase, len: v.len() as u32, candidates: top_k_candidates(v, 4) };
+let mut rows: Vec<Segment> = prompt.chunks(hidden).map(|r| row(Phase::Prefill, r)).collect();
+rows.push(row(Phase::Decode, &token));
+rows.push(row(Phase::Decode, &token));
+assert_eq!(
+    compare_from_candidates(&rows, &proofs, &params)?,
+    compare(&[&prompt, &token, &token], &proofs, &params)?,
+);
+# Ok::<(), ac_toploc::Error>(())
+```
+
 ## 功能开关
 
 | 开关 | 默认 | 用途 |

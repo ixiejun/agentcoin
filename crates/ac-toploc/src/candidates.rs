@@ -8,8 +8,8 @@
 
 use alloc::vec::Vec;
 
-use crate::proof::{check, prove_points};
-use crate::{Bf16, Error, Params, ProofPoly};
+use crate::proof::{check, compare_points, prove_points};
+use crate::{Bf16, Comparison, Error, Params, ProofPoly};
 
 /// Which part of an inference a segment belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,21 +66,9 @@ fn check_segment(segment: &Segment, topk: usize, n: usize) -> Result<usize, Erro
     Ok(len)
 }
 
-/// Builds one proof per chunk from the segments of one inference, in the order the engine
-/// computed them: the prefill segments (together, the prefill activation) and then one
-/// segment per decode step. The chunks are those of [`build_proofs`](crate::build_proofs); a
-/// segment's indices are offset by the lengths of the segments before it in its chunk.
-///
-/// # Errors
-///
-/// [`Error::ZeroParameter`], [`Error::NoActivations`] (no segments),
-/// [`Error::SegmentOrder`] (a prefill segment after a decode one),
-/// [`Error::BadCandidates`], [`Error::NotFinite`], [`Error::ChunkTooSmall`],
-/// [`Error::NoInjectiveModulus`].
-pub fn build_proofs_from_candidates(
-    segments: &[Segment],
-    params: &Params,
-) -> Result<Vec<ProofPoly>, Error> {
+/// The top-k `(index in chunk, value)` points of every chunk of `segments`, merged from the
+/// candidates as [`build_proofs_from_candidates`] describes.
+fn chunk_points(segments: &[Segment], params: &Params) -> Result<Vec<Vec<(usize, Bf16)>>, Error> {
     let (batch, topk) = check(params)?;
     if segments.is_empty() {
         return Err(Error::NoActivations);
@@ -139,8 +127,59 @@ pub fn build_proofs_from_candidates(
             points
                 .sort_by(|(ia, va), (ib, vb)| vb.magnitude().cmp(&va.magnitude()).then(ia.cmp(ib)));
             points.truncate(topk);
-            prove_points(&points)
+            Ok(points)
         })
+        .collect()
+}
+
+/// Builds one proof per chunk from the segments of one inference, in the order the engine
+/// computed them: the prefill segments (together, the prefill activation) and then one
+/// segment per decode step. The chunks are those of [`build_proofs`](crate::build_proofs); a
+/// segment's indices are offset by the lengths of the segments before it in its chunk.
+///
+/// # Errors
+///
+/// [`Error::ZeroParameter`], [`Error::NoActivations`] (no segments),
+/// [`Error::SegmentOrder`] (a prefill segment after a decode one),
+/// [`Error::BadCandidates`], [`Error::NotFinite`], [`Error::ChunkTooSmall`],
+/// [`Error::NoInjectiveModulus`].
+pub fn build_proofs_from_candidates(
+    segments: &[Segment],
+    params: &Params,
+) -> Result<Vec<ProofPoly>, Error> {
+    chunk_points(segments, params)?
+        .iter()
+        .map(|points| prove_points(points))
+        .collect()
+}
+
+/// Compares the recomputed activations of one inference, given as segment candidates, with
+/// its proofs (spec "由候选比对"): the chunks and their top-k are those of
+/// [`build_proofs_from_candidates`], the comparison that of [`compare`](crate::compare), whose
+/// result it equals when every segment's candidates are its true top-k. Segments may be of
+/// any size, one token each for instance.
+///
+/// # Errors
+///
+/// The errors of [`build_proofs_from_candidates`] except [`Error::NoInjectiveModulus`],
+/// [`Error::ChunkCountMismatch`] if the counts differ, and [`Error::NullProof`] for a proof
+/// with modulus zero or no coefficients.
+pub fn compare_from_candidates(
+    segments: &[Segment],
+    proofs: &[ProofPoly],
+    params: &Params,
+) -> Result<Vec<Comparison>, Error> {
+    let chunks = chunk_points(segments, params)?;
+    if chunks.len() != proofs.len() {
+        return Err(Error::ChunkCountMismatch {
+            proofs: proofs.len(),
+            chunks: chunks.len(),
+        });
+    }
+    chunks
+        .iter()
+        .zip(proofs)
+        .map(|(points, proof)| compare_points(points, proof))
         .collect()
 }
 
@@ -336,6 +375,53 @@ mod tests {
         );
     }
 
+    // Scenario "块数不符" (由候选比对).
+    #[test]
+    fn comparing_with_another_chunk_count_is_an_error() {
+        let pre = values(8);
+        let dec = values(4);
+        let p = params(1, 4);
+        let proofs = build_proofs(&[&pre, &dec, &dec, &dec], &p).unwrap();
+        let segs = vec![
+            segment(Phase::Prefill, &pre, 4),
+            segment(Phase::Decode, &dec, 4),
+            segment(Phase::Decode, &dec, 4),
+            segment(Phase::Decode, &dec, 4),
+        ];
+        assert_eq!(
+            compare_from_candidates(&segs, &proofs[..3], &p),
+            Err(Error::ChunkCountMismatch {
+                proofs: 3,
+                chunks: 4
+            })
+        );
+        assert_eq!(
+            compare_from_candidates(&segs, &proofs, &p).unwrap(),
+            crate::compare(&[&pre, &dec, &dec, &dec], &proofs, &p).unwrap()
+        );
+    }
+
+    #[test]
+    fn comparing_bad_candidates_or_null_proofs_is_an_error() {
+        let pre = values(8);
+        let p = params(1, 4);
+        let proofs = build_proofs(&[&pre], &p).unwrap();
+        let mut s = segment(Phase::Prefill, &pre, 4);
+        s.candidates[0].index = 8;
+        assert_eq!(
+            compare_from_candidates(&[s], &proofs, &p),
+            Err(Error::BadCandidates { segment: 0 })
+        );
+        let null = [ProofPoly {
+            modulus: 0,
+            coeffs: vec![1],
+        }];
+        assert_eq!(
+            compare_from_candidates(&[segment(Phase::Prefill, &pre, 4)], &null, &p),
+            Err(Error::NullProof)
+        );
+    }
+
     /// Distinct magnitudes with random signs: no ties anywhere.
     fn tie_free(n: usize) -> impl Strategy<Value = Vec<Bf16>> {
         (
@@ -348,6 +434,15 @@ mod tests {
                     .map(|(m, n)| Bf16(if n { m | 0x8000 } else { m }))
                     .collect()
             })
+    }
+
+    /// Finite values with random signs; ties are allowed.
+    fn finite(n: usize) -> impl Strategy<Value = Vec<Bf16>> {
+        proptest::collection::vec((0u16..0x7f7f, any::<bool>()), n).prop_map(|v| {
+            v.into_iter()
+                .map(|(m, n)| Bf16(if n { m | 0x8000 } else { m }))
+                .collect()
+        })
     }
 
     proptest! {
@@ -373,6 +468,47 @@ mod tests {
             let mut segs = prefill(pre, parts, k);
             segs.extend(decode.iter().map(|d| segment(Phase::Decode, d, k)));
             prop_assert_eq!(build_proofs_from_candidates(&segs, &p), build_proofs(&acts, &p));
+        }
+
+        // Scenarios "与全量比对一致" and "逐 token 分段": the recomputed activations, split
+        // in prefill steps or one segment per token row, compared with proofs of other
+        // activations (so the counts are not zero), give `compare`'s result.
+        #[test]
+        fn candidates_compare_as_the_whole_activations(
+            (hidden, prompt, parts, batch, topk, mine, theirs) in
+                (1usize..20, 1usize..10, 0usize..30, 1usize..4, 1u32..6, 1u32..10)
+                    .prop_flat_map(|(h, p, s, parts, b, k)| {
+                        let n = h.saturating_mul(p.saturating_add(s));
+                        (Just(h), Just(p), Just(parts), Just(b), Just(k), finite(n),
+                         prop_oneof![finite(n), tie_free(n)])
+                    }),
+        ) {
+            let p = params(batch, topk);
+            let k = usize::try_from(topk).unwrap();
+            let split = |all: &[Bf16]| -> (Vec<Bf16>, Vec<Vec<Bf16>>) {
+                let (pre, dec) = all.split_at(hidden.saturating_mul(prompt));
+                (pre.to_vec(), dec.chunks(hidden).map(<[Bf16]>::to_vec).collect())
+            };
+            let (their_pre, their_dec) = split(&theirs);
+            let mut their_acts: Vec<&[Bf16]> = vec![&their_pre];
+            their_acts.extend(their_dec.iter().map(Vec::as_slice));
+            let proofs = build_proofs(&their_acts, &p);
+            prop_assume!(proofs.is_ok());
+            let proofs = proofs.unwrap();
+
+            let (pre, dec) = split(&mine);
+            let mut acts: Vec<&[Bf16]> = vec![&pre];
+            acts.extend(dec.iter().map(Vec::as_slice));
+            let whole = crate::compare(&acts, &proofs, &p).unwrap();
+
+            let decode = dec.iter().map(|d| segment(Phase::Decode, d, k));
+            let mut steps = prefill(&pre, parts, k);
+            steps.extend(decode.clone());
+            prop_assert_eq!(&compare_from_candidates(&steps, &proofs, &p).unwrap(), &whole);
+            let mut rows: Vec<Segment> =
+                pre.chunks(hidden).map(|r| segment(Phase::Prefill, r, k)).collect();
+            rows.extend(decode);
+            prop_assert_eq!(&compare_from_candidates(&rows, &proofs, &p).unwrap(), &whole);
         }
     }
 }

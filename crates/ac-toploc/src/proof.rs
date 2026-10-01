@@ -210,45 +210,56 @@ pub fn compare(
         .zip(proofs)
         .enumerate()
         .map(|(n, (chunk, proof))| {
-            if proof.modulus == 0 || proof.coeffs.is_empty() {
-                return Err(Error::NullProof);
-            }
-            let coeffs: Vec<u32> = proof.coeffs.iter().map(|c| u32::from(*c)).collect();
-            let mut result = Comparison::default();
-            let mut errs: Vec<u8> = Vec::new();
-            for i in top_k(chunk, topk, n)? {
-                let actual = chunk.get(i).copied().unwrap_or(Bf16(0));
-                let x = reduce_index(i, proof.modulus);
-                let claimed = field::evaluate(&coeffs, x).ok_or(Error::NullProof)?;
-                // Values are below the prime 65,497, so they fit in 16 bits.
-                let claimed = Bf16(u16::try_from(claimed).unwrap_or(0));
-                if claimed.exponent() == actual.exponent() {
-                    let e = claimed.mantissa().abs_diff(actual.mantissa());
-                    errs.push(u8::try_from(e).unwrap_or(u8::MAX));
-                } else {
-                    result.exp_mismatches = result.exp_mismatches.saturating_add(1);
-                }
-            }
-            errs.sort_unstable();
-            result.mant_count = u32::try_from(errs.len()).unwrap_or(u32::MAX);
-            result.mant_err_sum = errs
-                .iter()
-                .fold(0u32, |a, e| a.saturating_add(u32::from(*e)));
-            let mid = errs.len() / 2;
-            result.median_upper = errs.get(mid).copied();
-            let upper = result.median_upper.map(u16::from);
-            // Odd count: the middle error twice; even count: the two middle errors.
-            let lower = if errs.len() % 2 == 1 {
-                upper
-            } else {
-                mid.checked_sub(1)
-                    .and_then(|i| errs.get(i))
-                    .map(|e| u16::from(*e))
-            };
-            result.median_twice = upper.zip(lower).map(|(u, l)| u.saturating_add(l));
-            Ok(result)
+            let points: Vec<(usize, Bf16)> = top_k(chunk, topk, n)?
+                .into_iter()
+                .map(|i| (i, chunk.get(i).copied().unwrap_or(Bf16(0))))
+                .collect();
+            compare_points(&points, proof)
         })
         .collect()
+}
+
+/// Compares one chunk's recomputed top-k `(index in chunk, value)` points with its proof.
+pub(crate) fn compare_points(
+    points: &[(usize, Bf16)],
+    proof: &ProofPoly,
+) -> Result<Comparison, Error> {
+    if proof.modulus == 0 || proof.coeffs.is_empty() {
+        return Err(Error::NullProof);
+    }
+    let coeffs: Vec<u32> = proof.coeffs.iter().map(|c| u32::from(*c)).collect();
+    let mut result = Comparison::default();
+    let mut errs: Vec<u8> = Vec::new();
+    for (i, actual) in points {
+        let x = reduce_index(*i, proof.modulus);
+        let claimed = field::evaluate(&coeffs, x).ok_or(Error::NullProof)?;
+        // Values are below the prime 65,497, so they fit in 16 bits.
+        let claimed = Bf16(u16::try_from(claimed).unwrap_or(0));
+        if claimed.exponent() == actual.exponent() {
+            let e = claimed.mantissa().abs_diff(actual.mantissa());
+            errs.push(u8::try_from(e).unwrap_or(u8::MAX));
+        } else {
+            result.exp_mismatches = result.exp_mismatches.saturating_add(1);
+        }
+    }
+    errs.sort_unstable();
+    result.mant_count = u32::try_from(errs.len()).unwrap_or(u32::MAX);
+    result.mant_err_sum = errs
+        .iter()
+        .fold(0u32, |a, e| a.saturating_add(u32::from(*e)));
+    let mid = errs.len() / 2;
+    result.median_upper = errs.get(mid).copied();
+    let upper = result.median_upper.map(u16::from);
+    // Odd count: the middle error twice; even count: the two middle errors.
+    let lower = if errs.len() % 2 == 1 {
+        upper
+    } else {
+        mid.checked_sub(1)
+            .and_then(|i| errs.get(i))
+            .map(|e| u16::from(*e))
+    };
+    result.median_twice = upper.zip(lower).map(|(u, l)| u.saturating_add(l));
+    Ok(result)
 }
 
 /// The TOPLOC commitment of a receipt (spec "TOPLOC 承诺"):

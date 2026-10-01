@@ -7,7 +7,10 @@ mod candidates;
 mod field;
 mod proof;
 
-pub use candidates::{Candidate, Phase, Segment, build_proofs_from_candidates, top_k_candidates};
+pub use candidates::{
+    Candidate, Phase, Segment, build_proofs_from_candidates, compare_from_candidates,
+    top_k_candidates,
+};
 pub use proof::{
     Comparison, ProofPoly, TOPLOC_COMMIT_CONTEXT, build_proofs, commitment, compare,
     injective_modulus,
