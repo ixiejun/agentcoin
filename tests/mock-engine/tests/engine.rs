@@ -152,7 +152,7 @@ async fn the_failure_switch_drops_the_stream() {
 async fn toploc_receiver(
     path: std::path::PathBuf,
 ) -> tokio::sync::mpsc::UnboundedReceiver<ac_market_proto::engine::EngineMsg> {
-    use ac_market_proto::engine::{EngineMsg, EngineReader};
+    use ac_market_proto::engine::{ENGINE_PROTOCOL_VERSION, EngineMsg, EngineReader};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let listener = tokio::net::UnixListener::bind(&path).unwrap();
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -177,7 +177,7 @@ async fn toploc_receiver(
                         }
                     ));
                     let w = EngineMsg::Welcome {
-                        version: 1,
+                        version: ENGINE_PROTOCOL_VERSION,
                         topk: 128,
                     };
                     s.write_all(&w.to_frame().unwrap()).await.unwrap();

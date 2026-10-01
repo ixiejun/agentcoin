@@ -37,7 +37,11 @@ AgentCoin 推理市场的线协议：钱包本地代理、网关（`ac-gateway`�
 
 ## 引擎插件协议
 
-`engine` 是推理引擎插件与提供者代理之间的本机协议（规格 `market/engine-plugin`，版本 `ENGINE_PROTOCOL_VERSION` = 1）：帧为 4 字节大端长度加固定的大端布局（至多 1 MiB），Python 插件用 `struct` 即可编码。插件发送 `Hello`（魔数 `ACTL`、版本、隐藏维度），提供者回复 `Welcome`（版本、top-k）；之后插件为每个前向步骤的每个请求发送一个 `Segment`（引擎请求 ID、阶段、元素个数、top-k 候选），每个请求结束时发送 `Finish`。`market_request_id` 从引擎请求 ID 中找出市场请求 ID：提供者转发时把 `X-Request-Id` 设为它的 64 位小写十六进制，vLLM 把请求命名为 `chatcmpl-<X-Request-Id>-<后缀>`。与插件测试共用的字节级向量在 `tests/vectors/engine_protocol.json`。
+`engine` 是推理引擎插件与接收方之间的本机协议（规格 `market/engine-plugin`，版本 `ENGINE_PROTOCOL_VERSION` = 2）：帧为 4 字节大端长度加固定的大端布局（至多 1 MiB），Python 插件用 `struct` 即可编码。插件发送 `Hello`（魔数 `ACTL`、版本、隐藏维度、模式），接收方回复 `Welcome`（版本、top-k）；之后插件发送 `Segment`（引擎请求 ID、阶段、元素个数、top-k 候选），每个请求结束时发送 `Finish`。**证明**模式（模式 0）下，提供者为每个前向步骤的每个请求收到一段，用于构造证明；**复核**模式（模式 1）下，审计员的复核程序为预填充的每个 token 行收到一段。`answer_hello` 是接收方的握手：版本不同的插件收到接收方的版本，模式不被接受的插件收到 top-k 为 0，两种情况都随后断开连接（不带模式字节的版本 1 `Hello` 仍可解码，以便回复）。`market_request_id` 从引擎请求 ID 中找出市场请求 ID：接收方提交请求时把 `X-Request-Id` 设为它的 64 位小写十六进制，vLLM 把请求命名为 `chatcmpl-<X-Request-Id>-<后缀>`（对话）或 `cmpl-<X-Request-Id>-<后缀>`（补全）。与插件测试共用的字节级向量在 `tests/vectors/engine_protocol.json`。
+
+## 审计阈值
+
+`toploc::judge` 是审计对 `ac_toploc::compare` 逐块结果的通过 / 不通过规则（规格 `market/toploc`“复核判定规则与阈值”）：一块通过，当且仅当指数不一致次数、尾数误差均值（以“和 ≤ 上限 × 项数”计算）与尾数误差中位数都不超过 `Thresholds`，且至少有一项指数相同；一次推理只有每块都通过才通过，否则在第一个超限的块上判不通过。`AUDIT_THRESHOLDS` 带版本号，取值来自 `scripts/calibrate-toploc.py` 的校准。
 
 ## OpenAI 子集
 

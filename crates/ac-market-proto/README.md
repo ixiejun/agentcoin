@@ -52,16 +52,30 @@ recomputed commitment must all match the receipt.
 
 ## Engine plugin protocol
 
-`engine` is the local protocol between an inference engine plugin and the provider agent (spec
-`market/engine-plugin`, version `ENGINE_PROTOCOL_VERSION` = 1): frames of a 4-byte big-endian
+`engine` is the local protocol between an inference engine plugin and its receiver (spec
+`market/engine-plugin`, version `ENGINE_PROTOCOL_VERSION` = 2): frames of a 4-byte big-endian
 length and a fixed big-endian layout (at most 1 MiB), so that the Python plugin encodes them with
-`struct`. The plugin sends `Hello` (magic `ACTL`, version, hidden size), the provider answers
-`Welcome` (version, top-k); then the plugin sends one `Segment` per forward step and request
-(engine request ID, phase, number of values, top-k candidates) and a `Finish` per request.
-`market_request_id` finds the market request ID in an engine request ID: providers forward with
-`X-Request-Id` set to its 64 lowercase hex digits and vLLM names requests
-`chatcmpl-<X-Request-Id>-<suffix>`. Byte-level vectors shared with the plugin's tests are in
-`tests/vectors/engine_protocol.json`.
+`struct`. The plugin sends `Hello` (magic `ACTL`, version, hidden size, mode), the receiver
+answers `Welcome` (version, top-k); then the plugin sends `Segment`s (engine request ID, phase,
+number of values, top-k candidates) and a `Finish` per request. In the **prove** mode (mode 0) a
+provider receives one segment per forward step and request, for proofs; in the **verify** mode
+(mode 1) an auditor's re-check receives one segment per prefilled token row. `answer_hello` is
+the receivers' handshake: a plugin of another version gets the receiver's version, a plugin in a
+mode the receiver does not take gets a top-k of 0, and either way the connection is closed (a
+version-1 `Hello`, without a mode byte, still decodes so that it can be answered).
+`market_request_id` finds the market request ID in an engine request ID: receivers send requests
+with `X-Request-Id` set to its 64 lowercase hex digits and vLLM names them
+`chatcmpl-<X-Request-Id>-<suffix>` (chat) or `cmpl-<X-Request-Id>-<suffix>` (completions).
+Byte-level vectors shared with the plugin's tests are in `tests/vectors/engine_protocol.json`.
+
+## Audit thresholds
+
+`toploc::judge` is the audit's pass / fail rule over `ac_toploc::compare`'s per-chunk results
+(spec `market/toploc` "复核判定规则与阈值"): a chunk passes if its exponent mismatches, its mean
+mantissa error (as `sum ≤ bound × count`) and its median mantissa error stay within the
+`Thresholds` and at least one exponent matches; an inference passes if every chunk does, and
+otherwise fails on the first chunk out of bounds. `AUDIT_THRESHOLDS` are versioned and come from
+the calibration of `scripts/calibrate-toploc.py`.
 
 ## OpenAI subset
 

@@ -4,7 +4,7 @@
 
 #![allow(clippy::unwrap_used, clippy::indexing_slicing)] // Test code.
 
-use ac_market_proto::engine::{ENGINE_PROTOCOL_VERSION, EngineMsg, market_request_id};
+use ac_market_proto::engine::{ENGINE_PROTOCOL_VERSION, EngineMode, EngineMsg, market_request_id};
 use ac_toploc::{Bf16, Candidate, Phase};
 use serde_json::{Value, json};
 
@@ -27,10 +27,28 @@ fn vectors() -> Value {
     let msgs = vec![
         vector(
             "hello",
-            json!({"type": "hello", "version": ENGINE_PROTOCOL_VERSION, "hidden_size": 896}),
+            json!({"type": "hello", "version": ENGINE_PROTOCOL_VERSION, "hidden_size": 896, "mode": "prove"}),
             &EngineMsg::Hello {
                 version: ENGINE_PROTOCOL_VERSION,
                 hidden_size: 896,
+                mode: EngineMode::Prove,
+            },
+        ),
+        vector(
+            "hello verify",
+            json!({"type": "hello", "version": ENGINE_PROTOCOL_VERSION, "hidden_size": 3584, "mode": "verify"}),
+            &EngineMsg::Hello {
+                version: ENGINE_PROTOCOL_VERSION,
+                hidden_size: 3584,
+                mode: EngineMode::Verify,
+            },
+        ),
+        vector(
+            "welcome refusing the mode",
+            json!({"type": "welcome", "version": ENGINE_PROTOCOL_VERSION, "topk": 0}),
+            &EngineMsg::Welcome {
+                version: ENGINE_PROTOCOL_VERSION,
+                topk: 0,
             },
         ),
         vector(
@@ -80,6 +98,7 @@ fn vectors() -> Value {
         "version": ENGINE_PROTOCOL_VERSION,
         "request_ids": [
             {"engine": id, "market": "5a".repeat(32)},
+            {"engine": format!("cmpl-{}-0", "5a".repeat(32)), "market": "5a".repeat(32)},
             {"engine": "chatcmpl-0123-abcd", "market": null},
         ],
         "messages": msgs,

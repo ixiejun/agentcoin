@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use ac_market_proto::engine::{ENGINE_PROTOCOL_VERSION, EngineMsg, EngineReader};
+use ac_market_proto::engine::{ENGINE_PROTOCOL_VERSION, EngineMode, EngineMsg, EngineReader};
 use ac_toploc::{Bf16, Phase, top_k_candidates};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
@@ -118,6 +118,7 @@ impl Plugin {
         let hello = EngineMsg::Hello {
             version: ENGINE_PROTOCOL_VERSION,
             hidden_size: HIDDEN,
+            mode: EngineMode::Prove,
         };
         stream.write_all(&hello.to_frame().ok()?).await.ok()?;
         let mut reader = EngineReader::new();

@@ -15,7 +15,8 @@ use std::time::{Duration, Instant};
 
 use ac_market_proto::Usage;
 use ac_market_proto::engine::{
-    ENGINE_PROTOCOL_VERSION, EngineMsg, EngineReader, market_request_id,
+    ENGINE_PROTOCOL_VERSION, EngineMode, EngineMsg, EngineReader, HelloRefusal, answer_hello,
+    market_request_id,
 };
 use ac_market_proto::toploc::{MARKET_PARAMS, ToplocProofs};
 use ac_toploc::{Phase, Segment, build_proofs_from_candidates};
@@ -246,30 +247,35 @@ impl Collector {
                     }
                 };
                 if !greeted {
-                    let EngineMsg::Hello {
-                        version,
-                        hidden_size,
-                    } = msg
-                    else {
-                        return;
+                    let topk = u16::try_from(MARKET_PARAMS.topk).unwrap_or(u16::MAX);
+                    let hidden_size = match answer_hello(&msg, EngineMode::Prove, topk) {
+                        Ok((welcome, hidden)) => {
+                            let Ok(frame) = welcome.to_frame() else {
+                                return;
+                            };
+                            if stream.write_all(&frame).await.is_err() {
+                                return;
+                            }
+                            hidden
+                        }
+                        Err((refusal, welcome)) => {
+                            if let Some(frame) = welcome.and_then(|w| w.to_frame().ok()) {
+                                let _ = stream.write_all(&frame).await;
+                            }
+                            match refusal {
+                                HelloRefusal::Version(v) => log::warn!(
+                                    target: TARGET,
+                                    "the TOPLOC plugin speaks protocol version {v}, this provider {ENGINE_PROTOCOL_VERSION}"
+                                ),
+                                HelloRefusal::Mode(_) => log::warn!(
+                                    target: TARGET,
+                                    "toploc plugin rejected: mode (a plugin in verify mode is for auditors)"
+                                ),
+                                _ => {}
+                            }
+                            return;
+                        }
                     };
-                    let welcome = EngineMsg::Welcome {
-                        version: ENGINE_PROTOCOL_VERSION,
-                        topk: u16::try_from(MARKET_PARAMS.topk).unwrap_or(u16::MAX),
-                    };
-                    let Ok(frame) = welcome.to_frame() else {
-                        return;
-                    };
-                    if stream.write_all(&frame).await.is_err() {
-                        return;
-                    }
-                    if version != ENGINE_PROTOCOL_VERSION {
-                        log::warn!(
-                            target: TARGET,
-                            "the TOPLOC plugin speaks protocol version {version}, this provider {ENGINE_PROTOCOL_VERSION}"
-                        );
-                        return;
-                    }
                     if let Ok(mut s) = self.state.lock() {
                         s.hidden_size = Some(hidden_size);
                         s.connections = s.connections.saturating_add(1);
@@ -382,6 +388,7 @@ mod tests {
             let hello = EngineMsg::Hello {
                 version: ENGINE_PROTOCOL_VERSION,
                 hidden_size: HIDDEN,
+                mode: EngineMode::Prove,
             };
             stream.write_all(&hello.to_frame().unwrap()).await.unwrap();
             let mut reply = [0u8; 8];
@@ -549,6 +556,31 @@ mod tests {
         );
     }
 
+    // Scenario "提供者拒绝复核模式": a plugin in verify mode gets a top-k of 0 and the
+    // connection closes; its candidates never reach a proof.
+    #[tokio::test]
+    async fn a_plugin_in_verify_mode_is_turned_away() {
+        let (_dir, path) = socket();
+        let c = Collector::listen(&path).unwrap();
+        let mut stream = UnixStream::connect(&path).await.unwrap();
+        let hello = EngineMsg::Hello {
+            version: ENGINE_PROTOCOL_VERSION,
+            hidden_size: HIDDEN,
+            mode: EngineMode::Verify,
+        };
+        stream.write_all(&hello.to_frame().unwrap()).await.unwrap();
+        let mut reply = Vec::new();
+        stream.read_to_end(&mut reply).await.unwrap();
+        assert_eq!(
+            EngineMsg::decode(&reply[4..]).unwrap(),
+            EngineMsg::Welcome {
+                version: ENGINE_PROTOCOL_VERSION,
+                topk: 0
+            }
+        );
+        assert_eq!(c.connections(), 0);
+    }
+
     #[tokio::test]
     async fn a_plugin_on_another_version_is_turned_away() {
         let (_dir, path) = socket();
@@ -557,6 +589,7 @@ mod tests {
         let hello = EngineMsg::Hello {
             version: 9,
             hidden_size: HIDDEN,
+            mode: EngineMode::Prove,
         };
         stream.write_all(&hello.to_frame().unwrap()).await.unwrap();
         let mut reply = Vec::new();

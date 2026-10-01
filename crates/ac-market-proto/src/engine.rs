@@ -1,22 +1,26 @@
-//! The local protocol between an inference engine plugin and the provider agent (spec
-//! `market/engine-plugin` "与提供者的本机协议").
+//! The local protocol between an inference engine plugin and its receiver: the provider agent
+//! (prove mode) or an auditor's re-check (verify mode) (spec `market/engine-plugin`
+//! "与提供者的本机协议", "复核模式").
 //!
 //! A Unix stream socket carries frames: a 4-byte big-endian length, then the message. Messages
 //! have a fixed big-endian layout so that the plugin encodes them with Python's `struct`:
 //!
 //! | Message | Layout |
 //! |---|---|
-//! | `Hello` (plugin → provider) | `0x10`, `"ACTL"`, version `u8`, hidden size `u32` |
-//! | `Welcome` (provider → plugin) | `0x11`, version `u8`, top-k `u16` |
+//! | `Hello` (plugin → receiver) | `0x10`, `"ACTL"`, version `u8`, hidden size `u32`, mode `u8` (0 prove, 1 verify) |
+//! | `Welcome` (receiver → plugin) | `0x11`, version `u8`, top-k `u16` (0: the receiver refuses the plugin's mode) |
 //! | `Segment` (plugin → provider) | `0x01`, request ID (`u16` length + UTF-8), phase `u8` (0 prefill, 1 decode), values `u32`, count `u16`, count × (index `u32`, bf16 bits `u16`) |
 //! | `Finish` (plugin → provider) | `0x02`, request ID (`u16` length + UTF-8) |
+//!
+//! A version-1 `Hello` had no mode byte (its plugins only proved); it still decodes, as the
+//! prove mode, so that the receiver can answer with its own version before closing.
 
 use ac_toploc::{Bf16, Candidate, Phase};
 
 use crate::Error;
 
 /// Version of this protocol.
-pub const ENGINE_PROTOCOL_VERSION: u8 = 1;
+pub const ENGINE_PROTOCOL_VERSION: u8 = 2;
 
 /// Marks a `Hello`.
 pub const MAGIC: [u8; 4] = *b"ACTL";
@@ -29,6 +33,62 @@ const WELCOME: u8 = 0x11;
 const SEGMENT: u8 = 0x01;
 const FINISH: u8 = 0x02;
 
+/// What the plugin's candidates are for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum EngineMode {
+    /// A provider's engine: one segment per forward step, for proofs.
+    Prove = 0,
+    /// An auditor's engine: one segment per prefilled token row, for re-checks.
+    Verify = 1,
+}
+
+/// Why a receiver refused a plugin's `Hello`.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HelloRefusal {
+    /// The first message was not a `Hello`.
+    NotHello,
+    /// The plugin speaks another protocol version.
+    Version(u8),
+    /// The plugin runs in a mode this receiver does not take.
+    Mode(EngineMode),
+}
+
+/// A receiver's answer to the first message of a connection: the `Welcome` to send (when the
+/// message is a `Hello`) and, if the plugin is accepted, its hidden size. A plugin of another
+/// version gets this receiver's version; a plugin in another mode gets a top-k of 0, which
+/// tells it to stop. The receiver closes the connection unless the plugin is accepted.
+///
+/// # Errors
+///
+/// The [`HelloRefusal`], with the `Welcome` to send first (none for [`HelloRefusal::NotHello`]).
+pub fn answer_hello(
+    first: &EngineMsg,
+    accepted: EngineMode,
+    topk: u16,
+) -> Result<(EngineMsg, u32), (HelloRefusal, Option<EngineMsg>)> {
+    let EngineMsg::Hello {
+        version,
+        hidden_size,
+        mode,
+    } = first
+    else {
+        return Err((HelloRefusal::NotHello, None));
+    };
+    let welcome = |topk| EngineMsg::Welcome {
+        version: ENGINE_PROTOCOL_VERSION,
+        topk,
+    };
+    if *version != ENGINE_PROTOCOL_VERSION {
+        return Err((HelloRefusal::Version(*version), Some(welcome(topk))));
+    }
+    if *mode != accepted {
+        return Err((HelloRefusal::Mode(*mode), Some(welcome(0))));
+    }
+    Ok((welcome(topk), *hidden_size))
+}
+
 /// One message of the plugin protocol.
 #[non_exhaustive]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,6 +99,8 @@ pub enum EngineMsg {
         version: u8,
         /// Hidden size of the model (values per token).
         hidden_size: u32,
+        /// What the candidates are for.
+        mode: EngineMode,
     },
     /// The provider answers.
     Welcome {
@@ -85,11 +147,13 @@ impl EngineMsg {
             Self::Hello {
                 version,
                 hidden_size,
+                mode,
             } => {
                 out.push(HELLO);
                 out.extend_from_slice(&MAGIC);
                 out.push(*version);
                 out.extend_from_slice(&hidden_size.to_be_bytes());
+                out.push(*mode as u8);
             }
             Self::Welcome { version, topk } => {
                 out.push(WELCOME);
@@ -156,9 +220,22 @@ impl EngineMsg {
                 if r.take(4)? != MAGIC {
                     return Err(Error::Decode);
                 }
+                let version = r.u8()?;
+                let hidden_size = r.u32()?;
+                // Version 1 had no mode byte.
+                let mode = if version < 2 {
+                    EngineMode::Prove
+                } else {
+                    match r.u8()? {
+                        0 => EngineMode::Prove,
+                        1 => EngineMode::Verify,
+                        _ => return Err(Error::Decode),
+                    }
+                };
                 Self::Hello {
-                    version: r.u8()?,
-                    hidden_size: r.u32()?,
+                    version,
+                    hidden_size,
+                    mode,
                 }
             }
             WELCOME => Self::Welcome {
@@ -328,18 +405,19 @@ mod tests {
     #[test]
     fn layouts() {
         let hello = EngineMsg::Hello {
-            version: 1,
+            version: 2,
             hidden_size: 896,
+            mode: EngineMode::Verify,
         };
         assert_eq!(
             hello.encode().unwrap(),
-            [0x10, b'A', b'C', b'T', b'L', 1, 0, 0, 3, 0x80]
+            [0x10, b'A', b'C', b'T', b'L', 2, 0, 0, 3, 0x80, 1]
         );
         let welcome = EngineMsg::Welcome {
-            version: 1,
+            version: 2,
             topk: 128,
         };
-        assert_eq!(welcome.encode().unwrap(), [0x11, 1, 0, 128]);
+        assert_eq!(welcome.encode().unwrap(), [0x11, 2, 0, 128]);
         let finish = EngineMsg::Finish {
             request: "r".into(),
         };
@@ -368,10 +446,64 @@ mod tests {
             EngineMsg::decode(&[0x10, b'X', b'C', b'T', b'L', 1, 0, 0, 0, 1]),
             Err(Error::Decode)
         );
+        // Mode 2 is unknown; a version-2 Hello needs its mode byte.
+        assert_eq!(
+            EngineMsg::decode(&[0x10, b'A', b'C', b'T', b'L', 2, 0, 0, 0, 1, 2]),
+            Err(Error::Decode)
+        );
+        assert_eq!(
+            EngineMsg::decode(&[0x10, b'A', b'C', b'T', b'L', 2, 0, 0, 0, 1]),
+            Err(Error::Decode)
+        );
         // Phase 2 is unknown.
         let mut bad = bytes;
         bad[16] = 2;
         assert_eq!(EngineMsg::decode(&bad), Err(Error::Decode));
+    }
+
+    // A version-1 Hello (no mode byte) is refused with this receiver's version; a plugin in
+    // the other mode gets a top-k of 0 (scenarios "版本不符", "提供者拒绝复核模式",
+    // "复核程序拒绝证明模式").
+    #[test]
+    fn hello_answers() {
+        let v1 = EngineMsg::decode(&[0x10, b'A', b'C', b'T', b'L', 1, 0, 0, 3, 0x80]).unwrap();
+        assert_eq!(
+            v1,
+            EngineMsg::Hello {
+                version: 1,
+                hidden_size: 896,
+                mode: EngineMode::Prove
+            }
+        );
+        let welcome = |topk| EngineMsg::Welcome {
+            version: ENGINE_PROTOCOL_VERSION,
+            topk,
+        };
+        assert_eq!(
+            answer_hello(&v1, EngineMode::Prove, 128),
+            Err((HelloRefusal::Version(1), Some(welcome(128))))
+        );
+        let hello = |mode| EngineMsg::Hello {
+            version: ENGINE_PROTOCOL_VERSION,
+            hidden_size: 896,
+            mode,
+        };
+        assert_eq!(
+            answer_hello(&hello(EngineMode::Prove), EngineMode::Prove, 128),
+            Ok((welcome(128), 896))
+        );
+        assert_eq!(
+            answer_hello(&hello(EngineMode::Verify), EngineMode::Prove, 128),
+            Err((HelloRefusal::Mode(EngineMode::Verify), Some(welcome(0))))
+        );
+        assert_eq!(
+            answer_hello(&hello(EngineMode::Prove), EngineMode::Verify, 128),
+            Err((HelloRefusal::Mode(EngineMode::Prove), Some(welcome(0))))
+        );
+        assert_eq!(
+            answer_hello(&welcome(1), EngineMode::Prove, 128),
+            Err((HelloRefusal::NotHello, None))
+        );
     }
 
     #[test]
@@ -430,6 +562,18 @@ mod tests {
                 phase: if decode { Phase::Decode } else { Phase::Prefill },
                 len,
                 candidates: cands.into_iter().map(|(index, v)| Candidate { index, value: Bf16(v) }).collect(),
+            };
+            let mut r = EngineReader::new();
+            r.push(&msg.to_frame().unwrap());
+            prop_assert_eq!(r.next_msg().unwrap(), Some(msg));
+        }
+
+        #[test]
+        fn hellos_round_trip(hidden_size in any::<u32>(), verify in any::<bool>()) {
+            let msg = EngineMsg::Hello {
+                version: ENGINE_PROTOCOL_VERSION,
+                hidden_size,
+                mode: if verify { EngineMode::Verify } else { EngineMode::Prove },
             };
             let mut r = EngineReader::new();
             r.push(&msg.to_frame().unwrap());
