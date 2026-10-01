@@ -34,6 +34,9 @@ Licence: `MIT OR Apache-2.0` (permissive zone, D47).
   auditor rebuilds the original inference's chunks from the rows. The plugin declares its mode
   when it connects: providers take only `prove`, auditors only `verify`, and a refused mode
   stops the plugin (logged as a mode mismatch). Other values make the engine fail to start.
+- **AMX.** The re-check thresholds are calibrated with oneDNN kept from AMX kernels: on Intel
+  CPUs with AMX, AMX kernels made honest prefill chunks inexact. In verify mode on such a CPU the
+  engine fails to start unless `ONEDNN_MAX_CPU_ISA` is set below AMX (`AVX512_CORE_BF16`).
 - The provider forwards requests with `X-Request-Id` set to the market request ID, so that
   vLLM's request ID (`chatcmpl-<X-Request-Id>-<suffix>`) identifies each segment.
 

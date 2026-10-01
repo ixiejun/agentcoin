@@ -166,6 +166,10 @@ jobs:
     # the plugin inside the pinned CPU build of vLLM with a small public model, and the auditor's
     # re-check regression (m6-toploc-verify group 7).
     runs-on: ubuntu-latest
+    env:
+      # The re-check thresholds hold with oneDNN kept from AMX kernels (m6-toploc-verify 8.1); the
+      # plugin refuses verify mode on an AMX CPU without it. Provers run with the same setting.
+      ONEDNN_MAX_CPU_ISA: AVX512_CORE_BF16
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

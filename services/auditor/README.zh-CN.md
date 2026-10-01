@@ -16,7 +16,9 @@ AgentCoin 审计员代理（M6，MVP 方案 §5.5；规格 `market/auditor-agent
 ## 用法
 
 ```bash
-# 复核引擎：带插件的 vLLM，复核模式，同一模型，bfloat16。
+# 复核引擎：带插件的 vLLM，复核模式，同一模型，bfloat16。在 CPU 上让 oneDNN 不使用 AMX
+# 内核（阈值按此校准；在支持 AMX 的 CPU 上插件会强制检查）。
+ONEDNN_MAX_CPU_ISA=AVX512_CORE_BF16 \
 AGENTCOIN_TOPLOC_SOCKET=/run/agentcoin/recheck.sock AGENTCOIN_TOPLOC_MODE=verify \
 VLLM_USE_V2_MODEL_RUNNER=0 vllm serve Qwen/Qwen2.5-0.5B-Instruct \
   --served-model-name qwen --dtype bfloat16 --no-enable-prefix-caching --port 8000

@@ -34,7 +34,10 @@ A re-check:
 ## Usage
 
 ```bash
-# The re-check engine: vLLM with the plugin in verify mode, same model, bfloat16.
+# The re-check engine: vLLM with the plugin in verify mode, same model, bfloat16. On CPUs,
+# oneDNN is kept from AMX kernels (the thresholds are calibrated that way; the plugin enforces
+# it on CPUs with AMX).
+ONEDNN_MAX_CPU_ISA=AVX512_CORE_BF16 \
 AGENTCOIN_TOPLOC_SOCKET=/run/agentcoin/recheck.sock AGENTCOIN_TOPLOC_MODE=verify \
 VLLM_USE_V2_MODEL_RUNNER=0 vllm serve Qwen/Qwen2.5-0.5B-Instruct \
   --served-model-name qwen --dtype bfloat16 --no-enable-prefix-caching --port 8000

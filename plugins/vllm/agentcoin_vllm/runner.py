@@ -17,6 +17,7 @@ from . import client, extract
 
 SUPPORTED = ((0, 30, 0), (0, 31, 0))  # [min, max)
 V2_ENV = "VLLM_USE_V2_MODEL_RUNNER"
+ISA_ENV = "ONEDNN_MAX_CPU_ISA"
 
 log = logging.getLogger("agentcoin_vllm")
 
@@ -51,6 +52,38 @@ def check_version(text: str) -> None:
             f"agentcoin toploc: vLLM {text} is not supported; this plugin needs "
             f">={'.'.join(map(str, lo))},<{'.'.join(map(str, hi))}"
         )
+
+
+def cpu_flags() -> set[str]:
+    """The host CPU's feature flags (empty where /proc/cpuinfo is unavailable)."""
+    try:
+        with open("/proc/cpuinfo", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("flags"):
+                    return set(line.split(":", 1)[1].split())
+    except OSError:
+        pass
+    return set()
+
+
+def check_cpu_isa(mode: int, device: str | None, flags: set[str], isa: str | None) -> None:
+    """Raises `PreconditionError` when a CPU re-check could use AMX kernels.
+
+    The calibration (m6-toploc-verify 8.1) found inexact honest prefill chunks only where oneDNN
+    ran AMX kernels; with oneDNN kept from AMX the same hosts were exact. The thresholds hold for
+    that setting, so a re-check on a CPU with AMX needs `ONEDNN_MAX_CPU_ISA` set below AMX.
+    """
+    if mode != client.VERIFY or device != "cpu":
+        return
+    if not any(f.startswith("amx") for f in flags):
+        return
+    value = (isa or "").strip().upper()
+    if value and value != "ALL" and "AMX" not in value:
+        return
+    raise PreconditionError(
+        f"agentcoin toploc: this CPU has AMX, which the re-check thresholds are not calibrated "
+        f"for; start the verify engine with {ISA_ENV}=AVX512_CORE_BF16"
+    )
 
 
 def check_config(model_config, cache_config, parallel_config, speculative_config) -> None:
@@ -174,6 +207,8 @@ def _patch(cls, path: str, mode: int = client.PROVE) -> None:
             check_config(
                 self.model_config, self.cache_config, self.parallel_config, self.speculative_config
             )
+            device = getattr(getattr(self, "device", None), "type", None)
+            check_cpu_isa(mode, device, cpu_flags(), os.environ.get(ISA_ENV))
             result = load(self, *args, **kwargs)
             if "_agentcoin" not in self.__dict__:
                 self._agentcoin = Capture(self, path, mode)

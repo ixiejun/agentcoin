@@ -47,6 +47,19 @@ def test_unmet_preconditions_stop_the_engine(override, message):
         runner.check_config(**configs(**override))
 
 
+# The re-check on a CPU with AMX needs oneDNN kept from AMX (m6-toploc-verify 8.1).
+def test_verify_on_an_amx_cpu_needs_amx_off():
+    amx = {"avx512f", "avx512_bf16", "amx_bf16", "amx_tile"}
+    for isa in (None, "", "ALL", "AVX512_CORE_AMX"):
+        with pytest.raises(runner.PreconditionError, match=runner.ISA_ENV):
+            runner.check_cpu_isa(client.VERIFY, "cpu", amx, isa)
+    runner.check_cpu_isa(client.VERIFY, "cpu", amx, "AVX512_CORE_BF16")
+    # Prove mode, GPUs and CPUs without AMX are not affected.
+    runner.check_cpu_isa(client.PROVE, "cpu", amx, None)
+    runner.check_cpu_isa(client.VERIFY, "cuda", amx, None)
+    runner.check_cpu_isa(client.VERIFY, "cpu", {"avx2", "avx512f"}, None)
+
+
 class FakeCapture:
     def __init__(self, model_runner, path, mode=0):
         self.calls = []
