@@ -176,12 +176,19 @@ jobs:
     # the plugin inside the pinned CPU build of vLLM with a small public model, and the auditor's
     # re-check regression (m6-toploc-verify group 7).
     runs-on: ubuntu-latest
-    env:
-      # The re-check thresholds hold with oneDNN kept from AMX kernels (m6-toploc-verify 8.1); the
-      # plugin refuses verify mode on an AMX CPU without it. Provers run with the same setting.
-      ONEDNN_MAX_CPU_ISA: AVX512_CORE_BF16
     steps:
       - uses: actions/checkout@v4
+      # The re-check thresholds hold with oneDNN kept from AMX kernels (m6-toploc-verify 8.1); the
+      # plugin refuses verify mode on an AMX CPU without it. Set only on AMX runners: with it set
+      # job-wide, run 116 died with "Illegal instruction" in check-vllm-plugin.py on a runner
+      # whose CPU was not logged; the CPU model is logged now.
+      - name: CPU and oneDNN ISA
+        run: |
+          grep -m1 "model name" /proc/cpuinfo
+          if grep -qw amx_bf16 /proc/cpuinfo; then
+            echo "ONEDNN_MAX_CPU_ISA=AVX512_CORE_BF16" >> "$GITHUB_ENV"
+            echo "AMX present: ONEDNN_MAX_CPU_ISA=AVX512_CORE_BF16"
+          fi
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
