@@ -404,6 +404,45 @@ def summary(results: list[dict]) -> dict:
     return out
 
 
+CPU_FLAGS = ("avx2", "avx512f", "avx512_bf16", "amx_bf16", "amx_tile", "amx_int8")
+
+
+def host() -> dict:
+    """The machine the shard ran on: honest prefill chunks matched bit for bit on some CPUs and
+    not on others, so every report records the CPU model and the flags that pick kernels."""
+    info = {"model": "", "flags": [], "cpus": os.cpu_count()}
+    try:
+        text = Path("/proc/cpuinfo").read_text()
+    except OSError:
+        return info
+    for line in text.splitlines():
+        key, _, value = line.partition(":")
+        if key.strip() == "model name" and not info["model"]:
+            info["model"] = value.strip()
+        if key.strip() == "flags" and not info["flags"]:
+            flags = set(value.split())
+            info["flags"] = [f for f in CPU_FLAGS if f in flags]
+    return info
+
+
+def by_host(samples: list[dict]) -> dict:
+    """Honest outcomes and prefill exactness per CPU model and flags."""
+    out: dict = {}
+    for x in samples:
+        if not x["case"].startswith("honest-"):
+            continue
+        h = x.get("host") or {}
+        key = f'{h.get("model", "?")} [{" ".join(h.get("flags", []))}]'
+        o = out.setdefault(key, {"shards": set(), "pass": 0, "fail": 0, "inconclusive": 0, "inexact_prefill": 0})
+        o["shards"].add(x.get("seed"))
+        o[x["outcome"]] += 1
+        if x["chunks"] and (x["chunks"][0]["mant_err_sum"] or x["chunks"][0]["exp_mismatches"]):
+            o["inexact_prefill"] += 1
+    for o in out.values():
+        o["shards"] = sorted(o["shards"])
+    return out
+
+
 def merge(files: list[Path], out: Path) -> int:
     """One report from the shards of a calibration: samples keep their shard's seed."""
     shards = [json.loads(f.read_text()) for f in files]
@@ -411,7 +450,7 @@ def merge(files: list[Path], out: Path) -> int:
     if len(set(seeds)) != len(seeds):
         print(f"shards share a seed: {seeds}")
         return 1
-    samples = [dict(x, seed=r["seed"]) for r in shards for x in r["samples"]]
+    samples = [dict(x, seed=r["seed"], host=r.get("host")) for r in shards for x in r["samples"]]
     s = summary(samples)
     report = {
         "seeds": seeds,
@@ -419,11 +458,13 @@ def merge(files: list[Path], out: Path) -> int:
         "cheat": sum(r["cheat"] for r in shards),
         "thresholds_versions": sorted({v for r in shards for v in r["thresholds_versions"]}),
         "summary": s,
+        "honest_by_host": by_host(samples),
         "samples": samples,
     }
     out.mkdir(parents=True, exist_ok=True)
     (out / "calibration.json").write_text(json.dumps(report, indent=1))
     print(json.dumps({k: report[k] for k in ("seeds", "honest", "cheat", "thresholds_versions")}))
+    print(json.dumps(report["honest_by_host"], indent=1))
     print(json.dumps(s, indent=1))
     return 0
 
@@ -446,6 +487,7 @@ def main() -> int:
     if args.merge:
         return merge(args.merge, args.out.resolve())
 
+    print("host:", json.dumps(host()), flush=True)
     honest = args.honest or (48 if args.quick else 3000)
     cheat = args.cheat or (8 if args.quick else 100)
     out = args.out.resolve()
@@ -475,7 +517,8 @@ def main() -> int:
         assert f.name in from_auditor, f.name
     s = summary(results)
     thresholds = {r["thresholds_version"] for r in results}
-    report = {"seed": args.seed, "honest": honest, "cheat": cheat, "thresholds_versions": sorted(thresholds),
+    report = {"seed": args.seed, "host": host(), "honest": honest, "cheat": cheat,
+              "thresholds_versions": sorted(thresholds),
               "summary": s, "samples": results}
     (out / "calibration.json").write_text(json.dumps(report, indent=1))
     print(json.dumps(s, indent=1))
