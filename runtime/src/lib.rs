@@ -64,7 +64,8 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // 4: EVM contracts through pallet-revive and EVM support (m4-evm).
     // 5: the inference market: reference rate, models, providers, gateways, credits (m5).
     // 6: work settlement and market work emission (m5-work-settlement).
-    spec_version: 6,
+    // 7: on-chain audits (m6-audit-chain).
+    spec_version: 7,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     // 2: `AuthorizeCall` joined the extension pipeline (m2-finality); encodings are unchanged.
@@ -72,7 +73,8 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // 4: the `SetEvmPayer` extension and the `Revive` calls (m4-evm).
     // 5: the market calls (m5-market-registry).
     // 6: the work settlement calls (m5-work-settlement).
-    transaction_version: 6,
+    // 7: the audit calls (m6-audit-chain).
+    transaction_version: 7,
     system_version: 1,
 };
 
@@ -85,10 +87,10 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     impl_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     authoring_version: 1,
-    spec_version: 7,
+    spec_version: 8,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
-    transaction_version: 6,
+    transaction_version: 7,
     system_version: 1,
 };
 
@@ -281,4 +283,7 @@ mod runtime {
 
     #[runtime::pallet_index(21)]
     pub type Work = pallet_work;
+
+    #[runtime::pallet_index(22)]
+    pub type Audit = pallet_audit;
 }

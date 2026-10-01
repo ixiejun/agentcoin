@@ -449,6 +449,44 @@ impl pallet_work::Config for Runtime {
     type BenchmarkHelper = MarketBenchmarkHelper;
 }
 
+parameter_types! {
+    /// Audit rounds whose verdicts and used request IDs are kept: 7 days of 30-minute rounds.
+    pub const AuditRetentionRounds: u32 = 336;
+    /// Most verdicts per round: 2 per provider for up to 10,000 providers.
+    pub const AuditMaxVerdictsPerRound: u32 = 20_000;
+    /// Entries pruned per block (benchmarked weight `prune(200)`).
+    pub const AuditPruneLimit: u32 = 200;
+}
+
+/// Seeds audit rounds from the chain's commit-reveal randomness.
+pub struct AuditRandomness;
+impl pallet_audit::AuditRandomness for AuditRandomness {
+    fn random(subject: &[u8]) -> Option<sp_core::H256> {
+        RandomnessCr::random(subject).map(|(_, value)| value)
+    }
+}
+
+impl pallet_audit::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeHoldReason = RuntimeHoldReason;
+    type Currency = Balances;
+    /// The only caller of `ProviderPenalty` (slash and jail).
+    type Providers = crate::Providers;
+    type Gateways = crate::Gateways;
+    type Keys = PqAccountKeys;
+    type Price = crate::RefRate;
+    type Randomness = AuditRandomness;
+    /// Slashed auditor stake is burned and counted in `Emission::TotalBurned`.
+    type Slash = Emission;
+    type AdminOrigin = TreasuryAdminOrigin;
+    type RetentionRounds = AuditRetentionRounds;
+    type MaxVerdictsPerRound = AuditMaxVerdictsPerRound;
+    type PruneLimit = AuditPruneLimit;
+    type WeightInfo = pallet_audit::weights::SubstrateWeight<Runtime>;
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = MarketBenchmarkHelper;
+}
+
 /// Accounts' current keys, from `pallet-pq-accounts`: the fingerprint vouchers are checked
 /// against (`ac_primitives::market::voucher::key_fingerprint` computes the same value).
 pub struct PqAccountKeys;
@@ -649,5 +687,35 @@ impl pallet_credits::BenchmarkHelper for MarketBenchmarkHelper {
     }
     fn set_rate(rate: u128) {
         Self::put_rate(rate);
+    }
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+impl pallet_audit::BenchmarkHelper for MarketBenchmarkHelper {
+    fn set_rate(rate: u128) {
+        Self::put_rate(rate);
+    }
+    fn set_key(who: &AccountId, key: &ac_crypto::PqPublicKey) {
+        <Self as pallet_credits::BenchmarkHelper>::register_key(who, key);
+    }
+    fn register_provider(
+        who: &AccountId,
+        model: ac_primitives::market::ModelId,
+        price: ac_primitives::market::PricePerMTok,
+    ) {
+        <Self as pallet_work::BenchmarkHelper>::prepare_provider(who, &model);
+        pallet_providers::Providers::<Runtime>::mutate(who, |p| {
+            if let Some(p) = p {
+                for m in p.models.iter_mut() {
+                    m.price = price;
+                }
+            }
+        });
+    }
+    fn register_gateway(who: &AccountId) {
+        <Self as pallet_credits::BenchmarkHelper>::activate_gateway(who);
+    }
+    fn set_randomness(seed: sp_core::H256) {
+        pallet_randomness_cr::Latest::<Runtime>::put((0, seed));
     }
 }

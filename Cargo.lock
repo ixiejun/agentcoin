@@ -369,6 +369,7 @@ version = "0.1.0"
 dependencies = [
  "ac-crypto",
  "ac-invariants",
+ "ac-market-proto",
  "ac-primitives",
  "alloy-core",
  "frame-benchmarking",
@@ -379,6 +380,7 @@ dependencies = [
  "frame-system-rpc-runtime-api",
  "hex",
  "pallet-ac-offences",
+ "pallet-audit",
  "pallet-aura-pq",
  "pallet-balances",
  "pallet-collective",

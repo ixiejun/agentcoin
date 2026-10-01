@@ -72,6 +72,43 @@ sp_api::decl_runtime_apis! {
         fn check_voucher(voucher: SignedVoucher) -> Result<VoucherCheck, VoucherError>;
     }
 
+    /// Read access to audits (m6-audit-chain).
+    pub trait AuditApi<AccountId, BlockNumber>
+    where
+        AccountId: parity_scale_codec::Codec,
+        BlockNumber: parity_scale_codec::Codec,
+    {
+        /// The current round and the first blocks of it and of the next one.
+        fn round() -> Option<(audit::RoundIndex, u32, u32)>;
+        /// Fixed and adjustable parameters.
+        fn params() -> Option<(audit::AuditParams, audit::AdjustableParams)>;
+        /// A round's roster (the current and the previous round only).
+        fn roster(round: audit::RoundIndex) -> Vec<AccountId>;
+        /// A round's seed.
+        fn seed(round: audit::RoundIndex) -> Option<sp_core::H256>;
+        /// The auditors assigned to `provider` in `round`.
+        fn assignment(round: audit::RoundIndex, provider: AccountId) -> Vec<AccountId>;
+        /// The registered providers `auditor` is assigned to in `round`, each with whether it
+        /// submitted a verdict on it.
+        fn assigned_to(round: audit::RoundIndex, auditor: AccountId) -> Vec<(AccountId, bool)>;
+        /// The verdicts on `provider` in `round`.
+        fn verdicts(round: audit::RoundIndex, provider: AccountId) -> Vec<audit::VerdictRecord<AccountId>>;
+        /// `provider`'s open dispute.
+        fn open_dispute(provider: AccountId) -> Option<u64>;
+        /// A dispute.
+        fn dispute(id: u64) -> Option<audit::DisputeRecord<AccountId, BlockNumber>>;
+        /// A registered auditor.
+        fn auditor(who: AccountId) -> Option<audit::AuditorRecord<BlockNumber>>;
+        /// Stake an auditor needs now, in smallest ATC units.
+        fn auditor_threshold() -> Result<u128, PriceError>;
+        /// Verdict counts of a provider.
+        fn provider_stats(who: AccountId) -> audit::ProviderAuditStats;
+        /// Activity counts of an auditor.
+        fn auditor_stats(who: AccountId) -> audit::AuditorStats;
+        /// The audit pot's account and balance.
+        fn pot() -> (AccountId, u128);
+    }
+
     /// Read access to work settlement (m5-work-settlement).
     pub trait WorkApi<AccountId, Balance>
     where

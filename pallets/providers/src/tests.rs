@@ -533,7 +533,10 @@ fn audits_read_registration_and_prices() {
             <Providers as ProviderAudit<u64>>::price(&ALICE, &MODEL_A),
             Some(price(MODEL_A, 100, 200).price)
         );
-        assert_eq!(<Providers as ProviderAudit<u64>>::price(&ALICE, &MODEL_B), None);
+        assert_eq!(
+            <Providers as ProviderAudit<u64>>::price(&ALICE, &MODEL_B),
+            None
+        );
     });
 }
 

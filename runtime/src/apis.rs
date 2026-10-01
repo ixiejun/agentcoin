@@ -12,9 +12,9 @@ use sp_runtime::{
 use sp_version::RuntimeVersion;
 
 use super::{
-    AccountId, AuraPq, Balance, Block, BlockNumber, Credits, Emission, EvmSupport, Executive,
-    Gateways, InherentDataExt, ModelRegistry, Nonce, Offences, PqAccounts, Providers, RandomnessCr,
-    RefRate, Revive, Runtime, RuntimeCall, RuntimeGenesisConfig, StakingPos, System,
+    AccountId, Audit, AuraPq, Balance, Block, BlockNumber, Credits, Emission, EvmSupport,
+    Executive, Gateways, InherentDataExt, ModelRegistry, Nonce, Offences, PqAccounts, Providers,
+    RandomnessCr, RefRate, Revive, Runtime, RuntimeCall, RuntimeGenesisConfig, StakingPos, System,
     TransactionPayment, TreasuryDual, VERSION, ValidatorSet, Work,
 };
 
@@ -628,6 +628,81 @@ impl_runtime_apis! {
 
         fn lifetime(who: AccountId) -> ac_primitives::market::LifetimeWork<Balance> {
             Work::lifetime(&who)
+        }
+    }
+
+    impl ac_primitives::market::AuditApi<Block, AccountId, BlockNumber> for Runtime {
+        fn round() -> Option<(ac_primitives::market::audit::RoundIndex, u32, u32)> {
+            Audit::round_bounds()
+        }
+
+        fn params() -> Option<(
+            ac_primitives::market::audit::AuditParams,
+            ac_primitives::market::audit::AdjustableParams,
+        )> {
+            Some((pallet_audit::Params::<Runtime>::get()?, pallet_audit::Adjustable::<Runtime>::get()?))
+        }
+
+        fn roster(round: ac_primitives::market::audit::RoundIndex) -> Vec<AccountId> {
+            pallet_audit::Rosters::<Runtime>::get(round).map(|r| r.to_vec()).unwrap_or_default()
+        }
+
+        fn seed(round: ac_primitives::market::audit::RoundIndex) -> Option<sp_core::H256> {
+            pallet_audit::Seeds::<Runtime>::get(round)
+        }
+
+        fn assignment(
+            round: ac_primitives::market::audit::RoundIndex,
+            provider: AccountId,
+        ) -> Vec<AccountId> {
+            Audit::assignment(round, &provider)
+        }
+
+        fn assigned_to(
+            round: ac_primitives::market::audit::RoundIndex,
+            auditor: AccountId,
+        ) -> Vec<(AccountId, bool)> {
+            let providers: Vec<AccountId> = pallet_providers::Providers::<Runtime>::iter_keys().collect();
+            Audit::assigned_to(round, &auditor, &providers)
+        }
+
+        fn verdicts(
+            round: ac_primitives::market::audit::RoundIndex,
+            provider: AccountId,
+        ) -> Vec<ac_primitives::market::audit::VerdictRecord<AccountId>> {
+            pallet_audit::Verdicts::<Runtime>::get(round, provider).to_vec()
+        }
+
+        fn open_dispute(provider: AccountId) -> Option<u64> {
+            pallet_audit::OpenDispute::<Runtime>::get(provider)
+        }
+
+        fn dispute(
+            id: u64,
+        ) -> Option<ac_primitives::market::audit::DisputeRecord<AccountId, BlockNumber>> {
+            pallet_audit::Disputes::<Runtime>::get(id)
+        }
+
+        fn auditor(who: AccountId) -> Option<ac_primitives::market::audit::AuditorRecord<BlockNumber>> {
+            Audit::auditor(&who)
+        }
+
+        fn auditor_threshold() -> Result<u128, ac_primitives::market::PriceError> {
+            Audit::threshold()
+        }
+
+        fn provider_stats(who: AccountId) -> ac_primitives::market::audit::ProviderAuditStats {
+            pallet_audit::ProviderStats::<Runtime>::get(who)
+        }
+
+        fn auditor_stats(who: AccountId) -> ac_primitives::market::audit::AuditorStats {
+            pallet_audit::Activity::<Runtime>::get(who)
+        }
+
+        fn pot() -> (AccountId, u128) {
+            let pot = Audit::pot();
+            let balance = <crate::Balances as frame_support::traits::fungible::Inspect<AccountId>>::balance(&pot);
+            (pot, balance)
         }
     }
 

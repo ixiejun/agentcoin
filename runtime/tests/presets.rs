@@ -181,3 +181,39 @@ fn staking_and_switch_parameters() {
     );
     assert_eq!(staking.commission_delay, 604_800);
 }
+
+// m6-audit-chain, spec node/chain-spec "审计参数": test presets use short rounds and three
+// reviewers deciding by two; a live chain spec starts from the draft live values.
+#[test]
+fn audit_parameters() {
+    use ac_primitives::market::audit::AuditParams;
+    use ac_runtime::Runtime;
+    use sp_runtime::Perbill;
+
+    for id in [
+        sp_genesis_builder::DEV_RUNTIME_PRESET,
+        sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET,
+    ] {
+        preset_ext(id).execute_with(|| {
+            let p = pallet_audit::Params::<Runtime>::get().unwrap();
+            assert!(p.round_blocks <= 50 && p.vote_blocks <= 50 && p.unbond_blocks <= 100);
+            assert_eq!((p.reviewers, p.quorum, p.assign), (3, 2, 2));
+            assert_eq!(p.check(), Ok(()));
+        });
+    }
+    // Scenario "导出正式链审计参数".
+    let live = pallet_audit::GenesisConfig::<Runtime>::default().params;
+    let (fixed, adjustable) = live.split();
+    assert_eq!(fixed, AuditParams::LIVE);
+    assert_eq!(fixed.round_blocks, 1_800);
+    assert_eq!((fixed.reviewers, fixed.quorum), (5, 3));
+    assert_eq!(fixed.provider_slash, Perbill::from_percent(10));
+    assert_eq!(fixed.auditor_slash, Perbill::from_percent(10));
+    assert_eq!(adjustable.stake_usd.0, 1_000_000_000);
+    assert_eq!(adjustable.payment_usd.0, 50_000);
+    // The accepted thresholds version is the one the auditors' software publishes.
+    assert_eq!(
+        adjustable.thresholds_version,
+        ac_market_proto::AUDIT_THRESHOLDS.version
+    );
+}

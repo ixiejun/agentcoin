@@ -106,6 +106,12 @@ pub const LOCAL_TRANSITION: TransitionParams = TransitionParams {
 const DEV_MARKET_DELAY: u64 = 10;
 /// Unbonding period of providers and gateways on the test presets (live chains: seven days).
 const DEV_MARKET_UNBOND: u64 = 20;
+/// Audit round length on the test presets (live chains: 1,800 blocks).
+const DEV_AUDIT_ROUND: u32 = 20;
+/// Blocks auditor stake unbonds for on the test presets (live chains: 604,800).
+const DEV_AUDIT_UNBOND: u32 = 20;
+/// Blocks dispute reviewers have to vote on the test presets (live chains: 600).
+const DEV_AUDIT_VOTE: u32 = 20;
 /// Epochs a work report stays queryable after it matures, in the dev and local presets.
 const DEV_WORK_RETENTION: u32 = 20;
 
@@ -194,6 +200,18 @@ fn testnet_genesis(preset: &Preset<'_>) -> Result<Value, ac_crypto::Error> {
             params: ac_primitives::market::WorkParams {
                 retention_epochs: DEV_WORK_RETENTION,
                 ..ac_primitives::market::WorkParams::LIVE
+            }
+        },
+        // Audits (m6-audit-chain design D10): rounds and votes of tens of blocks and three
+        // reviewers deciding by two, so one verdict -> dispute -> decision takes minutes.
+        audit: pallet_audit::GenesisConfig {
+            params: pallet_audit::AuditGenesis {
+                round_blocks: DEV_AUDIT_ROUND,
+                reviewers: 3,
+                quorum: 2,
+                vote_blocks: DEV_AUDIT_VOTE,
+                unbond_blocks: DEV_AUDIT_UNBOND,
+                ..pallet_audit::AuditGenesis::LIVE
             }
         },
     }))
