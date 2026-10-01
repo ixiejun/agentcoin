@@ -361,11 +361,16 @@ def main() -> int:
     for v in VARIANTS:
         n = honest if v == "honest" else cheat
         with open(logs / f"generate-{v}.log", "w") as log:
-            subprocess.run(
+            run = subprocess.run(
                 [sys.executable, __file__, "--generate", v, "--count", str(n), "--seed", str(args.seed), "--out", str(cases)],
-                check=True, stdout=log, stderr=subprocess.STDOUT,
+                stdout=log, stderr=subprocess.STDOUT,
             )
-        print((logs / f"generate-{v}.log").read_text().strip().splitlines()[-1], flush=True)
+        lines = (logs / f"generate-{v}.log").read_text(errors="replace").strip().splitlines()
+        if run.returncode != 0:
+            # The log holds vLLM's messages, never the prompts (the marker check below covers it).
+            print(f"generating {v} failed; the end of its log:", *lines[-60:], sep="\n", flush=True)
+            return 1
+        print(lines[-1] if lines else f"{v}: no output", flush=True)
 
     results = recheck(cases, logs)
     from_auditor = {r["case"] for r in results}
