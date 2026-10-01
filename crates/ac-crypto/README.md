@@ -114,6 +114,9 @@ reused for another purpose.
 | `agentcoin 2026-09 sealed-handshake v1` | hash | sealed channel: message signed in a handshake; replay-cache key | in use from M5 |
 | `agentcoin 2026-09 sealed-key v1` | hash | sealed channel: per-direction keys from the shared secret and the signed handshake | in use from M5 |
 | `agentcoin 2026-09 gateway-kem-payload v1` | hash | payload signed when a gateway announces its encapsulation key | in use from M5 |
+| `agentcoin 2026-10 audit-evidence v1` | hash | commitment to audit evidence: its SCALE encoding (`ac-market-proto::audit`) | in use from M6 |
+| `agentcoin 2026-10 audit-assign v1` | hash | audit assignment draw: `seed ‖ provider ‖ u32_le(i)` | in use from M6 (on chain) |
+| `agentcoin 2026-10 audit-review v1` | hash | dispute reviewer draw: `seed ‖ provider ‖ u64_le(dispute) ‖ u32_le(i)` | in use from M6 (on chain) |
 | `agentcoin/tx/v1` | signature | transaction signatures | in use from M1 (consensus-critical) |
 | `agentcoin/aura-seal/v1` | signature | Aura-PQ block seals | in use from M1 (consensus-critical) |
 | `agentcoin/key-rotation/v1` | signature | proof of possession of a rotated-in key | in use from M1 (consensus-critical) |

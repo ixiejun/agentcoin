@@ -81,6 +81,9 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 | `agentcoin 2026-09 sealed-handshake v1` | 哈希 | 密封通道：握手中被签名的消息；重放缓存的键 | 自 M5 起使用 |
 | `agentcoin 2026-09 sealed-key v1` | 哈希 | 密封通道：由共享秘密与签名握手派生两个方向的密钥 | 自 M5 起使用 |
 | `agentcoin 2026-09 gateway-kem-payload v1` | 哈希 | 网关公布封装公钥时签名的载荷 | 自 M5 起使用 |
+| `agentcoin 2026-10 audit-evidence v1` | 哈希 | 审计证据的承诺：证据的 SCALE 编码（`ac-market-proto::audit`） | 自 M6 起使用 |
+| `agentcoin 2026-10 audit-assign v1` | 哈希 | 审计分配抽样：`种子 ‖ 提供者 ‖ u32_le(i)` | 自 M6 起使用（链上） |
+| `agentcoin 2026-10 audit-review v1` | 哈希 | 争议复核人抽样：`种子 ‖ 提供者 ‖ u64_le(争议编号) ‖ u32_le(i)` | 自 M6 起使用（链上） |
 | `agentcoin/tx/v1` | 签名 | 交易签名 | 自 M1 起使用（共识关键） |
 | `agentcoin/aura-seal/v1` | 签名 | Aura-PQ 区块封印 | 自 M1 起使用（共识关键） |
 | `agentcoin/key-rotation/v1` | 签名 | 轮换新密钥的持有证明 | 自 M1 起使用（共识关键） |

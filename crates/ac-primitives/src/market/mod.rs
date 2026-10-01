@@ -1,5 +1,6 @@
 //! Inference-market types shared by the runtime, wallets and gateways (M5, m5-market-registry).
 //!
+//! - [`audit`]: on-chain audit types and the assignment draw (m6-audit-chain).
 //! - [`usd`]: dollar amounts, the reference rate and conversions with explicit rounding (D23).
 //! - [`model`]: weight manifests and model IDs.
 //! - [`voucher`]: cumulative transparent vouchers and [`voucher::check_voucher`], the single
@@ -16,6 +17,7 @@ use alloc::vec::Vec;
 
 use crate::emission::EpochIndex;
 
+pub mod audit;
 pub mod model;
 pub mod receipt;
 pub mod receipt_tree;

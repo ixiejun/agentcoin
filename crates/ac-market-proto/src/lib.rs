@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 pub mod announce;
+pub mod audit;
 pub mod engine;
 pub mod frame;
 pub mod msg;
@@ -12,6 +13,7 @@ pub mod toploc;
 use core::fmt;
 
 pub use announce::GatewayKey;
+pub use audit::{AuditEvidence, EvidenceError, EvidenceUsage};
 pub use msg::{
     ErrorCode, GatewayMsg, PROTOCOL_VERSION, Payment, ProviderMsg, ProviderReq, Usage, UserMsg,
 };
