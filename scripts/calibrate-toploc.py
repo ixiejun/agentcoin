@@ -242,6 +242,21 @@ def generate(variant: str, count: int, seed: int, out: Path) -> None:
             len(tok(tok.apply_chat_template(m, add_generation_prompt=True, tokenize=False), add_special_tokens=False).input_ids)
             for m, _ in prompts
         ]
+    # Why answers might not re-tokenize (counts only, never content): the text's own tokens
+    # against the generated ones.
+    tok = llm.get_tokenizer()
+    diag = {"same_ids": 0, "same_count": 0, "round_trip": 0, "special_in_output": 0}
+    for o in outputs:
+        c = o.outputs[0]
+        ids = list(c.token_ids)
+        if c.finish_reason == "stop" and ids:
+            ids = ids[:-1]
+        again = tok(c.text, add_special_tokens=False).input_ids
+        diag["same_ids"] += again == ids
+        diag["same_count"] += len(again) == len(ids)
+        diag["round_trip"] += tok.decode(again) == c.text
+        diag["special_in_output"] += any(i in tok.all_special_ids for i in ids)
+    print(f"{variant}: re-tokenizing {diag} of {len(outputs)}", flush=True)
     written = 0
     for i, (o, (messages, _)) in enumerate(zip(outputs, prompts)):
         keys = [k for k in provider.segments if k == o.request_id or k.startswith(o.request_id + "-")]
@@ -417,7 +432,7 @@ def main() -> int:
             # The log holds vLLM's messages, never the prompts (the marker check below covers it).
             print(f"generating {v} failed; the end of its log:", *lines[-60:], sep="\n", flush=True)
             return 1
-        print(lines[-1] if lines else f"{v}: no output", flush=True)
+        print(*[l for l in lines if l.startswith(f"{v}: ")], sep="\n", flush=True)
 
     results = recheck(cases, logs)
     from_auditor = {r["case"] for r in results}
