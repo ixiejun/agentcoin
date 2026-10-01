@@ -1,0 +1,68 @@
+name: TOPLOC calibration
+
+# The large-sample calibration of the re-check thresholds (m6-toploc-verify design D7; spec
+# engineering/ci-quality-gates "复核阈值校准工作流"): run by hand; the results are uploaded and
+# summarized in docs/guides/toploc-calibration.md. GitHub dispatches a workflow by hand only from
+# the default branch, so a push that changes plugins/vllm/ci/calibration.env (the sample counts
+# and seed) also runs it, on any branch.
+on:
+  push:
+    paths:
+      - plugins/vllm/ci/calibration.env
+  workflow_dispatch:
+    inputs:
+      honest:
+        description: Honest samples (default from calibration.env)
+      cheat:
+        description: Samples per cheating variant (default from calibration.env)
+      seed:
+        description: Prompt and sampling seed (default from calibration.env)
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  calibrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: ./.github/actions/setup-substrate
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ hashFiles('plugins/vllm/ci/pins.env') }}
+      - name: PyTorch (CPU)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.13.0
+      - name: vLLM (CPU), the plugin and the models, as pinned
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: scripts/setup-vllm-cpu.sh
+      - run: cargo build -p ac-auditor
+      - name: Calibrate
+        env:
+          HONEST: ${{ inputs.honest }}
+          CHEAT: ${{ inputs.cheat }}
+          SEED: ${{ inputs.seed }}
+        run: |
+          # A push run takes the counts from calibration.env; a dispatch overrides them.
+          source plugins/vllm/ci/calibration.env
+          python scripts/calibrate-toploc.py --honest "${HONEST:-$CALIBRATION_HONEST}" \
+            --cheat "${CHEAT:-$CALIBRATION_CHEAT}" --seed "${SEED:-$CALIBRATION_SEED}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: toploc-calibration
+          path: |
+            target/toploc-calibration/calibration.json
+            target/toploc-calibration/logs
+          if-no-files-found: ignore

@@ -161,7 +161,8 @@ jobs:
 
   vllm-plugin:
     # The vLLM TOPLOC plugin (m5-engine-toploc groups 3 and 7): unit tests with CPU PyTorch, then
-    # the plugin inside the pinned CPU build of vLLM with a small public model.
+    # the plugin inside the pinned CPU build of vLLM with a small public model, and the auditor's
+    # re-check regression (m6-toploc-verify group 7).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -194,6 +195,18 @@ jobs:
           AC_E2E: "1"
           AC_VLLM_E2E: "1"
         run: cargo test -p ac-e2e --test vllm -- --test-threads 1 --nocapture
+      - run: cargo build -p ac-auditor
+      - name: Re-check regression (honest answers pass, another model, int8, int4 and a changed prompt fail)
+        run: python scripts/calibrate-toploc.py --quick
+      - name: Upload the re-check results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toploc-recheck-quick
+          path: |
+            target/toploc-calibration/calibration.json
+            target/toploc-calibration/logs
+          if-no-files-found: ignore
 
   license-boundary:
     runs-on: ubuntu-latest
