@@ -20,7 +20,8 @@ vllm-plugin with --quick, workflow toploc-calibration in full).
    metric distributions. With --quick, fail unless every honest sample passes and every cheating
    sample fails, and unless the prompts' marker stays out of the logs.
 
-Usage: scripts/calibrate-toploc.py [--quick] [--honest N] [--cheat N] [--out DIR]
+Usage: scripts/calibrate-toploc.py [--quick] [--honest N] [--cheat N] [--seed N] [--out DIR]
+       scripts/calibrate-toploc.py --merge SHARD.json... [--out DIR]   (one report from shards)
        (after scripts/setup-vllm-cpu.sh and `cargo build -p ac-auditor`; env AC_VLLM_MODEL,
        AC_VLLM_REVISION, AC_CHEAT_MODEL, AC_CHEAT_REVISION)
 """
@@ -403,6 +404,30 @@ def summary(results: list[dict]) -> dict:
     return out
 
 
+def merge(files: list[Path], out: Path) -> int:
+    """One report from the shards of a calibration: samples keep their shard's seed."""
+    shards = [json.loads(f.read_text()) for f in files]
+    seeds = [r["seed"] for r in shards]
+    if len(set(seeds)) != len(seeds):
+        print(f"shards share a seed: {seeds}")
+        return 1
+    samples = [dict(x, seed=r["seed"]) for r in shards for x in r["samples"]]
+    s = summary(samples)
+    report = {
+        "seeds": seeds,
+        "honest": sum(r["honest"] for r in shards),
+        "cheat": sum(r["cheat"] for r in shards),
+        "thresholds_versions": sorted({v for r in shards for v in r["thresholds_versions"]}),
+        "summary": s,
+        "samples": samples,
+    }
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "calibration.json").write_text(json.dumps(report, indent=1))
+    print(json.dumps({k: report[k] for k in ("seeds", "honest", "cheat", "thresholds_versions")}))
+    print(json.dumps(s, indent=1))
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--quick", action="store_true", help="CI regression: 48 honest, 8 per cheat, assert")
@@ -412,10 +437,14 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=Path("target/toploc-calibration"))
     ap.add_argument("--generate", choices=VARIANTS, help=argparse.SUPPRESS)
     ap.add_argument("--count", type=int, help=argparse.SUPPRESS)
+    ap.add_argument("--merge", type=Path, nargs="+", metavar="JSON",
+                    help="merge the calibration.json files of shards (different seeds) into --out")
     args = ap.parse_args()
     if args.generate:
         generate(args.generate, args.count, args.seed, args.out)
         return 0
+    if args.merge:
+        return merge(args.merge, args.out.resolve())
 
     honest = args.honest or (48 if args.quick else 3000)
     cheat = args.cheat or (8 if args.quick else 100)

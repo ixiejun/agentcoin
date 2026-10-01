@@ -2,7 +2,9 @@ name: TOPLOC calibration
 
 # The large-sample calibration of the re-check thresholds (m6-toploc-verify design D7; spec
 # engineering/ci-quality-gates "复核阈值校准工作流"): run by hand; the results are uploaded and
-# summarized in docs/guides/toploc-calibration.md. GitHub dispatches a workflow by hand only from
+# summarized in docs/guides/toploc-calibration.md. The samples are split into shards that run in
+# parallel (one runner would exceed GitHub's 6-hour limit), each with its own seed, and a last
+# job merges their reports. GitHub dispatches a workflow by hand only from
 # the default branch, so a push that changes plugins/vllm/ci/calibration.env (the sample counts
 # and seed) also runs it, on any branch.
 on:
@@ -16,7 +18,7 @@ on:
       cheat:
         description: Samples per cheating variant (default from calibration.env)
       seed:
-        description: Prompt and sampling seed (default from calibration.env)
+        description: Base seed; shard k uses base × 100 + k (default from calibration.env)
 
 permissions:
   contents: read
@@ -29,6 +31,11 @@ jobs:
   calibrate:
     runs-on: ubuntu-latest
     timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        # The shard count is CALIBRATION_SHARDS in calibration.env; keep the two equal.
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -54,15 +61,46 @@ jobs:
           CHEAT: ${{ inputs.cheat }}
           SEED: ${{ inputs.seed }}
         run: |
-          # A push run takes the counts from calibration.env; a dispatch overrides them.
+          # A push run takes the counts from calibration.env; a dispatch overrides them. The
+          # counts are totals over all shards.
           source plugins/vllm/ci/calibration.env
-          python scripts/calibrate-toploc.py --honest "${HONEST:-$CALIBRATION_HONEST}" \
-            --cheat "${CHEAT:-$CALIBRATION_CHEAT}" --seed "${SEED:-$CALIBRATION_SEED}"
+          shards=$CALIBRATION_SHARDS
+          honest=$(( ${HONEST:-$CALIBRATION_HONEST} / shards ))
+          cheat=$(( ${CHEAT:-$CALIBRATION_CHEAT} / shards ))
+          seed=$(( ${SEED:-$CALIBRATION_SEED} * 100 + ${{ matrix.shard }} ))
+          python scripts/calibrate-toploc.py --honest "$honest" --cheat "$cheat" --seed "$seed"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: toploc-calibration
+          name: toploc-calibration-${{ matrix.shard }}
           path: |
             target/toploc-calibration/calibration.json
             target/toploc-calibration/logs
           if-no-files-found: ignore
+
+  merge:
+    needs: calibrate
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: toploc-calibration-*
+          path: shards
+      - name: Merge
+        run: |
+          source plugins/vllm/ci/calibration.env
+          found=$(ls shards/*/calibration.json | wc -l)
+          python scripts/calibrate-toploc.py --merge shards/*/calibration.json
+          # A missing shard fails the run after the merge, so the others still get reported.
+          if [ "$found" -ne "$CALIBRATION_SHARDS" ]; then
+            echo "only $found of $CALIBRATION_SHARDS shards reported"; exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: toploc-calibration
+          path: target/toploc-calibration/calibration.json
