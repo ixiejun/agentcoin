@@ -59,7 +59,7 @@ jobs:
             pallet-validator-set pallet-ac-offences pallet-randomness-cr pallet-emission \
             pallet-treasury-dual pallet-poa-admin pallet-staking-pos pallet-evm-support \
             pallet-ref-rate pallet-model-registry pallet-providers pallet-gateways pallet-credits \
-            pallet-work ac-toploc; do
+            pallet-work pallet-audit ac-toploc; do
             cargo build -p "$crate" --no-default-features --target wasm32-unknown-unknown
           done
           # The sealed channel stays usable without std (m5-gateway-provider 7.3).
@@ -86,7 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-substrate
-      - run: cargo build -p ac-node -p ac-wallet -p ac-eth-rpc -p ac-provider -p ac-gateway -p ac-mock-engine
+      - run: cargo build -p ac-node -p ac-wallet -p ac-eth-rpc -p ac-provider -p ac-gateway -p ac-mock-engine -p ac-auditor
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: v1.7.1
@@ -105,6 +105,8 @@ jobs:
         run: cargo test -p ac-e2e --test market -- --test-threads 1
       - name: Work settlement through the wallet (receipts, report, challenge period, emission, claims)
         run: cargo test -p ac-e2e --test settlement -- --test-threads 1
+      - name: Audits on chain through the wallet and ac-auditor (verdicts, disputes, slashing, jailing, payments)
+        run: cargo test -p ac-e2e --test audit -- --test-threads 1
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
