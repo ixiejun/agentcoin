@@ -228,8 +228,9 @@ def generate(variant: str, count: int, seed: int, out: Path) -> None:
     # The engine's seed makes the sampling reproducible; vLLM 0.30's CPU backend cannot seed
     # requests one by one ("CPU Generator does not use offset").
     # The swapped-in base model is served with the registered model's chat format: it stops on
-    # the same end tokens (<|im_end|>, <|endoftext|>), so that its answers look the part.
-    stop = [151645, 151643] if variant == "swap" else None
+    # the same end tokens (<|im_end|>, <|endoftext|>, and <|im_start|>, which a base model emits
+    # to start another turn), so that its answers look the part.
+    stop = [151645, 151643, 151644] if variant == "swap" else None
     params = [SamplingParams(temperature=0.7, top_p=0.95, max_tokens=m, stop_token_ids=stop) for _, m in prompts]
     outputs = llm.chat(served, params, use_tqdm=False)
     time.sleep(2)  # the sender thread drains its queue
@@ -341,7 +342,38 @@ def summary(results: list[dict]) -> dict:
             pick = lambda q: xs[min(len(xs) - 1, int(q * (len(xs) - 1)))]  # noqa: E731
             return {"min": xs[0], "p01": pick(0.01), "p50": pick(0.5), "p99": pick(0.99), "max": xs[-1]}
 
+        # Whole-inference aggregates: every chunk's mantissa errors over every chunk's positions,
+        # exponent mismatches per 128 positions, and how many chunks are not exact.
+        agg = []
+        for r in rs:
+            cs = r["chunks"]
+            if not cs:
+                continue
+            count = sum(c["mant_count"] for c in cs)
+            agg.append({
+                "mean": sum(c["mant_err_sum"] for c in cs) / count if count else float("inf"),
+                "exp_rate": sum(c["exp_mismatches"] for c in cs) / (128 * len(cs)),
+                "inexact": sum(1 for c in cs if c["exp_mismatches"] or c["mant_err_sum"]) / len(cs),
+                "prefill_mean": mean(cs[0]),
+            })
+
+        def dist_of(rows, key):
+            xs = sorted(w[key] for w in rows)
+            if not xs:
+                return None
+            pick = lambda q: xs[min(len(xs) - 1, int(q * (len(xs) - 1)))]  # noqa: E731
+            return {"min": xs[0], "p01": pick(0.01), "p50": pick(0.5), "p99": pick(0.99), "max": xs[-1]}
+
+        # The worst chunks, to see where large errors come from (chunk index, chunk count).
+        worst_chunks = sorted(
+            ((mean(c), c["exp_mismatches"], i, len(r["chunks"]), c["mant_count"]) for r in rs for i, c in enumerate(r["chunks"])),
+            reverse=True,
+        )[:5]
         out[v] = {
+            "aggregate": {k: dist_of(agg, k) for k in ("mean", "exp_rate", "inexact", "prefill_mean")},
+            "worst_chunks": [
+                {"mean": m, "exp": e, "chunk": i, "chunks": n, "mant_count": mc} for m, e, i, n, mc in worst_chunks
+            ],
             "samples": len(rs),
             "outcomes": {k: sum(r["outcome"] == k for r in rs) for k in ("pass", "fail", "inconclusive")},
             "inconclusive_reasons": sorted({r["reason"] for r in rs if r["outcome"] == "inconclusive"}),
