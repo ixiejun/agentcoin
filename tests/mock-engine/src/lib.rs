@@ -141,6 +141,24 @@ pub async fn spawn(listen: &str, config: Config) -> anyhow::Result<Engine> {
         served: Arc::clone(&served),
         vocab: Mutex::new(BTreeMap::new()),
     });
+    if shared
+        .plugin
+        .as_ref()
+        .is_some_and(|p| p.mode() == ac_market_proto::engine::EngineMode::Verify)
+    {
+        let eager = Arc::clone(&shared);
+        tokio::spawn(async move {
+            // Up to a minute for the receiver to appear.
+            for _ in 0..300 {
+                if let Some(p) = &eager.plugin
+                    && p.connect_now().await
+                {
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+        });
+    }
     tokio::spawn(http::serve(listener, move |req| {
         let shared = Arc::clone(&shared);
         async move { handle(req, shared).await }

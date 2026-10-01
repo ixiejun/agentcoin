@@ -78,6 +78,18 @@ mantissa error sum and count, and median).
 `toploc`) into a case whose receipt is signed by a key made for the run. It serves the
 calibration of the thresholds (`scripts/calibrate-toploc.py`) and tests, not audits.
 
+### Evidence (audits on chain)
+
+A failing verdict on chain commits to the evidence of the re-check (m6-audit-chain; spec
+`market/auditor-agent` "审计证据"). `ac-auditor evidence --case c.json --out e.bin` writes the
+evidence (SCALE bytes: messages, answer, usage, receipt, proofs) and prints
+`{"commitment": "<hex>"}`. A reviewer of a dispute re-checks it with
+`ac-auditor recheck --evidence e.bin --commitment <hex from the chain> --engine-model <name> …`:
+if the bytes do not match the commitment the output line is `{"outcome": "mismatch", …}` and no
+engine is involved; otherwise the evidence is re-checked like its case. Every report line also
+carries `onchain`: the outcome as the chain encodes it (hex), which `ac-wallet audit verdict`
+submits.
+
 ## Privacy
 
 Re-checks only use the auditor's own requests. The agent logs request IDs, model IDs, counts,

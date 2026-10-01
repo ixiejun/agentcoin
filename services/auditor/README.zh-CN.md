@@ -55,6 +55,10 @@ ac-auditor recheck --engine http://127.0.0.1:8000 --socket /run/agentcoin/rechec
 
 `ac-auditor calibration-case` 把证明方引擎的候选（与上面相同的 JSON，只是用 `segments: [{phase, len, candidates: [[index, bits], …]}]` 或 `null` 代替 `receipt` 与 `toploc`）转为一个案例，其收据由本次运行生成的密钥签名。它用于阈值校准（`scripts/calibrate-toploc.py`）与测试，不用于审计。
 
+### 证据（链上审计）
+
+链上不通过的裁决承诺的是这次复核的证据（m6-audit-chain；规格 `market/auditor-agent`“审计证据”）。`ac-auditor evidence --case c.json --out e.bin` 写出证据（SCALE 字节：messages、回答、用量、收据、证明），并打印 `{"commitment": "<hex>"}`。争议的复核人用 `ac-auditor recheck --evidence e.bin --commitment <链上的十六进制承诺> --engine-model <名称> …` 复核：字节与承诺不符时输出 `{"outcome": "mismatch", …}`，不调用任何引擎；相符时按其案例复核。每一行复核结果还带有 `onchain`：链上编码的结果（十六进制），供 `ac-wallet audit verdict` 提交。
+
 ## 隐私
 
 复核只使用审计员自己的请求。代理的日志只包含请求 ID、模型 ID、计数、指标与判定结果；从不包含消息、输出、token 或候选，底层库的日志行一律丢弃。案例的 `Debug` 输出不含消息与输出。

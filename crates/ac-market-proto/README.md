@@ -79,6 +79,17 @@ median mantissa error stay within its set and at least one exponent matches; an 
 if every chunk does, and otherwise fails on the first chunk out of bounds. `AUDIT_THRESHOLDS`
 are versioned and come from the calibration of `scripts/calibrate-toploc.py`.
 
+## Audit evidence
+
+`audit::AuditEvidence` is what a failing audit verdict commits to (m6-audit-chain): the request's
+messages (compact JSON), the answer, its finish reason and usage, the signed receipt and the
+TOPLOC proofs. The evidence file is its SCALE encoding; the commitment is
+`derive("agentcoin 2026-10 audit-evidence v1", bytes)` and goes on chain while the evidence
+stays with the auditor (red line 6). `AuditEvidence::open` checks bytes against a commitment
+before decoding. `audit::evidence_from_case` builds the evidence of an `ac-auditor` case, so
+wallets and auditors compute the same commitment. Regression vectors are in
+`tests/vectors/audit_evidence.json`.
+
 ## OpenAI subset
 
 `openai::ChatRequest` keeps requests as JSON objects and rewrites only `model`, `stream`

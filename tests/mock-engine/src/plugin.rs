@@ -134,6 +134,17 @@ impl Plugin {
         self.write(request, segs).await;
     }
 
+    /// Connects now if not connected; `true` once connected. A verify-mode engine connects at
+    /// start, as vLLM's plugin does when its workers start: an auditor waits for that
+    /// connection before it sends any request.
+    pub async fn connect_now(&self) -> bool {
+        let mut conn = self.conn.lock().await;
+        if conn.is_none() {
+            *conn = self.connect().await;
+        }
+        conn.is_some()
+    }
+
     /// Verify mode: sends one segment per row of a prefilled sequence.
     pub async fn send_rows(&self, request: &str, tokens: &[u32]) {
         let prefixes = prefix_hashes(self.seed, tokens);

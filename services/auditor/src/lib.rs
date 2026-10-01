@@ -11,6 +11,7 @@
 pub mod calibration;
 pub mod case;
 pub mod engine;
+pub mod evidence;
 pub mod logging;
 pub mod recheck;
 pub mod socket;

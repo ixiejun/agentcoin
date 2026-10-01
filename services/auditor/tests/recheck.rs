@@ -354,3 +354,85 @@ async fn a_prove_mode_plugin_is_turned_away() {
     assert_eq!(rows.connections(), 0);
     std::fs::remove_dir_all(d).unwrap();
 }
+
+// m6-audit-chain, spec market/auditor-agent "审计证据" / "导出再复核": the exported evidence
+// re-checks exactly as the case it came from, and the CLI prints the same commitment.
+#[tokio::test]
+async fn evidence_rechecks_as_its_case() {
+    use ac_auditor::evidence::{case_of, evidence_of};
+    let case = answered("evidence", 8, WORDS, 20, true).await;
+    let (v, d) = auditor("evidence", 7).await;
+    let original = v.recheck(&case, QuantType::Bf16).await;
+    assert_eq!(original.outcome, "fail");
+
+    let e = evidence_of(&case).unwrap();
+    let rebuilt = case_of(&e, &case.engine_model).unwrap();
+    let again = v.recheck(&rebuilt, QuantType::Bf16).await;
+    assert_eq!(again.verdict, original.verdict);
+    assert_eq!(again.chunks, original.chunks);
+
+    let case_file = d.join("case.json");
+    std::fs::write(&case_file, serde_json::to_string(&case).unwrap()).unwrap();
+    let out = d.join("evidence.bin");
+    let run = std::process::Command::new(env!("CARGO_BIN_EXE_ac-auditor"))
+        .args(["evidence", "--case"])
+        .arg(&case_file)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert!(run.status.success());
+    let stdout = String::from_utf8(run.stdout).unwrap();
+    let printed: Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(
+        printed["commitment"],
+        json!(hex::encode(e.commitment().unwrap()))
+    );
+    assert_eq!(std::fs::read(&out).unwrap(), e.to_bytes());
+    assert!(!stdout.contains(MARKER));
+    std::fs::remove_dir_all(d).unwrap();
+}
+
+// Scenario "承诺不符": a wrong commitment is reported without any engine (the engine URL and
+// socket here lead nowhere, and the plugin wait would fail).
+#[tokio::test]
+async fn evidence_that_does_not_match_never_reaches_the_engine() {
+    let case = answered("mismatch", 7, WORDS, 10, true).await;
+    let d = dir("mismatch-cli");
+    let file = d.join("evidence.bin");
+    std::fs::write(
+        &file,
+        ac_auditor::evidence::evidence_of(&case).unwrap().to_bytes(),
+    )
+    .unwrap();
+    let run = std::process::Command::new(env!("CARGO_BIN_EXE_ac-auditor"))
+        .args(["recheck", "--evidence"])
+        .arg(&file)
+        .args([
+            "--commitment",
+            &"ab".repeat(32),
+            "--engine-model",
+            "mock-model",
+        ])
+        .args([
+            "--engine",
+            "http://127.0.0.1:9",
+            "--quant",
+            "bf16",
+            "--connect-wait",
+            "1",
+        ])
+        .arg("--socket")
+        .arg(d.join("nowhere.sock"))
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let line: Value = serde_json::from_slice(&run.stdout).unwrap();
+    assert_eq!(line["outcome"], "mismatch");
+    assert!(!d.join("nowhere.sock").exists());
+    std::fs::remove_dir_all(d).unwrap();
+}

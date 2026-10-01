@@ -43,6 +43,10 @@ AgentCoin 推理市场的线协议：钱包本地代理、网关（`ac-gateway`�
 
 `toploc::judge` 是审计对 `ac_toploc::compare` 逐块结果的通过 / 不通过规则（规格 `market/toploc`“复核判定规则与阈值”）。`Thresholds` 包含两组 `ChunkBounds`：预填充块用严格的一组（prompt 由审计员确切知道，并以与提供者相同的方式复算），解码块用较宽的一组。一块通过，当且仅当指数不一致次数、尾数误差均值（以百分之一为单位，按“和 × 100 ≤ 上限 × 项数”计算）与尾数误差中位数都不超过所属一组的界限，且至少有一项指数相同；一次推理只有每块都通过才通过，否则在第一个超限的块上判不通过。`AUDIT_THRESHOLDS` 带版本号，取值来自 `scripts/calibrate-toploc.py` 的校准。
 
+## 审计证据
+
+`audit::AuditEvidence` 是不通过的审计裁决所承诺的内容（m6-audit-chain）：请求的 messages（紧凑 JSON）、回答、结束原因与用量、双签收据和 TOPLOC 证明。证据文件即其 SCALE 编码；承诺为 `derive("agentcoin 2026-10 audit-evidence v1", 字节)`，上链的只有承诺，证据留在审计员处（红线 6）。`AuditEvidence::open` 先按承诺检查字节再解码。`audit::evidence_from_case` 由 `ac-auditor` 的案例构造证据，使钱包与审计员算出相同的承诺。回归向量在 `tests/vectors/audit_evidence.json`。
+
 ## OpenAI 子集
 
 `openai::ChatRequest` 把请求保持为 JSON 对象，只改写 `model`、`stream`（同时加上 `stream_options.include_usage`）与输出 token 上限，其余字段原样透传。`input_bound` 以消息的 UTF-8 字节数加每条消息 16 个 token 作为输入 token 上界；`route::max_fee` 据此算出请求的最大可能费用。解析错误从不引用输入内容，请求的 `Debug` 输出只显示模型。`SseDecoder`、`sse_data`、`usage_of`、`has_content` 与 `Assembler` 处理流式响应；`error_json` 生成 OpenAI 格式的错误。

@@ -125,6 +125,52 @@ impl AuditEvidence {
     }
 }
 
+/// The evidence of a re-check case given as JSON (the `ac-auditor` case format: `messages`,
+/// `output`, `finish_reason`, `usage`, `receipt` and optional `toploc`, the last two as hex
+/// SCALE). Wallets and auditors both go through this function, so their commitments agree.
+///
+/// # Errors
+///
+/// [`EvidenceError::Decode`] for a missing field or a bad receipt or proofs.
+pub fn evidence_from_case(case: &serde_json::Value) -> Result<AuditEvidence, EvidenceError> {
+    let text = |k: &str| {
+        case.get(k)
+            .and_then(serde_json::Value::as_str)
+            .ok_or(EvidenceError::Decode)
+    };
+    let hex_field =
+        |h: &str| hex::decode(h.trim_start_matches("0x")).map_err(|_| EvidenceError::Decode);
+    let usage = case.get("usage").ok_or(EvidenceError::Decode)?;
+    let count = |k: &str| {
+        usage
+            .get(k)
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|n| u32::try_from(n).ok())
+            .ok_or(EvidenceError::Decode)
+    };
+    let receipt = SignedReceipt::decode(&mut &hex_field(text("receipt")?)?[..])
+        .map_err(|_| EvidenceError::Decode)?;
+    let proofs = match case.get("toploc").and_then(serde_json::Value::as_str) {
+        Some(h) => {
+            Some(ToplocProofs::decode(&mut &hex_field(h)?[..]).map_err(|_| EvidenceError::Decode)?)
+        }
+        None => None,
+    };
+    Ok(AuditEvidence {
+        version: EVIDENCE_VERSION,
+        messages: serde_json::to_vec(case.get("messages").ok_or(EvidenceError::Decode)?)
+            .map_err(|_| EvidenceError::Decode)?,
+        output: text("output")?.as_bytes().to_vec(),
+        finish_reason: text("finish_reason")?.as_bytes().to_vec(),
+        usage: EvidenceUsage {
+            prompt_tokens: count("prompt_tokens")?,
+            completion_tokens: count("completion_tokens")?,
+        },
+        receipt,
+        proofs,
+    })
+}
+
 /// The on-chain form of a re-check metric.
 #[must_use]
 pub fn audit_metric(m: Metric) -> AuditMetric {
