@@ -82,3 +82,30 @@ def test_ties_at_the_kth_place_take_the_lower_index():
     step = extract.spans(["a"], [16], [0], [16])
     ((_, _, _, pairs),) = extract.frames(*extract.candidates(flat.reshape(16, 256), step, k=128))
     assert set(pairs) == reference_topk(flat, 128)
+
+
+# Scenarios "每个 token 一段" and "分步预填充" (verify mode): one segment per row of the
+# prefill spans, in row order, each the row's first k in the proof order, ties included.
+def test_rows_are_each_rows_top_k():
+    torch.manual_seed(11)
+    hidden = (torch.randint(-5, 6, (10, 64)).to(torch.bfloat16) / 4).contiguous()
+    hidden[3] = torch.randn(64, dtype=torch.bfloat16)  # one row without ties
+    # A decode row of "a", then 6 prefill rows of "b" (a later step of a chunked prefill),
+    # then 3 prefill rows of "c".
+    step = extract.spans(["a", "b", "c"], [1, 6, 3], [9, 4, 0], [9, 20, 3])
+    prefill = [s for s in step if s.phase == client.PREFILL]
+    got = list(extract.frames(*extract.rows(hidden, prefill, k=16)))
+    assert [(r, p, n, len(pairs)) for r, p, n, pairs in got] == [("b", client.PREFILL, 64, 16)] * 6 + [
+        ("c", client.PREFILL, 64, 16)
+    ] * 3
+    for (_, _, _, pairs), row in zip(got, hidden[1:10]):
+        assert set(pairs) == reference_topk(row, 16)
+
+
+def test_rows_narrower_than_k_send_everything():
+    hidden = torch.randn(2, 4, dtype=torch.bfloat16)
+    step = extract.spans(["a"], [2], [0], [2])
+    got = list(extract.frames(*extract.rows(hidden, step, k=128)))
+    assert [(n, sorted(i for i, _ in pairs)) for _, _, n, pairs in got] == [(4, [0, 1, 2, 3])] * 2
+    meta, idx, bits = extract.rows(hidden, [], k=4)
+    assert meta == [] and idx.numel() == 0

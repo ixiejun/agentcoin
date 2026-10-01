@@ -52,7 +52,7 @@ def check(ok: bool, what: str) -> None:
 
 
 class FakeProvider:
-    """Answers Hello with Welcome(1, 128) and records Segment and Finish frames."""
+    """Answers Hello with Welcome(2, 128) and records Segment and Finish frames."""
 
     def __init__(self, path: str) -> None:
         self.segments: list[tuple[str, int, int, list[tuple[int, int]]]] = []
@@ -82,9 +82,10 @@ class FakeProvider:
                     break
                 p, buf = buf[4 : 4 + n], buf[4 + n :]
                 if not greeted:
-                    assert p[:5] == b"\x10ACTL" and p[5] == 1, p[:6]
+                    # Protocol version 2, prove mode.
+                    assert p[:5] == b"\x10ACTL" and p[5] == 2 and p[10] == 0, p[:11]
                     (self.hidden,) = struct.unpack(">I", p[6:10])
-                    conn.sendall(struct.pack(">IBBH", 4, 0x11, 1, TOPK))
+                    conn.sendall(struct.pack(">IBBH", 4, 0x11, 2, TOPK))
                     greeted = True
                     continue
                 (idlen,) = struct.unpack(">H", p[1:3])

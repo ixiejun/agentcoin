@@ -81,6 +81,39 @@ def candidates(hidden: torch.Tensor, step: list[Span], k: int):
     return meta, torch.cat(idx), torch.cat(bits)
 
 
+@torch.no_grad()
+def rows(hidden: torch.Tensor, step: list[Span], k: int):
+    """Verify mode (spec "复核模式"): one segment per token row of each span, in row order, each
+    the row's top-k in the same order as `top_k_indices`, computed for all rows at once on the
+    device. Returns `(meta, indices, bits)` as `candidates` does, one `meta` entry per row.
+    """
+    if hidden.dtype != torch.bfloat16:
+        raise TypeError("TOPLOC needs bfloat16 activations")
+    hidden_size = hidden.shape[-1]
+    count = min(k, hidden_size)
+    meta, idx, bits = [], [], []
+    for s in step:
+        block = hidden[s.start : s.start + s.tokens]
+        if count == hidden_size:
+            mask = torch.ones_like(block, dtype=torch.bool)
+        else:
+            mag = block.abs()
+            kth = mag.topk(count, dim=1, sorted=False).values.min(dim=1, keepdim=True).values
+            above = mag > kth
+            ties = mag == kth
+            need = count - above.sum(dim=1, keepdim=True)
+            # The lowest-index ties of each row fill it up to `count`.
+            mask = above | (ties & (ties.cumsum(dim=1) <= need))
+        _, cols = mask.nonzero(as_tuple=True)  # row-major: each row's columns, ascending
+        meta.extend((s.request, PREFILL, hidden_size, count) for _ in range(s.tokens))
+        idx.append(cols)
+        bits.append(block[mask].view(torch.int16))
+    if not meta:
+        empty = torch.empty(0, dtype=torch.int64)
+        return meta, empty, empty.to(torch.int16)
+    return meta, torch.cat(idx), torch.cat(bits)
+
+
 def frames(meta, indices, bits):
     """Encodes host-side candidates as `(request, phase, values, pairs)` per span."""
     idx = indices.tolist()

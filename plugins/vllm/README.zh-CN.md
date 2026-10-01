@@ -11,7 +11,8 @@
 - vLLM 在它启动的每个进程中通过 `vllm.general_plugins` 入口加载插件。没有设置 `AGENTCOIN_TOPLOC_SOCKET` 时，插件什么也不做。
 - 加载模型时，插件检查前提条件，任一不满足就使引擎启动失败（见下文）。
 - 每个前向步骤之后，插件从 vLLM 的 V1 模型运行器读取模型最终归一化层的输出（TOPLOC 参考实现读取的就是这组激活值），按请求切分，并在设备上对每个请求的那一部分（一个*段*：本步计算的 prompt token，或一个解码 token）取按绝对值最大的 `k` 个值。下标与 bfloat16 编码异步拷到主机；后台线程经本机 Unix 套接字发给提供者，请求结束时发送结束标记。推理线程从不等待 I/O：提供者不可达或队列已满时，段被丢弃（并计数），插件每秒重连一次。
-- 协议见 `crates/ac-market-proto/src/engine.rs`（版本 1）。提供者在连接时告知插件 `k`（市场中为 128）；提供者的协议版本不同时，插件停止发送。
+- 协议见 `crates/ac-market-proto/src/engine.rs`（版本 2）。提供者在连接时告知插件 `k`（市场中为 128）；提供者的协议版本不同时，插件停止发送。
+- **模式。** `AGENTCOIN_TOPLOC_MODE` 决定候选的用途：`prove`（默认，供提供者使用，如上所述）或 `verify`（供审计员的复核 `ac-auditor recheck` 使用）。复核模式下，引擎只对“prompt + 输出”做预填充，插件为预填充的每个 token 行发送一段（该行的前 `k` 个值），按行序发送，解码步骤不发送；审计员由这些行重建原推理的分块。插件在连接时声明模式：提供者只接受 `prove`，审计员只接受 `verify`，模式被拒绝时插件停止发送（日志记为模式不符）。其他取值使引擎启动失败。
 - 提供者转发请求时把 `X-Request-Id` 设为市场请求 ID，因此 vLLM 的请求 ID（`chatcmpl-<X-Request-Id>-<后缀>`）能标识每个段。
 
 ## 前提条件
@@ -36,7 +37,7 @@ VLLM_USE_V2_MODEL_RUNNER=0 vllm serve Qwen/Qwen2.5-0.5B-Instruct \
   --dtype bfloat16 --no-enable-prefix-caching
 ```
 
-用相同的套接字路径启动提供者（`ac-provider run … --toploc-socket /run/agentcoin/toploc.sock`）；二者谁先启动都可以。
+用相同的套接字路径启动提供者（`ac-provider run … --toploc-socket /run/agentcoin/toploc.sock`）；二者谁先启动都可以。审计员的复核引擎以同样方式运行，只是设置 `AGENTCOIN_TOPLOC_MODE=verify`，并使用 `ac-auditor recheck --socket` 的套接字。
 
 ## 隐私
 

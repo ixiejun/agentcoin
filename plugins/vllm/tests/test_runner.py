@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from agentcoin_vllm import runner
+from agentcoin_vllm import client, runner
 
 
 def configs(**over):
@@ -48,7 +48,7 @@ def test_unmet_preconditions_stop_the_engine(override, message):
 
 
 class FakeCapture:
-    def __init__(self, model_runner, path):
+    def __init__(self, model_runner, path, mode=0):
         self.calls = []
         self.failures = 0
 
@@ -112,3 +112,82 @@ def test_the_v2_runner_is_refused_by_environment(monkeypatch):
     monkeypatch.setitem(sys.modules, "vllm", SimpleNamespace(__version__="0.30.0"))
     with pytest.raises(runner.PreconditionError, match=runner.V2_ENV):
         runner.install("/tmp/x.sock")
+
+
+def test_modes():
+    assert runner.parse_mode(None) == client.PROVE
+    assert runner.parse_mode("prove") == client.PROVE
+    assert runner.parse_mode(" Verify ") == client.VERIFY
+    with pytest.raises(runner.PreconditionError, match="AGENTCOIN_TOPLOC_MODE"):
+        runner.parse_mode("audit")
+
+
+class FakeSender:
+    topk = 3
+
+    def __init__(self):
+        self.items = []
+
+    def connected(self):
+        return True
+
+    def put(self, item):
+        self.items.append(item)
+
+
+def capture_in(mode):
+    c = object.__new__(runner.Capture)
+    c.active, c.mode, c.sender, c.failures = True, mode, FakeSender(), 0
+    return c
+
+
+def step_runner(hidden, req_ids, scheduled, computed, prompts):
+    n = len(req_ids)
+    model_runner = SimpleNamespace(
+        execute_model_state=SimpleNamespace(hidden_states=hidden),
+        input_batch=SimpleNamespace(
+            req_ids=req_ids,
+            num_computed_tokens_cpu=torch.tensor(computed + [0] * 2),
+            num_prompt_tokens=torch.tensor(prompts + [0] * 2),
+        ),
+    )
+    out = SimpleNamespace(
+        total_num_scheduled_tokens=sum(scheduled),
+        num_scheduled_tokens=dict(zip(req_ids, scheduled)),
+        finished_req_ids=set(),
+    )
+    assert n == len(scheduled)
+    return model_runner, out
+
+
+def segments(sender):
+    """(request, phase, values, count) of every Segment frame queued."""
+    out = []
+    for item in sender.items:
+        for data in item():
+            payload = data[4:]
+            assert payload[0] == 0x01
+            (idlen,) = __import__("struct").unpack(">H", payload[1:3])
+            request = payload[3 : 3 + idlen].decode()
+            phase, values, count = __import__("struct").unpack(">BIH", payload[3 + idlen : 10 + idlen])
+            out.append((request, phase, values, count))
+    return out
+
+
+# Scenario "每个token一段" through the runner hook: verify mode sends one segment per prefilled
+# row and nothing for decode rows; prove mode one segment per request and step.
+def test_capture_modes_on_a_mixed_step():
+    torch.manual_seed(1)
+    hidden = torch.randn(7, 8, dtype=torch.bfloat16)
+    # r1 decodes one token, r2 prefills 4 prompt tokens, r3 prefills its last 2.
+    args = (["r1", "r2", "r3"], [1, 4, 2], [5, 0, 6], [5, 10, 8])
+    verify = capture_in(client.VERIFY)
+    verify.after(*step_runner(hidden, *args))
+    assert segments(verify.sender) == [("r2", client.PREFILL, 8, 3)] * 4 + [("r3", client.PREFILL, 8, 3)] * 2
+    prove = capture_in(client.PROVE)
+    prove.after(*step_runner(hidden, *args))
+    assert segments(prove.sender) == [
+        ("r1", client.DECODE, 8, 3),
+        ("r2", client.PREFILL, 32, 3),
+        ("r3", client.PREFILL, 16, 3),
+    ]

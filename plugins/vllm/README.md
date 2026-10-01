@@ -24,9 +24,16 @@ Licence: `MIT OR Apache-2.0` (permissive zone, D47).
   local Unix socket, with an end marker when a request finishes. The inference thread never
   waits for I/O: while the provider is unreachable, or when the queue is full, segments are
   dropped (and counted), and the plugin reconnects every second.
-- The protocol is `crates/ac-market-proto/src/engine.rs` (version 1). The provider tells the
+- The protocol is `crates/ac-market-proto/src/engine.rs` (version 2). The provider tells the
   plugin `k` (128 in the market) when it connects; a provider speaking another version stops the
   plugin from sending.
+- **Modes.** `AGENTCOIN_TOPLOC_MODE` selects what the candidates are for: `prove` (the default,
+  for a provider, as above) or `verify` (for an auditor's re-check, `ac-auditor recheck`). In the
+  verify mode the engine only prefills "prompt + output" and the plugin sends one segment per
+  prefilled token row (the row's top `k`), in row order, and nothing for decode steps; the
+  auditor rebuilds the original inference's chunks from the rows. The plugin declares its mode
+  when it connects: providers take only `prove`, auditors only `verify`, and a refused mode
+  stops the plugin (logged as a mode mismatch). Other values make the engine fail to start.
 - The provider forwards requests with `X-Request-Id` set to the market request ID, so that
   vLLM's request ID (`chatcmpl-<X-Request-Id>-<suffix>`) identifies each segment.
 
@@ -55,7 +62,8 @@ VLLM_USE_V2_MODEL_RUNNER=0 vllm serve Qwen/Qwen2.5-0.5B-Instruct \
 ```
 
 Start the provider with the same socket path (`ac-provider run … --toploc-socket
-/run/agentcoin/toploc.sock`); either may start first.
+/run/agentcoin/toploc.sock`); either may start first. An auditor's re-check engine runs the same
+way with `AGENTCOIN_TOPLOC_MODE=verify` and the socket of `ac-auditor recheck --socket`.
 
 ## Privacy
 

@@ -23,7 +23,8 @@ def encode(message: dict) -> bytes:
     kind = message["type"]
     if kind == "hello":
         assert message["version"] == client.VERSION
-        return client.hello(message["hidden_size"])
+        mode = {"prove": client.PROVE, "verify": client.VERIFY}[message["mode"]]
+        return client.hello(message["hidden_size"], mode)
     if kind == "welcome":
         payload = struct.pack(">BBH", 0x11, message["version"], message["topk"])
         assert client.parse_welcome(payload) == (message["version"], message["topk"])
@@ -53,9 +54,10 @@ def test_bad_welcome_and_oversized_frames():
 class FakeProvider:
     """A provider socket that answers Hello with Welcome and records frames."""
 
-    def __init__(self, path: str, version: int = client.VERSION, topk: int = 128):
-        self.path, self.version, self.topk = path, version, topk
+    def __init__(self, path: str, version: int = client.VERSION, topk: int = 128, mode: int = client.PROVE):
+        self.path, self.version, self.topk, self.mode = path, version, topk, mode
         self.frames: list[bytes] = []
+        self.modes: list[int] = []
         self.connections = 0
         self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server.bind(path)
@@ -93,7 +95,12 @@ class FakeProvider:
                     payload, buf = buf[4 : 4 + n], buf[4 + n :]
                     if not welcomed:
                         assert payload[:5] == b"\x10ACTL"
-                        conn.sendall(client.frame(struct.pack(">BBH", 0x11, self.version, self.topk)))
+                        self.modes.append(payload[10])
+                        # A receiver for the other mode answers with a top-k of 0 and closes.
+                        topk = self.topk if payload[10] == self.mode else 0
+                        conn.sendall(client.frame(struct.pack(">BBH", 0x11, self.version, topk)))
+                        if topk == 0:
+                            return
                         welcomed = True
                     else:
                         self.frames.append(payload)
@@ -182,3 +189,31 @@ def test_a_full_queue_drops(sock_path, monkeypatch):
     assert wait(lambda: len(provider.frames) == 3)
     sender.close()
     provider.close()
+
+
+# Scenarios "提供者拒绝复核模式" / "复核程序拒绝证明模式", seen from the plugin: the receiver
+# answers with a top-k of 0, the plugin logs a mode mismatch and never reconnects.
+def test_stops_on_a_mode_mismatch(sock_path, caplog, monkeypatch):
+    monkeypatch.setattr(client, "RECONNECT_SECONDS", 0.05)
+    provider = FakeProvider(sock_path, mode=client.PROVE)
+    with caplog.at_level("ERROR", logger="agentcoin_vllm"):
+        sender = client.Sender(sock_path, 896, client.VERIFY)
+        assert wait(lambda: sender.stopped)
+    assert "mode mismatch" in caplog.text
+    time.sleep(0.3)
+    assert provider.modes == [client.VERIFY] and provider.connections == 1
+    sender.put(lambda: [client.finish("r")])
+    assert not sender.connected() and provider.frames == []
+    provider.close()
+
+
+def test_verify_mode_handshake_and_queue(sock_path):
+    auditor = FakeProvider(sock_path, mode=client.VERIFY)
+    sender = client.Sender(sock_path, 896, client.VERIFY)
+    assert wait(sender.connected)
+    assert auditor.modes == [client.VERIFY]
+    assert sender._queue.maxsize == client.VERIFY_QUEUE_MAX
+    sender.put(lambda: [client.finish("v")])
+    assert wait(lambda: auditor.frames == [b"\x02\x00\x01v"])
+    sender.close()
+    auditor.close()

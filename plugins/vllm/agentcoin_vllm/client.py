@@ -1,8 +1,10 @@
-"""The local protocol to the provider agent and the background sender.
+"""The local protocol to the receiver (the provider agent, or an auditor's re-check) and the
+background sender.
 
 Layout (big-endian; crates/ac-market-proto/src/engine.rs is the reference):
 frame = u32 length + payload;
-Hello = 0x10 "ACTL" version:u8 hidden:u32; Welcome = 0x11 version:u8 topk:u16;
+Hello = 0x10 "ACTL" version:u8 hidden:u32 mode:u8 (0 prove, 1 verify);
+Welcome = 0x11 version:u8 topk:u16 (topk 0: the receiver refuses the mode);
 Segment = 0x01 id(u16 len + UTF-8) phase:u8 len:u32 count:u16 count x (index:u32 bits:u16);
 Finish = 0x02 id(u16 len + UTF-8).
 """
@@ -16,11 +18,15 @@ import struct
 import threading
 import time
 
-VERSION = 1
+VERSION = 2
 MAGIC = b"ACTL"
 PREFILL, DECODE = 0, 1
+PROVE, VERIFY = 0, 1
+MODE_NAMES = {PROVE: "prove", VERIFY: "verify"}
 MAX_FRAME = 1 << 20
 QUEUE_MAX = 4096
+# Verify mode sends one frame per token row; a long prefill is many frames at once.
+VERIFY_QUEUE_MAX = 65536
 RECONNECT_SECONDS = 1.0
 
 log = logging.getLogger("agentcoin_vllm")
@@ -37,8 +43,8 @@ def _id(request: str) -> bytes:
     return struct.pack(">H", len(raw)) + raw
 
 
-def hello(hidden_size: int) -> bytes:
-    return frame(b"\x10" + MAGIC + struct.pack(">BI", VERSION, hidden_size))
+def hello(hidden_size: int, mode: int = PROVE) -> bytes:
+    return frame(b"\x10" + MAGIC + struct.pack(">BIB", VERSION, hidden_size, mode))
 
 
 def segment(request: str, phase: int, length: int, pairs) -> bytes:
@@ -73,19 +79,22 @@ def _read_exact(sock: socket.socket, n: int) -> bytes:
 class Sender:
     """Sends in a background thread; the inference thread only enqueues.
 
-    Items are dropped (and counted) while the provider is unreachable or the queue is full, so
-    inference is never slowed down. A provider speaking another protocol version stops the
-    sender for good.
+    Items are dropped (and counted) while the receiver is unreachable or the queue is full, so
+    inference is never slowed down. A receiver speaking another protocol version, or refusing
+    this plugin's mode, stops the sender for good.
     """
 
-    def __init__(self, path: str, hidden_size: int) -> None:
+    def __init__(self, path: str, hidden_size: int, mode: int = PROVE) -> None:
         self.path = path
         self.hidden_size = hidden_size
+        self.mode = mode
         self.topk: int | None = None
         self.stopped = False
         self.dropped = 0
         self.sent = 0
-        self._queue: queue.Queue = queue.Queue(maxsize=QUEUE_MAX)
+        self._queue: queue.Queue = queue.Queue(
+            maxsize=VERIFY_QUEUE_MAX if mode == VERIFY else QUEUE_MAX
+        )
         self._sock: socket.socket | None = None
         self._thread = threading.Thread(target=self._run, name="agentcoin-toploc", daemon=True)
         self._thread.start()
@@ -111,7 +120,7 @@ class Sender:
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(5)
         sock.connect(self.path)
-        sock.sendall(hello(self.hidden_size))
+        sock.sendall(hello(self.hidden_size, self.mode))
         (length,) = struct.unpack(">I", _read_exact(sock, 4))
         if length > MAX_FRAME:
             raise ConnectionError("oversized reply")
@@ -126,10 +135,21 @@ class Sender:
             )
             self.stopped = True
             return
+        if topk == 0:
+            sock.close()
+            log.error(
+                "agentcoin toploc: mode mismatch: the receiver refuses the %s mode (providers "
+                "take prove, auditors verify); nothing will be sent",
+                MODE_NAMES.get(self.mode, self.mode),
+            )
+            self.stopped = True
+            return
         sock.settimeout(None)
         self._sock = sock
         self.topk = topk
-        log.info("agentcoin toploc: connected to the provider (top-k %d)", topk)
+        log.info(
+            "agentcoin toploc: connected (%s mode, top-k %d)", MODE_NAMES.get(self.mode), topk
+        )
 
     def _disconnect(self) -> None:
         if self._sock is not None:

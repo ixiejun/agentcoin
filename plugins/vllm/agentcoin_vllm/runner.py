@@ -25,6 +25,18 @@ class PreconditionError(RuntimeError):
     """The engine configuration cannot produce TOPLOC proofs."""
 
 
+def parse_mode(text: str | None) -> int:
+    """The plugin mode named by `AGENTCOIN_TOPLOC_MODE` (unset: prove)."""
+    value = (text or "prove").strip().lower()
+    for mode, name in client.MODE_NAMES.items():
+        if value == name:
+            return mode
+    raise PreconditionError(
+        f"agentcoin toploc: AGENTCOIN_TOPLOC_MODE={text!r} is not a mode; use prove (providers) "
+        "or verify (auditors)"
+    )
+
+
 def parse_version(text: str) -> tuple[int, int, int]:
     m = re.match(r"(\d+)\.(\d+)\.(\d+)", text)
     if not m:
@@ -68,15 +80,16 @@ def check_config(model_config, cache_config, parallel_config, speculative_config
 
 
 class Capture:
-    """Per-runner state: the sender and whether this rank sends."""
+    """Per-runner state: the sender, the mode and whether this rank sends."""
 
-    def __init__(self, runner, path: str) -> None:
+    def __init__(self, runner, path: str, mode: int = client.PROVE) -> None:
         from vllm.distributed import get_tensor_model_parallel_rank
 
         # The final hidden states are the same on every tensor-parallel rank.
         self.active = get_tensor_model_parallel_rank() == 0
         hidden = runner.model_config.get_hidden_size()
-        self.sender = client.Sender(path, hidden) if self.active else None
+        self.mode = mode
+        self.sender = client.Sender(path, hidden, mode) if self.active else None
         self.failures = 0
 
     def before(self, scheduler_output) -> None:
@@ -102,7 +115,14 @@ class Capture:
             batch.num_computed_tokens_cpu[:n],
             batch.num_prompt_tokens[:n],
         )
-        meta, idx, bits = extract.candidates(state.hidden_states[:total], step, self.sender.topk)
+        hidden = state.hidden_states[:total]
+        if self.mode == client.VERIFY:
+            # Re-checks prefill "prompt + output"; decode steps (the one sampled token) are not
+            # part of it.
+            prefill = [s for s in step if s.phase == client.PREFILL]
+            meta, idx, bits = extract.rows(hidden, prefill, self.sender.topk)
+        else:
+            meta, idx, bits = extract.candidates(hidden, step, self.sender.topk)
         if not meta:
             return
         idx = idx.to("cpu", non_blocking=True)
@@ -144,7 +164,7 @@ def _refuse_v2(path: str) -> None:
     cls._agentcoin_refused = True
 
 
-def _patch(cls, path: str) -> None:
+def _patch(cls, path: str, mode: int = client.PROVE) -> None:
     if cls.__dict__.get("_agentcoin_patched"):
         return
     if "load_model" in cls.__dict__:
@@ -156,7 +176,7 @@ def _patch(cls, path: str) -> None:
             )
             result = load(self, *args, **kwargs)
             if "_agentcoin" not in self.__dict__:
-                self._agentcoin = Capture(self, path)
+                self._agentcoin = Capture(self, path, mode)
             return result
 
         cls.load_model = load_model
@@ -186,7 +206,7 @@ def _guard(capture: Capture, fn, *args) -> None:
             log.exception("agentcoin toploc: capturing activations failed; proofs will be missing")
 
 
-def install(path: str) -> None:
+def install(path: str, mode: int = client.PROVE) -> None:
     """Checks the vLLM version and patches the model runners (re-entrant)."""
     import vllm
 
@@ -197,11 +217,11 @@ def install(path: str) -> None:
         )
     from vllm.v1.worker import gpu_model_runner
 
-    _patch(gpu_model_runner.GPUModelRunner, path)
+    _patch(gpu_model_runner.GPUModelRunner, path, mode)
     try:
         from vllm.v1.worker import cpu_model_runner
     except ImportError:
         cpu_model_runner = None
     if cpu_model_runner is not None:
-        _patch(cpu_model_runner.CPUModelRunner, path)
+        _patch(cpu_model_runner.CPUModelRunner, path, mode)
     _refuse_v2(path)
