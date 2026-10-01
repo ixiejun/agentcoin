@@ -8,9 +8,9 @@ vllm-plugin with --quick, workflow toploc-calibration in full).
    becomes a re-check case through `ac-auditor calibration-case`. Variants:
    - honest: the registered model (Qwen2.5-0.5B-Instruct), as a provider would serve it;
    - swap: another model of the same architecture (Qwen2.5-0.5B base) answers instead;
-   - int8, int4: the registered model with its linear weights quantized (int8 per output
-     channel, int4 in groups of 128) and dequantized back to bfloat16, as a provider serving a
-     quantized model would compute;
+   - int8, int4: a checkpoint of the registered model whose linear weights are quantized (int8
+     per output channel, int4 in groups of 128) and dequantized back to bfloat16, as a provider
+     serving a quantized model would compute;
    - prompt: the provider puts a system message before the user's messages and reports the
      user's prompt token count (hiding the change).
 2. Re-check. `vllm serve` with the plugin in verify mode, one request at a time with vLLM's
@@ -150,30 +150,39 @@ class FakeProvider:
                     self.finished.add(request)
 
 
-def quantize(bits: int, group: int | None):
-    """A function for `LLM.apply_model`: symmetric round-to-nearest quantization of every 2-D
-    linear weight (not the embeddings), dequantized back in place."""
+def quantized_checkpoint(bits: int, group: int | None, workdir: str) -> str:
+    """A copy of the registered model whose linear weights are quantized symmetrically
+    (round to nearest; per output channel, or in groups of `group` inputs) and dequantized back
+    to bfloat16, as a provider serving a quantized model computes. The weights are changed in
+    the checkpoint, before vLLM loads (and on CPU repacks) them."""
+    import torch
+    from huggingface_hub import snapshot_download
+    from safetensors.torch import load_file, save_file
 
-    def apply(model):
-        import torch
-
-        qmax = 2 ** (bits - 1) - 1
-        n = 0
-        with torch.no_grad():
-            for name, p in model.named_parameters():
-                if p.dim() != 2 or "embed" in name or "lm_head" in name:
-                    continue
-                w = p.data.float()
-                rows, cols = w.shape
-                if group and cols % group == 0:
-                    w = w.reshape(rows, cols // group, group)
-                scale = w.abs().amax(dim=-1, keepdim=True).clamp(min=1e-8) / qmax
-                q = (w / scale).round().clamp(-qmax - 1, qmax) * scale
-                p.data.copy_(q.reshape(rows, cols).to(p.dtype))
-                n += 1
-        return n
-
-    return apply
+    src = Path(snapshot_download(os.environ["AC_VLLM_MODEL"], revision=os.environ["AC_VLLM_REVISION"]))
+    dst = Path(workdir) / f"int{bits}"
+    dst.mkdir()
+    qmax = 2 ** (bits - 1) - 1
+    changed = 0
+    for f in src.iterdir():
+        if f.suffix != ".safetensors":
+            (dst / f.name).symlink_to(f.resolve())
+            continue
+        weights = load_file(str(f))
+        for name, w in weights.items():
+            if w.dim() != 2 or "embed" in name or "lm_head" in name:
+                continue
+            x = w.float()
+            rows, cols = x.shape
+            if group and cols % group == 0:
+                x = x.reshape(rows, cols // group, group)
+            scale = x.abs().amax(dim=-1, keepdim=True).clamp(min=1e-8) / qmax
+            q = (x / scale).round().clamp(-qmax - 1, qmax) * scale
+            weights[name] = q.reshape(rows, cols).to(w.dtype).contiguous()
+            changed += 1
+        save_file(weights, str(dst / f.name), metadata={"format": "pt"})
+    print(f"int{bits}: quantized {changed} weight matrices", flush=True)
+    return str(dst)
 
 
 def generate(variant: str, count: int, seed: int, out: Path) -> None:
@@ -183,14 +192,16 @@ def generate(variant: str, count: int, seed: int, out: Path) -> None:
     provider = FakeProvider(sock)
     os.environ["AGENTCOIN_TOPLOC_SOCKET"] = sock
     os.environ["AGENTCOIN_TOPLOC_MODE"] = "prove"
-    os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"  # apply_model runs in this process
+    os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
     os.environ["VLLM_USE_V2_MODEL_RUNNER"] = "0"
     from vllm import LLM, SamplingParams
 
+    model, revision = os.environ["AC_VLLM_MODEL"], os.environ["AC_VLLM_REVISION"]
     if variant == "swap":
         model, revision = os.environ["AC_CHEAT_MODEL"], os.environ["AC_CHEAT_REVISION"]
-    else:
-        model, revision = os.environ["AC_VLLM_MODEL"], os.environ["AC_VLLM_REVISION"]
+    elif variant in ("int8", "int4"):
+        model = quantized_checkpoint(8, None, workdir) if variant == "int8" else quantized_checkpoint(4, 128, workdir)
+        revision = None
     llm = LLM(
         model=model,
         revision=revision,
@@ -201,9 +212,6 @@ def generate(variant: str, count: int, seed: int, out: Path) -> None:
         seed=seed,
         gpu_memory_utilization=MEMORY,
     )
-    if variant in ("int8", "int4"):
-        changed = llm.apply_model(quantize(8, None) if variant == "int8" else quantize(4, 128))
-        print(f"{variant}: quantized {changed} weight matrices", flush=True)
     deadline = time.time() + 120
     while not provider.connected and time.time() < deadline:
         time.sleep(0.2)
@@ -219,17 +227,25 @@ def generate(variant: str, count: int, seed: int, out: Path) -> None:
             served.append(messages)
     # The engine's seed makes the sampling reproducible; vLLM 0.30's CPU backend cannot seed
     # requests one by one ("CPU Generator does not use offset").
-    params = [SamplingParams(temperature=0.7, top_p=0.95, max_tokens=m) for _, m in prompts]
+    # The swapped-in base model is served with the registered model's chat format: it stops on
+    # the same end tokens (<|im_end|>, <|endoftext|>), so that its answers look the part.
+    stop = [151645, 151643] if variant == "swap" else None
+    params = [SamplingParams(temperature=0.7, top_p=0.95, max_tokens=m, stop_token_ids=stop) for _, m in prompts]
     outputs = llm.chat(served, params, use_tqdm=False)
     time.sleep(2)  # the sender thread drains its queue
     if variant == "prompt":
         # The cheating provider reports the token count of the user's own prompt.
         tok = llm.get_tokenizer()
-        reported = [len(tok.apply_chat_template(m, add_generation_prompt=True, tokenize=True)) for m, _ in prompts]
+        # Rendered then tokenized without special tokens, as vLLM's chat endpoint does.
+        reported = [
+            len(tok(tok.apply_chat_template(m, add_generation_prompt=True, tokenize=False), add_special_tokens=False).input_ids)
+            for m, _ in prompts
+        ]
     written = 0
     for i, (o, (messages, _)) in enumerate(zip(outputs, prompts)):
         keys = [k for k in provider.segments if k == o.request_id or k.startswith(o.request_id + "-")]
-        keys = [k for k in keys if k in provider.finished]
+        # The last requests of a batch get no end marker: the plugin sends it with the next step,
+        # and there is none. Their segments are complete once the answer is out.
         if len(keys) != 1:
             print(f"{variant} {i}: no unique segment set for request {o.request_id}", flush=True)
             continue
