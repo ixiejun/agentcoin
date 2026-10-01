@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 
+use ac_market_proto::engine::EngineMode;
 use clap::Parser;
 
 #[derive(Parser)]
@@ -28,6 +29,12 @@ struct Args {
     /// With --toploc-socket: send only half of the decode segments (no proof results).
     #[arg(long)]
     toploc_half_decode: bool,
+    /// With --toploc-socket: `prove` (a provider's engine) or `verify` (an auditor's).
+    #[arg(long, default_value = "prove", value_parser = ["prove", "verify"])]
+    toploc_mode: String,
+    /// Seed of the pseudo-activations (another seed plays another model).
+    #[arg(long, default_value_t = 0)]
+    model_seed: u64,
 }
 
 #[tokio::main]
@@ -43,7 +50,13 @@ async fn main() -> anyhow::Result<()> {
             toploc: a.toploc_socket.map(|socket| ac_mock_engine::PluginConfig {
                 socket,
                 half_decode: a.toploc_half_decode,
+                mode: if a.toploc_mode == "verify" {
+                    EngineMode::Verify
+                } else {
+                    EngineMode::Prove
+                },
             }),
+            model_seed: a.model_seed,
         },
     )
     .await?;

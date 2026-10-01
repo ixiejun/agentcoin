@@ -79,6 +79,7 @@ async fn setup_with(
         engine.toploc = Some(ac_mock_engine::PluginConfig {
             socket: socket.clone(),
             half_decode,
+            mode: ac_market_proto::engine::EngineMode::Prove,
         });
         ac_provider::toploc::Collector::listen(&socket).unwrap()
     });

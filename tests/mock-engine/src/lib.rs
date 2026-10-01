@@ -5,14 +5,21 @@
 //! whitespace-separated words of every message. Time to first token and the interval between
 //! tokens are configurable, and a failure switch drops the stream after a number of tokens.
 //! With [`Config::toploc`] the engine also plays the vLLM TOPLOC plugin ([`plugin`]).
+//!
+//! For auditors' re-checks (m6-toploc-verify design D6) it also has a toy tokenizer, one token
+//! per word ([`token_id`]), behind vLLM's `/tokenize` and `/detokenize`, and `/v1/completions`
+//! for a prompt of token IDs: the chat template is the messages' words in order, and an output
+//! token renders as its word and a space.
 
 pub mod plugin;
 
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use ac_market_proto::engine::EngineMode;
 use ac_wallet::http::{self, Request, Response};
 pub use plugin::PluginConfig;
 use serde_json::{Value, json};
@@ -41,8 +48,10 @@ pub struct Config {
     pub token_interval: Duration,
     /// Drop the stream after this many tokens (no usage, no `[DONE]`).
     pub fail_after: Option<u64>,
-    /// Send pseudo-activations to a provider's TOPLOC socket, as the vLLM plugin does.
+    /// Send pseudo-activations to a TOPLOC socket, as the vLLM plugin does.
     pub toploc: Option<PluginConfig>,
+    /// Seed of the pseudo-model's activations (another seed plays another model).
+    pub model_seed: u64,
 }
 
 impl Default for Config {
@@ -53,6 +62,7 @@ impl Default for Config {
             token_interval: Duration::from_millis(5),
             fail_after: None,
             toploc: None,
+            model_seed: 0,
         }
     }
 }
@@ -79,6 +89,40 @@ impl Engine {
     }
 }
 
+/// The token ID of a word in the toy tokenizer: in `[1, 50,000)`.
+#[must_use]
+pub fn token_id(word: &str) -> u32 {
+    let h = word.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    u32::try_from(h % 49_999).unwrap_or(0).saturating_add(1)
+}
+
+struct Shared {
+    config: Config,
+    served: Arc<AtomicU64>,
+    plugin: Option<plugin::Plugin>,
+    /// Words seen, for `/detokenize`.
+    vocab: Mutex<BTreeMap<u32, String>>,
+}
+
+impl Shared {
+    fn ids(&self, words: &[String]) -> Vec<u32> {
+        let mut vocab = self
+            .vocab
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        words
+            .iter()
+            .map(|w| {
+                let id = token_id(w);
+                vocab.entry(id).or_insert_with(|| w.clone());
+                id
+            })
+            .collect()
+    }
+}
+
 /// Binds `listen` and serves in the background.
 ///
 /// # Errors
@@ -88,63 +132,170 @@ pub async fn spawn(listen: &str, config: Config) -> anyhow::Result<Engine> {
     let listener = TcpListener::bind(listen).await?;
     let addr = listener.local_addr()?;
     let served = Arc::new(AtomicU64::new(0));
-    let plugin = config
-        .toploc
-        .clone()
-        .map(|c| Arc::new(plugin::Plugin::new(c)));
-    let (config, counter) = (Arc::new(config), Arc::clone(&served));
+    let shared = Arc::new(Shared {
+        plugin: config
+            .toploc
+            .clone()
+            .map(|c| plugin::Plugin::new(c, config.model_seed)),
+        config,
+        served: Arc::clone(&served),
+        vocab: Mutex::new(BTreeMap::new()),
+    });
     tokio::spawn(http::serve(listener, move |req| {
-        let (config, counter, plugin) = (Arc::clone(&config), Arc::clone(&counter), plugin.clone());
-        async move { handle(req, &config, &counter, plugin).await }
+        let shared = Arc::clone(&shared);
+        async move { handle(req, shared).await }
     }));
     Ok(Engine { addr, served })
 }
 
-async fn handle(
-    req: Request,
-    config: &Config,
-    served: &AtomicU64,
-    plugin: Option<Arc<plugin::Plugin>>,
-) -> Response {
+/// The engine's ID for a request: vLLM's `<prefix>-<X-Request-Id>-<suffix>`.
+fn engine_id(req: &Request, prefix: &str) -> String {
+    req.headers()
+        .get("x-request-id")
+        .and_then(|v| v.to_str().ok())
+        .map_or_else(|| format!("{prefix}-mock"), |x| format!("{prefix}-{x}-0"))
+}
+
+async fn body_json(req: Request, shared: &Shared) -> Result<Value, Response> {
+    let Ok(body) = http::read_body(req.into_body(), 4 << 20).await else {
+        return Err(error(400, "unreadable body"));
+    };
+    let Ok(request) = serde_json::from_slice::<Value>(&body) else {
+        return Err(error(400, "invalid JSON"));
+    };
+    let model = request
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if !shared.config.models.iter().any(|m| m == model) {
+        return Err(error(404, "unknown model"));
+    }
+    Ok(request)
+}
+
+async fn handle(req: Request, shared: Arc<Shared>) -> Response {
     match (req.method().as_str(), req.uri().path()) {
         ("GET", "/v1/models") => {
-            let data: Vec<Value> = config
+            let data: Vec<Value> = shared
+                .config
                 .models
                 .iter()
                 .map(|m| json!({ "id": m, "object": "model", "owned_by": "mock" }))
                 .collect();
             http::json(200, json!({ "object": "list", "data": data }).to_string())
         }
-        ("GET", "/mock/requests") => http::json(200, served.load(Ordering::SeqCst).to_string()),
+        ("GET", "/mock/requests") => {
+            http::json(200, shared.served.load(Ordering::SeqCst).to_string())
+        }
         ("POST", "/v1/chat/completions") => {
-            served.fetch_add(1, Ordering::SeqCst);
-            // vLLM names a request `chatcmpl-<X-Request-Id>-<suffix>`.
-            let engine_id = req
-                .headers()
-                .get("x-request-id")
-                .and_then(|v| v.to_str().ok())
-                .map_or_else(
-                    || "chatcmpl-mock".to_string(),
-                    |x| format!("chatcmpl-{x}-6d6f636b"),
-                );
-            let Ok(body) = http::read_body(req.into_body(), 4 << 20).await else {
-                return error(400, "unreadable body");
-            };
-            let Ok(request) = serde_json::from_slice::<Value>(&body) else {
-                return error(400, "invalid JSON");
+            shared.served.fetch_add(1, Ordering::SeqCst);
+            let engine_id = engine_id(&req, "chatcmpl");
+            let request = match body_json(req, &shared).await {
+                Ok(r) => r,
+                Err(e) => return e,
             };
             let model = request
                 .get("model")
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
-            if !config.models.contains(&model) {
-                return error(404, "unknown model");
+            complete(&request, model, Arc::clone(&shared), engine_id)
+        }
+        ("POST", "/tokenize") => {
+            let request = match body_json(req, &shared).await {
+                Ok(r) => r,
+                Err(e) => return e,
+            };
+            let words = match request.get("messages").and_then(Value::as_array) {
+                Some(messages) => messages.iter().flat_map(words).collect(),
+                None => request
+                    .get("prompt")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect::<Vec<_>>(),
+            };
+            let ids = shared.ids(&words);
+            http::json(
+                200,
+                json!({ "count": ids.len(), "max_model_len": 4096, "tokens": ids }).to_string(),
+            )
+        }
+        ("POST", "/detokenize") => {
+            let request = match body_json(req, &shared).await {
+                Ok(r) => r,
+                Err(e) => return e,
+            };
+            let vocab = shared
+                .vocab
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut text = String::new();
+            for id in request
+                .get("tokens")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let Some(word) = id
+                    .as_u64()
+                    .and_then(|i| u32::try_from(i).ok())
+                    .and_then(|i| vocab.get(&i))
+                else {
+                    return error(400, "unknown token");
+                };
+                text.push_str(word);
+                text.push(' ');
             }
-            complete(&request, model, config, Answer { engine_id, plugin })
+            http::json(200, json!({ "prompt": text }).to_string())
+        }
+        ("POST", "/v1/completions") => {
+            shared.served.fetch_add(1, Ordering::SeqCst);
+            let engine_id = engine_id(&req, "cmpl");
+            let request = match body_json(req, &shared).await {
+                Ok(r) => r,
+                Err(e) => return e,
+            };
+            let ids: Vec<u32> = match request.get("prompt") {
+                Some(Value::Array(a)) => a
+                    .iter()
+                    .filter_map(|v| v.as_u64().and_then(|i| u32::try_from(i).ok()))
+                    .collect(),
+                Some(Value::String(s)) => {
+                    shared.ids(&s.split_whitespace().map(str::to_string).collect::<Vec<_>>())
+                }
+                _ => return error(400, "no prompt"),
+            };
+            if let Some(p) = shared
+                .plugin
+                .as_ref()
+                .filter(|p| p.mode() == EngineMode::Verify)
+            {
+                p.send_rows(&engine_id, &ids).await;
+            }
+            let model = request
+                .get("model")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let body = json!({
+                "id": engine_id, "object": "text_completion", "created": 0, "model": model,
+                "choices": [{ "index": 0, "text": format!("{} ", WORDS[0]), "finish_reason": "length" }],
+                "usage": { "prompt_tokens": ids.len(), "completion_tokens": 1, "total_tokens": ids.len().saturating_add(1) },
+            });
+            http::json(200, body.to_string())
         }
         _ => error(404, "not found"),
     }
+}
+
+fn words(m: &Value) -> Vec<String> {
+    m.get("content")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .split_whitespace()
+        .map(str::to_string)
+        .collect()
 }
 
 fn error(status: u16, message: &str) -> Response {
@@ -162,14 +313,6 @@ pub fn answer(request: &Value) -> (Vec<String>, u64) {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let words = |m: &Value| -> Vec<String> {
-        m.get("content")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .split_whitespace()
-            .map(str::to_string)
-            .collect()
-    };
     let prompt = messages
         .iter()
         .map(|m| u64::try_from(words(m).len()).unwrap_or(u64::MAX))
@@ -190,19 +333,39 @@ pub fn answer(request: &Value) -> (Vec<String>, u64) {
 /// Who hears about an answer once it is complete.
 struct Answer {
     engine_id: String,
-    plugin: Option<Arc<plugin::Plugin>>,
+    shared: Arc<Shared>,
+    prompt: Vec<u32>,
+    output: Vec<u32>,
 }
 
 impl Answer {
-    async fn finished(&self, prompt: u64, completion: u64) {
-        if let Some(p) = &self.plugin {
-            p.send(&self.engine_id, prompt, completion).await;
+    async fn finished(&self) {
+        if let Some(p) = self
+            .shared
+            .plugin
+            .as_ref()
+            .filter(|p| p.mode() == EngineMode::Prove)
+        {
+            p.send(&self.engine_id, &self.prompt, &self.output).await;
         }
     }
 }
 
-fn complete(request: &Value, model: String, config: &Config, answer_to: Answer) -> Response {
+fn complete(request: &Value, model: String, shared: Arc<Shared>, engine_id: String) -> Response {
     let (tokens, prompt) = answer(request);
+    let messages = request
+        .get("messages")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let prompt_words: Vec<String> = messages.iter().flat_map(words).collect();
+    let answer_to = Answer {
+        engine_id,
+        prompt: shared.ids(&prompt_words),
+        output: shared.ids(&tokens),
+        shared: Arc::clone(&shared),
+    };
+    let config = &shared.config;
     let completion = u64::try_from(tokens.len()).unwrap_or(u64::MAX);
     let usage = json!({ "prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": prompt.saturating_add(completion) });
     let stream = request
@@ -220,7 +383,7 @@ fn complete(request: &Value, model: String, config: &Config, answer_to: Answer) 
         let (tx, resp) = http::streaming(200, "application/json");
         tokio::spawn(async move {
             tokio::time::sleep(config.ttft).await;
-            answer_to.finished(prompt, completion).await;
+            answer_to.finished().await;
             let body = json!({
                 "id": id, "object": "chat.completion", "created": 0, "model": model,
                 "choices": [{ "index": 0, "message": { "role": "assistant", "content": text.concat() }, "finish_reason": "length" }],
@@ -265,7 +428,7 @@ fn complete(request: &Value, model: String, config: &Config, answer_to: Answer) 
             }
         }
         send(chunk(json!({}), json!("length"))).await;
-        answer_to.finished(prompt, completion).await;
+        answer_to.finished().await;
         if include_usage {
             send(json!({ "id": id, "object": "chat.completion.chunk", "created": 0, "model": model, "choices": [], "usage": usage })).await;
         }

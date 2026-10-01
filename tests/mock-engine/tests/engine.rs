@@ -213,6 +213,7 @@ async fn the_engine_plays_the_toploc_plugin() {
                 toploc: Some(ac_mock_engine::PluginConfig {
                     socket,
                     half_decode: half,
+                    mode: ac_market_proto::engine::EngineMode::Prove,
                 }),
                 ..Config::default()
             },
@@ -264,4 +265,162 @@ async fn the_engine_plays_the_toploc_plugin() {
         assert_eq!(decodes, decode);
         std::fs::remove_dir_all(&dir).unwrap();
     }
+}
+
+/// The segments of one request, up to its end marker.
+async fn segments_of(
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<ac_market_proto::engine::EngineMsg>,
+) -> Vec<ac_toploc::Segment> {
+    use ac_market_proto::engine::EngineMsg;
+    let mut out = Vec::new();
+    loop {
+        match rx.recv().await.unwrap() {
+            EngineMsg::Segment {
+                phase,
+                len,
+                candidates,
+                ..
+            } => out.push(ac_toploc::Segment {
+                phase,
+                len,
+                candidates,
+            }),
+            EngineMsg::Finish { .. } => return out,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+}
+
+async fn engine_with(
+    socket: std::path::PathBuf,
+    mode: ac_market_proto::engine::EngineMode,
+    seed: u64,
+) -> ac_mock_engine::Engine {
+    spawn(
+        "127.0.0.1:0",
+        Config {
+            ttft: Duration::ZERO,
+            token_interval: Duration::ZERO,
+            toploc: Some(ac_mock_engine::PluginConfig {
+                socket,
+                half_decode: false,
+                mode,
+            }),
+            model_seed: seed,
+            ..Config::default()
+        },
+    )
+    .await
+    .unwrap()
+}
+
+async fn post_json(base: &str, path: &str, body: &Value, id: Option<&str>) -> Value {
+    let headers: Vec<(&str, &str)> = id.map(|i| ("x-request-id", i)).into_iter().collect();
+    let resp = Client::new()
+        .unwrap()
+        .post_with(
+            &join(base, path),
+            "application/json",
+            &headers,
+            body.to_string(),
+        )
+        .await
+        .unwrap();
+    serde_json::from_slice(&read_body(resp.into_body(), 1 << 20).await.unwrap()).unwrap()
+}
+
+// m6-toploc-verify 5.2: an answer's proofs (prove mode) match the rows a verify-mode engine of
+// the same seed sends for "prompt + output but the last token", re-tokenized through
+// /tokenize and /detokenize; another seed (another model) does not.
+#[tokio::test]
+async fn prove_and_verify_modes_agree_on_a_sequence() {
+    use ac_market_proto::MARKET_PARAMS;
+    use ac_market_proto::engine::EngineMode;
+    use ac_toploc::{Phase, build_proofs_from_candidates, compare_from_candidates};
+    let dir = std::env::temp_dir().join(format!("ac-mock-verify-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let mut prove_rx = toploc_receiver(dir.join("p.sock")).await;
+    let prover = engine_with(dir.join("p.sock"), EngineMode::Prove, 7).await;
+    let chat = json!({
+        "model": "mock-model",
+        "messages": [{"role": "user", "content": "one two three four five six"}],
+        "max_tokens": 40,
+    });
+    let reply = post_json(
+        &prover.url(),
+        "/v1/chat/completions",
+        &chat,
+        Some(&"ab".repeat(32)),
+    )
+    .await;
+    let proofs =
+        build_proofs_from_candidates(&segments_of(&mut prove_rx).await, &MARKET_PARAMS).unwrap();
+    assert_eq!(proofs.len(), 1 + 39usize.div_ceil(32));
+    let output = reply["choices"][0]["message"]["content"].as_str().unwrap();
+    let (prompt_n, out_n) = (
+        reply["usage"]["prompt_tokens"].as_u64().unwrap(),
+        reply["usage"]["completion_tokens"].as_u64().unwrap(),
+    );
+
+    for (seed, same) in [(7, true), (8, false)] {
+        let socket = dir.join(format!("v{seed}.sock"));
+        let mut rx = toploc_receiver(socket.clone()).await;
+        let verifier = engine_with(socket, EngineMode::Verify, seed).await;
+        let base = verifier.url();
+        let prompt = post_json(
+            &base,
+            "/tokenize",
+            &json!({"model": "mock-model", "messages": chat["messages"], "add_generation_prompt": true}),
+            None,
+        )
+        .await;
+        let out = post_json(
+            &base,
+            "/tokenize",
+            &json!({"model": "mock-model", "prompt": output, "add_special_tokens": false}),
+            None,
+        )
+        .await;
+        let back = post_json(
+            &base,
+            "/detokenize",
+            &json!({"model": "mock-model", "tokens": out["tokens"]}),
+            None,
+        )
+        .await;
+        assert_eq!(back["prompt"], output);
+        let prompt_ids = prompt["tokens"].as_array().unwrap();
+        let out_ids = out["tokens"].as_array().unwrap();
+        assert_eq!(
+            (prompt_ids.len() as u64, out_ids.len() as u64),
+            (prompt_n, out_n)
+        );
+        let mut ids: Vec<Value> = prompt_ids.clone();
+        ids.extend(out_ids[..out_ids.len() - 1].iter().cloned());
+        let done = post_json(
+            &base,
+            "/v1/completions",
+            &json!({"model": "mock-model", "prompt": ids, "max_tokens": 1}),
+            Some(&"cd".repeat(32)),
+        )
+        .await;
+        assert_eq!(done["usage"]["prompt_tokens"], ids.len());
+        let mut rows = segments_of(&mut rx).await;
+        assert_eq!(rows.len(), ids.len());
+        assert!(
+            rows.iter()
+                .all(|r| r.phase == Phase::Prefill && r.len == 256)
+        );
+        for r in rows.iter_mut().skip(prompt_ids.len()) {
+            r.phase = Phase::Decode;
+        }
+        let cmp = compare_from_candidates(&rows, &proofs, &MARKET_PARAMS).unwrap();
+        let exact = cmp
+            .iter()
+            .all(|c| c.exp_mismatches == 0 && c.mant_err_sum == 0);
+        assert_eq!(exact, same, "seed {seed}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
 }
