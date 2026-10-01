@@ -14,7 +14,7 @@ use scale_info::TypeInfo;
 use sp_core::{ConstU32, H256};
 use sp_runtime::{BoundedVec, Perbill};
 
-use super::records::Unlocking;
+use super::records::UnlockingList;
 use super::usd::{MICRO_USD_PER_USD, MicroUsd};
 
 /// Index of an audit round: round `r` covers blocks `r × L + 1 ..= (r + 1) × L`.
@@ -35,8 +35,6 @@ pub const MAX_ASSIGN: u8 = 8;
 pub const MAX_REVIEWERS: u8 = 15;
 /// Most accusers of a dispute: the failing verdicts of two rounds.
 pub const MAX_ACCUSERS: u32 = 2 * MAX_ASSIGN as u32;
-/// Most unbonding chunks of an auditor; further requests merge into the last one.
-pub const MAX_AUDITOR_UNLOCKING: u32 = 8;
 
 /// Lowest and highest auditor stake an administration may set, in micro-dollars.
 pub const STAKE_USD_BOUNDS: (MicroUsd, MicroUsd) = (
@@ -257,13 +255,13 @@ pub enum AuditorStatus {
 #[derive(
     Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo,
 )]
-pub struct AuditorRecord<Balance, BlockNumber> {
+pub struct AuditorRecord<BlockNumber> {
     /// Lifecycle.
     pub status: AuditorStatus,
-    /// Bonded stake.
-    pub stake: Balance,
-    /// Stake that is unbonding, by unlock block.
-    pub unlocking: BoundedVec<Unlocking<Balance, BlockNumber>, ConstU32<MAX_AUDITOR_UNLOCKING>>,
+    /// Bonded stake, in smallest ATC units.
+    pub stake: u128,
+    /// Stake that is unbonding, by unlock block (still held and slashable).
+    pub unlocking: UnlockingList<BlockNumber>,
 }
 
 /// Parameters fixed at genesis (design D10).

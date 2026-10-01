@@ -695,6 +695,23 @@ pub mod pallet {
         }
     }
 
+    impl<T: Config> ac_primitives::market::traits::ProviderAudit<T::AccountId> for Pallet<T> {
+        fn is_registered(who: &T::AccountId) -> bool {
+            Providers::<T>::contains_key(who)
+        }
+
+        fn price(
+            who: &T::AccountId,
+            model: &ModelId,
+        ) -> Option<ac_primitives::market::PricePerMTok> {
+            Providers::<T>::get(who)?
+                .models
+                .iter()
+                .find(|m| m.model == *model)
+                .map(|m| m.price)
+        }
+    }
+
     impl<T: Config> ac_primitives::market::traits::ProviderPenalty<T::AccountId, Balance>
         for Pallet<T>
     {

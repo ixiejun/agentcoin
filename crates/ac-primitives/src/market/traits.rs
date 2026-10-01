@@ -7,7 +7,7 @@
 use sp_runtime::{DispatchError, DispatchResult, Perbill};
 
 use super::model::ModelId;
-use super::usd::{AtcPerUsd, MicroUsd, PriceError, Rounding, to_atc};
+use super::usd::{AtcPerUsd, MicroUsd, PriceError, PricePerMTok, Rounding, to_atc};
 
 /// Source of the ATC/USD rate (\[reserved\] a multi-source oracle in the full version).
 pub trait PriceSource {
@@ -50,6 +50,14 @@ pub trait ProviderLookup<AccountId> {
     /// `true` if `who` is a registered provider, not jailed, that lists `model`: work it did
     /// for that model can be settled (an exiting provider still settles finished work).
     fn can_settle(who: &AccountId, model: &ModelId) -> bool;
+}
+
+/// What audits need to know about providers (m6-audit-chain).
+pub trait ProviderAudit<AccountId> {
+    /// `true` if `who` is a registered provider, in any state.
+    fn is_registered(who: &AccountId) -> bool;
+    /// `who`'s current price for `model`, if it lists it.
+    fn price(who: &AccountId, model: &ModelId) -> Option<PricePerMTok>;
 }
 
 /// The key an account signs with now.

@@ -520,3 +520,37 @@ proptest! {
         })?;
     }
 }
+
+// What audits read: registration and the current price of a listed model.
+#[test]
+fn audits_read_registration_and_prices() {
+    use ac_primitives::market::traits::ProviderAudit;
+    ext().execute_with(|| {
+        assert!(!<Providers as ProviderAudit<u64>>::is_registered(&ALICE));
+        assert_ok!(register(ALICE, &[price(MODEL_A, 100, 200)], T2_MIN));
+        assert!(<Providers as ProviderAudit<u64>>::is_registered(&ALICE));
+        assert_eq!(
+            <Providers as ProviderAudit<u64>>::price(&ALICE, &MODEL_A),
+            Some(price(MODEL_A, 100, 200).price)
+        );
+        assert_eq!(<Providers as ProviderAudit<u64>>::price(&ALICE, &MODEL_B), None);
+    });
+}
+
+// Requirement "预留的罚没与禁闭接口", Scenario "被禁闭后退出" (m6-audit-chain).
+#[test]
+fn a_jailed_provider_exits_with_what_is_left() {
+    ext().execute_with(|| {
+        assert_ok!(register(ALICE, &[price(MODEL_A, 1, 1)], T2_MIN));
+        let slashed =
+            <Providers as ProviderPenalty<u64, u128>>::slash(&ALICE, Perbill::from_percent(10));
+        assert_ok!(<Providers as ProviderPenalty<u64, u128>>::jail(&ALICE));
+        assert!(!Providers::is_serviceable(&ALICE));
+        assert_ok!(Providers::exit(RuntimeOrigin::signed(ALICE)));
+        at(1 + UNBOND);
+        let before = Balances::balance(&ALICE);
+        assert_ok!(Providers::withdraw_unbonded(RuntimeOrigin::signed(ALICE)));
+        assert_eq!(Balances::balance(&ALICE), before + T2_MIN - slashed);
+        assert!(Providers::provider(&ALICE).is_none());
+    });
+}
