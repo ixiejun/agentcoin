@@ -213,6 +213,21 @@ pub fn openai(base_url: &str, model: &str, runs: u32, marker: &str) -> serde_jso
     serde_json::from_str(&out).unwrap_or_else(|e| panic!("{e}: {out}"))
 }
 
+/// One non-streamed request through the OpenAI SDK, pinned to `provider` with the proxy's
+/// `X-AgentCoin-Provider` header: `{"usage": …}` or `{"error": {"status", "code"}}`.
+pub fn openai_pinned(base_url: &str, model: &str, provider: &str) -> serde_json::Value {
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("python/openai_client.py");
+    let out = run(Command::new(python()).arg(script).args([
+        "--base-url",
+        base_url,
+        "--model",
+        model,
+        "--provider",
+        provider,
+    ]));
+    serde_json::from_str(&out).unwrap_or_else(|e| panic!("{e}: {out}"))
+}
+
 pub async fn wait_until<F, Fut>(what: &str, timeout: Duration, mut f: F)
 where
     F: FnMut() -> Fut,

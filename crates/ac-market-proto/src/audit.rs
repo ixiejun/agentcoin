@@ -171,6 +171,28 @@ pub fn evidence_from_case(case: &serde_json::Value) -> Result<AuditEvidence, Evi
     })
 }
 
+/// Reviewer → accuser: the evidence of a dispute's verdict (m6-auditor-agent design D6). Sent
+/// inside a sealed channel, so the accuser knows the reviewer's account from the handshake.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Encode, Decode)]
+pub struct EvidenceRequest {
+    /// The dispute the reviewer was drawn for.
+    pub dispute: u64,
+    /// The commitment the accuser's verdict carries.
+    pub commitment: [u8; 32],
+}
+
+/// Accuser → reviewer. The accuser never says why it refuses, so a refusal does not reveal
+/// whether it holds the evidence.
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
+pub enum EvidenceResponse {
+    /// The evidence file (see [`AuditEvidence::to_bytes`]).
+    #[codec(index = 0)]
+    Evidence(Vec<u8>),
+    /// The requester is not entitled to it, or there is none.
+    #[codec(index = 1)]
+    Refused,
+}
+
 /// The on-chain form of a re-check metric.
 #[must_use]
 pub fn audit_metric(m: Metric) -> AuditMetric {

@@ -234,6 +234,20 @@ impl Gateway {
                         request: &request,
                         voucher: &voucher,
                         started,
+                        pin: None,
+                    };
+                    this.chat(&user, &call, &mut writer).await;
+                }
+                Ok(UserMsg::ChatTo {
+                    provider,
+                    request,
+                    payment: Payment::Transparent(voucher),
+                }) => {
+                    let call = ChatCall {
+                        request: &request,
+                        voucher: &voucher,
+                        started,
+                        pin: Some(&provider),
                     };
                     this.chat(&user, &call, &mut writer).await;
                 }
@@ -363,12 +377,19 @@ impl Gateway {
         chat.set_max_output_tokens(max_out);
         let input_bound = chat.input_bound();
         let streaming = chat.stream();
-        let (choices, worst) = self.router.candidates(model, input_bound, max_out);
+        // A pinned request goes to its provider only, never to another (design D1 of
+        // m6-auditor-agent): the candidates are that provider or nothing.
+        let (choices, worst) = match call.pin {
+            Some(provider) => self.router.pinned(model, provider, input_bound, max_out),
+            None => self.router.candidates(model, input_bound, max_out),
+        };
         let Some(max_fee) = worst.filter(|_| !choices.is_empty()) else {
-            return Err((
-                ErrorCode::NoProvider,
-                "no serviceable provider for this model".into(),
-            ));
+            let reason = if call.pin.is_some() {
+                "the requested provider cannot serve this model now"
+            } else {
+                "no serviceable provider for this model"
+            };
+            return Err((ErrorCode::NoProvider, reason.into()));
         };
         let facts = self
             .channel_facts(user, voucher)
@@ -646,6 +667,8 @@ struct ChatCall<'a> {
     request: &'a [u8],
     voucher: &'a SignedVoucher,
     started: Instant,
+    /// The provider a `ChatTo` request names.
+    pin: Option<&'a AccountId32>,
 }
 
 struct Job {

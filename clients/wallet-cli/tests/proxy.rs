@@ -140,6 +140,14 @@ impl FakeGateway {
     }
 
     fn reply(&self, m: UserMsg) -> Vec<GatewayMsg> {
+        // A pinned request is served like any other here; the proxy checks the receipt names the
+        // provider it pinned (the fake gateway always uses its one provider).
+        let m = match m {
+            UserMsg::ChatTo {
+                request, payment, ..
+            } => UserMsg::Chat { request, payment },
+            other => other,
+        };
         match m {
             UserMsg::Pay {
                 payment: Payment::Transparent(v),
@@ -157,6 +165,7 @@ impl FakeGateway {
                     }]
                 }
             }
+            UserMsg::ChatTo { .. } => Vec::new(),
             UserMsg::Chat {
                 request,
                 payment: Payment::Transparent(v),
@@ -477,4 +486,81 @@ async fn proofs_must_match_the_receipt_before_paying() {
     let (status, _) = chat(&s.base, false).await;
     assert_eq!(status, 402);
     assert_eq!(*s.gateway.vouchers.lock().unwrap(), [0]);
+}
+
+async fn chat_pinned(base: &str, provider: &str) -> (u16, Vec<u8>) {
+    let body = json!({ "model": "Qwen-test", "messages": [{ "role": "user", "content": "hi" }] });
+    let resp = Client::new()
+        .unwrap()
+        .post_with(
+            &join(base, "/v1/chat/completions"),
+            "application/json",
+            &[(ac_wallet::proxy::PROVIDER_HEADER, provider)],
+            body.to_string(),
+        )
+        .await
+        .unwrap();
+    let status = resp.status().as_u16();
+    let mut b = resp.into_body();
+    let mut out = Vec::new();
+    while let Ok(Some(c)) = next_chunk(&mut b).await {
+        out.extend_from_slice(&c);
+    }
+    (status, out)
+}
+
+// Spec clients/wallet-cli "代理指定提供者": "经代理指定提供者" (paid like any request) and
+// "收据提供者与指定不符" (not paid, payments halt).
+#[tokio::test]
+async fn pinned_requests_are_paid_only_for_their_provider() {
+    let s = setup("pinned", Mode::Honest, None).await;
+    let provider = ac_primitives::encode_address(account(&s.gateway.provider).as_ref());
+    let (status, _) = chat_pinned(&s.base, &provider).await;
+    assert_eq!(status, 200);
+    assert_eq!(s.proxy.halted(), None);
+    let paid = s.proxy.paid().await.total;
+    assert!(paid.0 > 0);
+    let other = ac_primitives::encode_address(&[9u8; 32]);
+    let (status, _) = chat_pinned(&s.base, &other).await;
+    assert_eq!(status, 402);
+    assert!(s.proxy.halted().unwrap().contains("another provider"));
+    assert_eq!(s.proxy.paid().await.total, paid);
+}
+
+// Spec clients/wallet-cli "代理指定提供者": "无效的提供者地址".
+#[tokio::test]
+async fn bad_provider_headers_never_reach_the_gateway() {
+    let s = setup("pinned-bad", Mode::Honest, None).await;
+    let (status, body) = chat_pinned(&s.base, "not-an-address").await;
+    assert_eq!(status, 400);
+    assert!(String::from_utf8_lossy(&body).contains("x-agentcoin-provider"));
+    assert!(s.gateway.vouchers.lock().unwrap().is_empty());
+}
+
+// The library form returns the receipt and the proofs it paid for.
+#[tokio::test]
+async fn the_library_form_returns_receipt_and_proofs() {
+    let s = setup("library", Mode::Proofs, None).await;
+    let body = json!({ "model": "Qwen-test", "messages": [{ "role": "user", "content": "hi" }] });
+    let pin = account(&s.gateway.provider);
+    let done = s
+        .proxy
+        .complete(body.to_string().as_bytes(), Some(&pin))
+        .await
+        .unwrap();
+    assert_eq!(done.receipt.body.provider, pin);
+    assert_eq!(
+        done.proofs.unwrap().commitment().unwrap(),
+        done.receipt.body.toploc_commit
+    );
+    assert_eq!(s.proxy.paid().await.total, done.fee);
+    let streamed = json!({ "model": "Qwen-test", "messages": [], "stream": true });
+    assert_eq!(
+        s.proxy
+            .complete(streamed.to_string().as_bytes(), None)
+            .await
+            .unwrap_err()
+            .0,
+        ErrorCode::BadRequest
+    );
 }

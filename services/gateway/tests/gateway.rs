@@ -376,6 +376,20 @@ impl Net {
         .await
     }
 
+    async fn chat_to(&self, provider: &AccountId32, prompt: &str, paid: u128) -> Vec<GatewayMsg> {
+        let request = serde_json::json!({
+            "model": "Qwen-test",
+            "messages": [{ "role": "user", "content": prompt }],
+            "max_tokens": 6,
+        });
+        self.send(&UserMsg::ChatTo {
+            provider: provider.clone(),
+            request: request.to_string().into_bytes(),
+            payment: Payment::Transparent(self.voucher(paid)),
+        })
+        .await
+    }
+
     async fn pay(&self, cumulative: u128) -> Vec<GatewayMsg> {
         self.send(&UserMsg::Pay {
             payment: Payment::Transparent(self.voucher(cumulative)),
@@ -599,6 +613,51 @@ async fn routing_and_failover() {
         ErrorCode::NoProvider
     );
     assert_eq!(dear.engine.requests(), before);
+}
+
+// Spec market/gateway-service "指定提供者的请求": "指定较贵的提供者", "指定的提供者不可服务",
+// "指定的提供者首 token 前失败".
+#[tokio::test]
+async fn pinned_requests_go_to_their_provider_only() {
+    let gw = party(1);
+    let cheap = provider(17, &gw, fast(), CHEAP).await;
+    let dear = provider(18, &gw, fast(), DEAR).await;
+    let n = net("pinned", ATC, &[(&cheap, CHEAP), (&dear, DEAR)]).await;
+    // The dearer provider serves when it is named, at its own price.
+    let (r, fee, billed) = billing(&n.chat_to(&dear.party.account, "hi", 0).await);
+    assert_eq!(r.body.provider, dear.party.account);
+    assert_eq!(
+        fee,
+        ac_primitives::market::receipt::fee_for(&DEAR, 1, 6).unwrap()
+    );
+    n.pay(billed.0).await;
+    // A provider that is not serviceable: an error, nothing billed, nobody else asked.
+    let stranger = party(19).account;
+    let before = (cheap.engine.requests(), dear.engine.requests());
+    assert_eq!(
+        error_code(&n.chat_to(&stranger, "hi", billed.0).await),
+        ErrorCode::NoProvider
+    );
+    assert_eq!((cheap.engine.requests(), dear.engine.requests()), before);
+    // The named provider fails before the first token: an error, no failover to the other one.
+    {
+        let mut providers = n.chain.providers.lock().unwrap();
+        for (who, rec) in providers.get_mut(&MODEL).unwrap().iter_mut() {
+            if *who == dear.party.account {
+                rec.endpoint = BoundedVec::truncate_from(b"http://127.0.0.1:9".to_vec());
+            }
+        }
+    }
+    n.router.refresh(n.chain.as_ref()).await.unwrap();
+    assert_eq!(
+        error_code(&n.chat_to(&dear.party.account, "hi", billed.0).await),
+        ErrorCode::ProviderFailed
+    );
+    assert_eq!(cheap.engine.requests(), before.0);
+    assert_eq!(
+        n.gateway.book().get(&n.user.account).unwrap().billed,
+        billed
+    );
 }
 
 #[tokio::test]

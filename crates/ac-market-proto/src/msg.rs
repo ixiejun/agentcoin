@@ -7,6 +7,7 @@ use ac_crypto::{PqPublicKey, PqSignature};
 use ac_primitives::market::work::JobKind;
 use ac_primitives::market::{MicroUsd, ModelId, ReceiptBody, SignedReceipt, SignedVoucher};
 use parity_scale_codec::{Decode, Encode};
+use sp_runtime::AccountId32;
 
 use crate::Error;
 use crate::toploc::ToplocProofs;
@@ -115,6 +116,18 @@ pub enum UserMsg {
     /// A payment on its own, sent after a bill.
     #[codec(index = 1)]
     Pay {
+        /// Voucher covering exactly the channel's billed total.
+        payment: Payment,
+    },
+    /// Like [`UserMsg::Chat`], for one named provider only: the gateway forwards it to that
+    /// provider if it can serve the model, and never fails over to another (m6-auditor-agent
+    /// design D1; open to every user).
+    #[codec(index = 2)]
+    ChatTo {
+        /// The provider that must serve the request.
+        provider: AccountId32,
+        /// Request JSON.
+        request: Vec<u8>,
         /// Voucher covering exactly the channel's billed total.
         payment: Payment,
     },

@@ -80,6 +80,32 @@ pub struct Paid {
     pub total: MicroUsd,
 }
 
+/// Request header naming the provider a request must go to (spec `clients/wallet-cli`
+/// "代理指定提供者"); its value is an account address.
+pub const PROVIDER_HEADER: &str = "x-agentcoin-provider";
+
+/// A finished non-streamed request whose bill was checked and paid.
+#[derive(Clone, Debug)]
+pub struct Completed {
+    /// The Chat Completions response (JSON bytes, `usage` from the receipt).
+    pub response: Vec<u8>,
+    /// The double-signed receipt.
+    pub receipt: SignedReceipt,
+    /// The TOPLOC proofs it commits to, if any.
+    pub proofs: Option<ToplocProofs>,
+    /// The fee paid for it.
+    pub fee: MicroUsd,
+}
+
+/// What a receipt must match besides the chain facts.
+#[derive(Clone, Debug, Default)]
+struct Expect {
+    /// The model, when the request names it unambiguously.
+    model: Option<ModelId>,
+    /// The provider a pinned request names.
+    provider: Option<AccountId32>,
+}
+
 /// The paid total and the voucher that paid it: requests reuse that voucher, so the gateway
 /// recognizes it and need not check it on chain again.
 struct PaidState {
@@ -146,11 +172,15 @@ impl Proxy {
         match (req.method().as_str(), req.uri().path()) {
             ("GET", "/v1/models" | "/models") => self.models().await,
             ("POST", "/v1/chat/completions" | "/chat/completions") => {
+                let pin = match pinned_provider(&req) {
+                    Ok(p) => p,
+                    Err(e) => return error(ErrorCode::BadRequest, &e),
+                };
                 let Ok(body) = http::read_body(req.into_body(), sealed_http::MAX_MESSAGE).await
                 else {
                     return error(ErrorCode::BadRequest, "unreadable body");
                 };
-                self.chat(body.to_vec()).await
+                self.chat(body.to_vec(), pin).await
             }
             _ => http::json(404, error_json(ErrorCode::BadRequest, "unknown path")),
         }
@@ -264,65 +294,73 @@ impl Proxy {
         .await
     }
 
-    async fn chat(self: Arc<Self>, body: Vec<u8>) -> Response {
+    /// Sends a request (pinned to `pin` if given) with a voucher for everything paid so far and
+    /// returns the gateway's first answer, retrying while a concurrent bill settles.
+    async fn start(
+        &self,
+        body: &[u8],
+        pin: Option<&AccountId32>,
+    ) -> Result<(SealedResponse, GatewayMsg, Expect, bool), (ErrorCode, String)> {
         if let Some(reason) = self.halted() {
-            return error(
+            return Err((
                 ErrorCode::PaymentRequired,
-                &format!("payments to this gateway are halted: {reason}"),
-            );
+                format!("payments to this gateway are halted: {reason}"),
+            ));
         }
-        let chat = match ChatRequest::parse(&body) {
-            Ok(c) => c,
-            Err(e) => return error(ErrorCode::BadRequest, &e.to_string()),
-        };
+        let chat = ChatRequest::parse(body).map_err(|e| (ErrorCode::BadRequest, e.to_string()))?;
         let paid = self.paid().await;
         if self.cfg.max_usd.is_some_and(|max| paid.total >= max) {
-            return error(
+            return Err((
                 ErrorCode::PaymentRequired,
-                "the spending limit (--max-usd) is reached",
-            );
+                "the spending limit (--max-usd) is reached".into(),
+            ));
         }
-        let expected = self.expected_model(chat.model()).await;
+        let expect = Expect {
+            model: self.expected_model(chat.model()).await,
+            provider: pin.cloned(),
+        };
         let streaming = chat.stream();
         // A concurrent request's bill may reach the gateway between reading the paid total and
         // the gateway admitting this one; then the voucher is one bill behind and is refused.
         // Retry after the payment in progress settles.
         let mut attempt = 0u32;
-        let (resp, first) = loop {
+        loop {
             attempt = attempt.saturating_add(1);
             let voucher = {
                 let mut state = self.paid.lock().await;
                 let total = state.paid.total;
                 match state.voucher.clone().filter(|v| v.body.cumulative == total) {
                     Some(v) => v,
-                    None => match self.voucher(total) {
-                        Ok(v) => {
-                            state.voucher = Some(v.clone());
-                            v
-                        }
-                        Err(e) => return error(ErrorCode::Internal, &format!("{e:#}")),
-                    },
+                    None => {
+                        let v = self
+                            .voucher(total)
+                            .map_err(|e| (ErrorCode::Internal, format!("{e:#}")))?;
+                        state.voucher = Some(v.clone());
+                        v
+                    }
                 }
             };
-            let mut resp = match self
-                .send(&UserMsg::Chat {
-                    request: body.clone(),
-                    payment: Payment::Transparent(voucher),
-                })
+            let payment = Payment::Transparent(voucher);
+            let message = match pin {
+                Some(provider) => UserMsg::ChatTo {
+                    provider: provider.clone(),
+                    request: body.to_vec(),
+                    payment,
+                },
+                None => UserMsg::Chat {
+                    request: body.to_vec(),
+                    payment,
+                },
+            };
+            let mut resp = self.send(&message).await.map_err(|e| {
+                (
+                    ErrorCode::ProviderFailed,
+                    format!("gateway unavailable: {e:#}"),
+                )
+            })?;
+            let first = next_msg(&mut resp)
                 .await
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    return error(
-                        ErrorCode::ProviderFailed,
-                        &format!("gateway unavailable: {e:#}"),
-                    );
-                }
-            };
-            let first = match next_msg(&mut resp).await {
-                Ok(m) => m,
-                Err(e) => return error(ErrorCode::ProviderFailed, &format!("{e:#}")),
-            };
+                .map_err(|e| (ErrorCode::ProviderFailed, format!("{e:#}")))?;
             match first {
                 GatewayMsg::Error {
                     code: ErrorCode::PaymentRequired,
@@ -331,17 +369,50 @@ impl Proxy {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
                 GatewayMsg::Error { code, message } => {
-                    return error(code, &String::from_utf8_lossy(&message));
+                    return Err((code, String::from_utf8_lossy(&message).into_owned()));
                 }
-                other => break (resp, other),
+                other => return Ok((resp, other, expect, streaming)),
             }
+        }
+    }
+
+    /// Sends one non-streamed request (pinned to `pin` if given), checks and pays its bill, and
+    /// returns the response with its receipt and proofs: the library form of the proxy, for
+    /// callers that need the receipt (the auditor agent).
+    ///
+    /// # Errors
+    ///
+    /// The OpenAI error code and message the HTTP proxy would answer with; a streamed request
+    /// is refused.
+    pub async fn complete(
+        &self,
+        body: &[u8],
+        pin: Option<&AccountId32>,
+    ) -> Result<Completed, (ErrorCode, String)> {
+        let (resp, first, expect, streaming) = self.start(body, pin).await?;
+        if streaming {
+            return Err((
+                ErrorCode::BadRequest,
+                "only non-streamed requests are supported here".into(),
+            ));
+        }
+        self.finish(resp, first, &expect).await
+    }
+
+    async fn chat(self: Arc<Self>, body: Vec<u8>, pin: Option<AccountId32>) -> Response {
+        let (resp, first, expect, streaming) = match self.start(&body, pin.as_ref()).await {
+            Ok(r) => r,
+            Err((code, message)) => return error(code, &message),
         };
         if streaming {
             let (tx, response) = http::streaming(200, "text/event-stream");
-            tokio::spawn(async move { self.stream(resp, first, expected, tx).await });
+            tokio::spawn(async move { self.stream(resp, first, expect, tx).await });
             response
         } else {
-            self.complete(resp, first, expected).await
+            match self.finish(resp, first, &expect).await {
+                Ok(c) => http::json(200, c.response),
+                Err((code, message)) => error(code, &message),
+            }
         }
     }
 
@@ -349,7 +420,7 @@ impl Proxy {
         &self,
         mut resp: SealedResponse,
         first: GatewayMsg,
-        expected: Option<ModelId>,
+        expect: Expect,
         tx: BodySender,
     ) {
         let mut observed: Option<Usage> = None;
@@ -387,7 +458,7 @@ impl Proxy {
                                 .settle(
                                     (&receipt, toploc.as_ref()),
                                     (fee, billed_total),
-                                    expected,
+                                    &expect,
                                     observed,
                                 )
                                 .await;
@@ -405,7 +476,7 @@ impl Proxy {
                         .settle(
                             (&receipt, toploc.as_ref()),
                             (fee, billed_total),
-                            expected,
+                            &expect,
                             observed,
                         )
                         .await
@@ -433,16 +504,19 @@ impl Proxy {
         }
     }
 
-    async fn complete(
+    async fn finish(
         &self,
         mut resp: SealedResponse,
         first: GatewayMsg,
-        expected: Option<ModelId>,
-    ) -> Response {
+        expect: &Expect,
+    ) -> Result<Completed, (ErrorCode, String)> {
         let GatewayMsg::Completion(completion) = first else {
-            return error(ErrorCode::ProviderFailed, "unexpected gateway response");
+            return Err((
+                ErrorCode::ProviderFailed,
+                "unexpected gateway response".into(),
+            ));
         };
-        let billing = match next_msg(&mut resp).await {
+        let (receipt, fee, billed, toploc) = match next_msg(&mut resp).await {
             Ok(GatewayMsg::Billing {
                 receipt,
                 fee,
@@ -450,29 +524,30 @@ impl Proxy {
                 toploc,
             }) => (receipt, fee, billed_total, toploc),
             Ok(GatewayMsg::Error { code, message }) => {
-                return error(code, &String::from_utf8_lossy(&message));
+                return Err((code, String::from_utf8_lossy(&message).into_owned()));
             }
-            Ok(_) => return error(ErrorCode::ProviderFailed, "unexpected gateway response"),
-            Err(e) => return error(ErrorCode::ProviderFailed, &format!("{e:#}")),
+            Ok(_) => {
+                return Err((
+                    ErrorCode::ProviderFailed,
+                    "unexpected gateway response".into(),
+                ));
+            }
+            Err(e) => return Err((ErrorCode::ProviderFailed, format!("{e:#}"))),
         };
         let observed = usage_of(&completion);
-        let (receipt, fee, billed, toploc) = billing;
-        if let Err(e) = self
-            .settle(
-                (&receipt, toploc.as_ref()),
-                (fee, billed),
-                expected,
-                observed,
-            )
+        self.settle((&receipt, toploc.as_ref()), (fee, billed), expect, observed)
             .await
-        {
-            return error(ErrorCode::PaymentRequired, &format!("{e:#}"));
-        }
+            .map_err(|e| (ErrorCode::PaymentRequired, format!("{e:#}")))?;
         let usage = Usage {
             prompt_tokens: receipt.body.in_tokens,
             completion_tokens: receipt.body.out_tokens,
         };
-        http::json(200, with_usage(&completion, usage))
+        Ok(Completed {
+            response: with_usage(&completion, usage),
+            receipt,
+            proofs: toploc,
+            fee,
+        })
     }
 
     /// Checks a bill and, if it is right, pays exactly the new total.
@@ -480,7 +555,7 @@ impl Proxy {
         &self,
         (receipt, toploc): (&SignedReceipt, Option<&ToplocProofs>),
         (fee, billed_total): (MicroUsd, MicroUsd),
-        expected: Option<ModelId>,
+        expect: &Expect,
         observed: Option<Usage>,
     ) -> Result<()> {
         let mut state = self.paid.lock().await;
@@ -490,7 +565,7 @@ impl Proxy {
                 "TOPLOC proofs do not match the receipt: {e}"
             )),
             Ok(()) => {
-                self.verify(receipt, fee, billed_total, (state.paid, expected, observed))
+                self.verify(receipt, fee, billed_total, (state.paid, expect, observed))
                     .await
             }
         };
@@ -529,14 +604,21 @@ impl Proxy {
         receipt: &SignedReceipt,
         fee: MicroUsd,
         billed_total: MicroUsd,
-        (paid, expected, observed): (Paid, Option<ModelId>, Option<Usage>),
+        (paid, expect, observed): (Paid, &Expect, Option<Usage>),
     ) -> Result<()> {
         let body = &receipt.body;
         if body.genesis != self.cfg.genesis || body.gateway != self.cfg.gateway {
             bail!("the receipt is for another chain or gateway");
         }
-        if expected.is_some_and(|m| m != body.model) {
+        if expect.model.is_some_and(|m| m != body.model) {
             bail!("the receipt names another model");
+        }
+        if expect
+            .provider
+            .as_ref()
+            .is_some_and(|p| *p != body.provider)
+        {
+            bail!("the receipt names another provider than the one the request is pinned to");
         }
         if observed.is_some_and(|u| {
             (u.prompt_tokens, u.completion_tokens) != (body.in_tokens, body.out_tokens)
@@ -630,6 +712,19 @@ async fn drain(resp: &mut SealedResponse) -> Result<GatewayMsg> {
             other => return Ok(other),
         }
     }
+}
+
+/// The provider a request's [`PROVIDER_HEADER`] names, if any.
+fn pinned_provider(req: &Request) -> Result<Option<AccountId32>, String> {
+    let Some(value) = req.headers().get(PROVIDER_HEADER) else {
+        return Ok(None);
+    };
+    let text = value
+        .to_str()
+        .map_err(|_| format!("{PROVIDER_HEADER} is not text"))?;
+    crate::parse_address(text)
+        .map(Some)
+        .map_err(|e| format!("{PROVIDER_HEADER}: {e}"))
 }
 
 fn error(code: ErrorCode, message: &str) -> Response {

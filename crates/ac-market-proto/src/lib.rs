@@ -13,7 +13,7 @@ pub mod toploc;
 use core::fmt;
 
 pub use announce::GatewayKey;
-pub use audit::{AuditEvidence, EvidenceError, EvidenceUsage};
+pub use audit::{AuditEvidence, EvidenceError, EvidenceRequest, EvidenceResponse, EvidenceUsage};
 pub use msg::{
     ErrorCode, GatewayMsg, PROTOCOL_VERSION, Payment, ProviderMsg, ProviderReq, Usage, UserMsg,
 };

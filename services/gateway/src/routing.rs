@@ -203,6 +203,27 @@ impl Router {
         (ordered, worst)
     }
 
+    /// The candidates of a request pinned to `provider`: that provider alone if it is
+    /// serviceable for `model` and not suspended, else none; with its maximum fee.
+    #[must_use]
+    pub fn pinned(
+        &self,
+        model: ModelId,
+        provider: &AccountId32,
+        input_bound: u64,
+        max_output: u32,
+    ) -> (Vec<Choice>, Option<MicroUsd>) {
+        let (choices, _) = self.candidates(model, input_bound, max_output);
+        let only: Vec<Choice> = choices
+            .into_iter()
+            .filter(|c| c.provider == *provider)
+            .collect();
+        let fee = only
+            .first()
+            .and_then(|c| max_fee(&c.price, input_bound, max_output));
+        (only, fee)
+    }
+
     /// Records an observed time to first token.
     pub fn observe(&self, provider: &AccountId32, ttft_ms: u32) {
         if let Ok(mut t) = self.ttft.lock() {

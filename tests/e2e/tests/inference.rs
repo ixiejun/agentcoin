@@ -308,6 +308,42 @@ async fn inference_through_the_market() {
     )
     .await;
 
+    // m6-auditor-agent 3.3 (spec clients/wallet-cli "代理指定提供者", market/gateway-service
+    // "指定提供者的请求"): the SDK pins the dear provider with the proxy's header and the dear
+    // provider serves; a provider that cannot serve gets an error and nothing is paid.
+    let receipts = |n: &str| {
+        std::fs::read_dir(data(n).join("receipts"))
+            .map(|d| d.count())
+            .unwrap_or(0)
+    };
+    let paid_now = || -> u128 {
+        serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(&state).unwrap())
+            .unwrap()["paid"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap()
+    };
+    let (cheap_before, dear_before, paid_before) =
+        (receipts("cheap"), receipts("dear"), paid_now());
+    let pinned = common::openai_pinned(&via_proxy, MODEL_NAME, &providers[1].wallet.address());
+    assert!(
+        pinned["usage"]["completion_tokens"].as_u64().unwrap() > 0,
+        "{pinned}"
+    );
+    wait_until(
+        "the dear provider to store the pinned request's receipt",
+        Duration::from_secs(30),
+        || async { receipts("dear") == dear_before + 1 },
+    )
+    .await;
+    assert_eq!(receipts("cheap"), cheap_before);
+    assert!(paid_now() > paid_before);
+    let paid_pinned = paid_now();
+    let refused = common::openai_pinned(&via_proxy, MODEL_NAME, &user.address());
+    assert_eq!(refused["error"]["code"], "no_provider", "{refused}");
+    assert_eq!(paid_now(), paid_pinned);
+
     // Failover: stop the cheap provider; requests are served by the dear one.
     let dear = account(&providers[1].wallet.address());
     running[0] = None;
