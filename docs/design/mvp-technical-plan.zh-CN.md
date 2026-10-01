@@ -396,6 +396,12 @@ Provider {
 
 **效果**：用户内容永远不会进入审计流程；提供者既然无法区分审计和真实请求，就只能对所有请求都诚实服务。
 
+- **实际实现**（m6-toploc-verify，即第 3 步的复核；链上部分即第 1、4、5 步，随 `m6-audit-chain` 与 `m6-auditor-agent` 实现）：
+  - **复核**：`ac-auditor recheck` 读入一个案例（请求的 messages、回答、用量、签名收据与证明），检查收据承诺了这些证明与 token 数量，用引擎自己的分词器与对话模板重现 prompt 与回答的 token，并在 TOPLOC 插件处于复核模式（`AGENTCOIN_TOPLOC_MODE=verify`，本机协议 v2）的 vLLM 中作为**一次预填充**运行。插件发出每个 token 行的 top-k 候选；prompt 之后的各行代表提供者的各个解码步骤。`ac-toploc::compare_from_candidates` 把它们按证明的分块重组并比对，得到与用全量激活值比对相同的指标。
+  - **判定**：每块按 `ac-market-proto` 中的 `AUDIT_THRESHOLDS` 判定（指数不一致次数、尾数误差均值与中位数的整数上限；预填充块由审计员以与提供者相同的方式计算，用严格阈值，解码块用较宽的阈值）；每一块都通过，推理才通过。没有证明（承诺全零）或证明与承诺不符判为**不通过**（I-008）。注册为 bfloat16 以外精度的模型、无法重现 token 的回答以及引擎错误判为**无法判定**，绝不判为不通过。
+  - **校准**：阈值来自在 CPU 上用 vLLM 生成并复核的诚实样本与四类作弊（换模型、int8 与 int4 权重、隐藏的 system prompt）（`scripts/calibrate-toploc.py`，工作流 `toploc-calibration`；[报告](../guides/toploc-calibration.zh-CN.md)）；CI 每次推送都运行一个小规模版本。α 测试网之前必须在 GPU 上校准（I-012）。
+  - **隐私**：审计员的日志只含案例名、结果与指标，绝不含 prompt 或回答。
+
 ### 5.6 `pallet-public-jobs`（精简版）
 
 - 任务类型（MVP）：模型评测（跑公开基准并提交分数）、数据清洗和去重、嵌入计算。
@@ -580,7 +586,7 @@ agentcoin/
 | **M9 审计** | 15–18 | 外部安全审计（电路、共识、经济），修复问题 | 无未修复的严重 / 高危问题 |
 | **🚀 主网 Beta** | ≈18 | 创世（PoA，无预挖），网关只接受匿名凭证 | §0.4 的全部指标达标 |
 
-**状态**（2026-09）：M0–M5 已完成。M5：市场登记（参考汇率、模型、提供者、网关、透明额度、钱包 `market` 命令）、工作结算（签名收据、工作报告、销毁与款项分配、挑战期延迟、市场排放与领取、TOPLOC 移植、钱包 `receipt` / `report` / `claim` 命令）以及网关与提供者服务（密封通道、面向 OpenAI SDK 的后付费本地代理、路由与故障切换、自动报告与领取，已用 OpenAI Python SDK 与模拟引擎做端到端测试）以及引擎内的 TOPLOC 证明（vLLM 插件，证明由网关与代理校验，已在 CI 中用真实的 CPU 版 vLLM 测试）均已完成：M5 完成。M4：带 PQ 预编译的 `pallet-revive`、eth-RPC 适配器和 Foundry 外部签名器，已用 ERC-20 与官方 Uniswap V2 合约（CREATE2 创建配对、添加流动性、兑换）做过端到端测试。合约权重：PQ 预编译（`pallet-evm-support`）使用在本 runtime 上实测的权重；`pallet-revive` 保留上游的 `SubstrateWeight`，因为它的基准要铸币来准备账户，而本链防增发的货币封装会拒绝铸币。runtime 测试检查了在这组权重下，最重的合约调用和部署仍放得进一笔普通交易。
+**状态**（2026-10）：M0–M5 已完成；M6 进行中。M5：市场登记（参考汇率、模型、提供者、网关、透明额度、钱包 `market` 命令）、工作结算（签名收据、工作报告、销毁与款项分配、挑战期延迟、市场排放与领取、TOPLOC 移植、钱包 `receipt` / `report` / `claim` 命令）以及网关与提供者服务（密封通道、面向 OpenAI SDK 的后付费本地代理、路由与故障切换、自动报告与领取，已用 OpenAI Python SDK 与模拟引擎做端到端测试）以及引擎内的 TOPLOC 证明（vLLM 插件，证明由网关与代理校验，已在 CI 中用真实的 CPU 版 vLLM 测试）均已完成：M5 完成。M6：TOPLOC 复核及其校准阈值（`ac-auditor recheck`、插件的复核模式、`AUDIT_THRESHOLDS`）已完成；裁决上链、争议与罚没、审计员代理的神秘顾客审计和公共任务随后进行。M4：带 PQ 预编译的 `pallet-revive`、eth-RPC 适配器和 Foundry 外部签名器，已用 ERC-20 与官方 Uniswap V2 合约（CREATE2 创建配对、添加流动性、兑换）做过端到端测试。合约权重：PQ 预编译（`pallet-evm-support`）使用在本 runtime 上实测的权重；`pallet-revive` 保留上游的 `SubstrateWeight`，因为它的基准要铸币来准备账户，而本链防增发的货币封装会拒绝铸币。runtime 测试检查了在这组权重下，最重的合约调用和部署仍放得进一笔普通交易。
 
 **关键路径**：M1 → M2 → M5 → M7 → M9。M7（STARK 电路）风险最高，因此 M7 与 M5 / M6 并行启动，并在第 9 个月前完成选型。
 
