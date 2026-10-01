@@ -1,0 +1,356 @@
+//! m6-toploc-verify 6.1–6.3: re-checks against the mock engine (spec `market/auditor-agent`).
+//! A prove-mode mock engine answers a chat request and its plugin's candidates become a case
+//! (`calibration::case_from`); a verify-mode mock engine re-checks it. The same model seed plays
+//! an honest provider, another seed another model.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    missing_docs
+)]
+
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::Duration;
+
+use ac_auditor::calibration::{CalibrationInput, InputSegment, case_from};
+use ac_auditor::case::{CaseUsage, FailReason, Inconclusive, Outcome};
+use ac_auditor::logging::{self, Sink};
+use ac_auditor::{EngineClient, RecheckCase, Rows, Verifier};
+use ac_market_proto::engine::{
+    ENGINE_PROTOCOL_VERSION, EngineMode, EngineMsg, EngineReader, request_id_header,
+};
+use ac_market_proto::toploc::Metric;
+use ac_mock_engine::{Config, PluginConfig, spawn};
+use ac_primitives::market::model::QuantType;
+use ac_toploc::Phase;
+use ac_wallet::http::{Client, join, read_body};
+use serde_json::{Value, json};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+static LOGS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+const MODEL: &str = "0x0707070707070707070707070707070707070707070707070707070707070707";
+const MARKER: &str = "wombat-marker-3c9f";
+
+fn dir(label: &str) -> PathBuf {
+    let d = std::env::temp_dir().join(format!("ac-auditor-{label}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+/// A prove-mode receiver: the segments of each request, up to its end marker, as the provider
+/// would get them.
+async fn prove_receiver(
+    path: &Path,
+) -> tokio::sync::mpsc::UnboundedReceiver<Vec<(Phase, u32, Vec<(u32, u16)>)>> {
+    let listener = tokio::net::UnixListener::bind(path).unwrap();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        let (mut s, _) = listener.accept().await.unwrap();
+        let mut reader = EngineReader::new();
+        let mut buf = vec![0u8; 1 << 16];
+        let (mut greeted, mut current) = (false, Vec::new());
+        loop {
+            let n = s.read(&mut buf).await.unwrap();
+            if n == 0 {
+                return;
+            }
+            reader.push(&buf[..n]);
+            while let Some(m) = reader.next_msg().unwrap() {
+                match m {
+                    EngineMsg::Hello { .. } if !greeted => {
+                        let w = EngineMsg::Welcome {
+                            version: ENGINE_PROTOCOL_VERSION,
+                            topk: 128,
+                        };
+                        s.write_all(&w.to_frame().unwrap()).await.unwrap();
+                        greeted = true;
+                    }
+                    EngineMsg::Segment {
+                        phase,
+                        len,
+                        candidates,
+                        ..
+                    } => current.push((
+                        phase,
+                        len,
+                        candidates.iter().map(|c| (c.index, c.value.0)).collect(),
+                    )),
+                    EngineMsg::Finish { .. } => tx.send(std::mem::take(&mut current)).unwrap(),
+                    other => panic!("unexpected {other:?}"),
+                }
+            }
+        }
+    });
+    rx
+}
+
+fn mock(socket: PathBuf, mode: EngineMode, seed: u64) -> Config {
+    Config {
+        ttft: Duration::ZERO,
+        token_interval: Duration::ZERO,
+        toploc: Some(PluginConfig {
+            socket,
+            half_decode: false,
+            mode,
+        }),
+        model_seed: seed,
+        ..Config::default()
+    }
+}
+
+/// A provider (mock engine of `seed`) answers `words` with up to `max` tokens; the case of it.
+async fn answered(label: &str, seed: u64, words: &str, max: u32, proofs: bool) -> RecheckCase {
+    let d = dir(&format!("prover-{label}"));
+    let socket = d.join("p.sock");
+    let mut rx = prove_receiver(&socket).await;
+    let engine = spawn("127.0.0.1:0", mock(socket, EngineMode::Prove, seed))
+        .await
+        .unwrap();
+    let messages = json!([{"role": "user", "content": words}]);
+    let resp = Client::new()
+        .unwrap()
+        .post_with(
+            &join(&engine.url(), "/v1/chat/completions"),
+            "application/json",
+            &[("x-request-id", &request_id_header(&[seed as u8; 32]))],
+            json!({"model": "mock-model", "messages": messages, "max_tokens": max}).to_string(),
+        )
+        .await
+        .unwrap();
+    let reply: Value =
+        serde_json::from_slice(&read_body(resp.into_body(), 1 << 20).await.unwrap()).unwrap();
+    let segments = rx.recv().await.unwrap();
+    let usage = CaseUsage {
+        prompt_tokens: reply["usage"]["prompt_tokens"].as_u64().unwrap() as u32,
+        completion_tokens: reply["usage"]["completion_tokens"].as_u64().unwrap() as u32,
+    };
+    let input = CalibrationInput {
+        model: MODEL.into(),
+        engine_model: "mock-model".into(),
+        messages,
+        output: reply["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap()
+            .into(),
+        finish_reason: reply["choices"][0]["finish_reason"]
+            .as_str()
+            .unwrap()
+            .into(),
+        usage,
+        segments: proofs.then(|| {
+            segments
+                .into_iter()
+                .map(|(phase, len, candidates)| InputSegment {
+                    phase: if phase == Phase::Prefill {
+                        "prefill"
+                    } else {
+                        "decode"
+                    }
+                    .into(),
+                    len,
+                    candidates,
+                })
+                .collect()
+        }),
+    };
+    std::fs::remove_dir_all(&d).unwrap();
+    case_from(input).unwrap()
+}
+
+/// An auditor whose verify-mode engine plays the model `seed`, once its plugin connected.
+async fn auditor(label: &str, seed: u64) -> (Verifier, PathBuf) {
+    logging::init(log::LevelFilter::Debug, Sink::Buffer(&LOGS));
+    let d = dir(&format!("verifier-{label}"));
+    let socket = d.join("v.sock");
+    let rows = Rows::listen(&socket).unwrap();
+    let engine = spawn("127.0.0.1:0", mock(socket, EngineMode::Verify, seed))
+        .await
+        .unwrap();
+    // The mock's plugin connects on its first request; warm it up.
+    let client = EngineClient::new(&engine.url()).unwrap();
+    client
+        .prefill("mock-model", &[1, 2], &"00".repeat(32))
+        .await
+        .unwrap();
+    for _ in 0..100 {
+        if rows.connections() > 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(rows.connections(), 1);
+    let mut v = Verifier::new(client, rows);
+    v.rows_wait = Duration::from_secs(2);
+    (v, d)
+}
+
+const WORDS: &str = "the quick brown fox jumps over the lazy dog again and again";
+
+// Scenarios "诚实提供者" and "因长度上限结束": 40 output tokens ending on the length limit
+// give 1 + ⌈39 / 32⌉ = 3 chunks, all within the thresholds. No content in the logs (scenario
+// "复核不记录内容").
+#[tokio::test]
+async fn an_honest_provider_passes() {
+    let case = answered("honest", 7, &format!("{WORDS} {MARKER}"), 40, true).await;
+    assert_eq!(case.finish_reason, "length");
+    let (v, d) = auditor("honest", 7).await;
+    let report = v.recheck(&case, QuantType::Bf16).await;
+    assert_eq!(report.verdict, Outcome::Pass, "{report:?}");
+    assert_eq!(report.chunks.len(), 3);
+    assert!(
+        report
+            .chunks
+            .iter()
+            .all(|c| c.exp_mismatches == 0 && c.mant_err_sum == 0)
+    );
+    let logs = LOGS.lock().unwrap().join("\n");
+    assert!(logs.contains("re-check"), "{logs}");
+    assert!(!logs.contains(MARKER));
+    assert!(!format!("{case:?}").contains(MARKER));
+    std::fs::remove_dir_all(d).unwrap();
+}
+
+// Scenario "换了模型".
+#[tokio::test]
+async fn another_model_fails_on_a_chunk() {
+    let case = answered("swap", 8, WORDS, 20, true).await;
+    let (v, d) = auditor("swap", 7).await;
+    let report = v.recheck(&case, QuantType::Bf16).await;
+    assert!(
+        matches!(
+            report.verdict,
+            Outcome::Fail(FailReason::Threshold {
+                chunk: 0,
+                metric: Metric::ExpMismatches
+            })
+        ),
+        "{report:?}"
+    );
+    assert_eq!(report.outcome, "fail");
+    assert!(report.reason.starts_with("chunk 0"));
+    std::fs::remove_dir_all(d).unwrap();
+}
+
+// Scenarios "全零承诺", "int4 模型" and "证明与承诺不符", and receipts of another inference.
+#[tokio::test]
+async fn proofs_precision_and_inputs() {
+    let (v, d) = auditor("inputs", 7).await;
+    let no_proof = answered("noproof", 7, WORDS, 10, false).await;
+    assert!(no_proof.toploc.is_none());
+    assert_eq!(
+        v.recheck(&no_proof, QuantType::Bf16).await.verdict,
+        Outcome::Fail(FailReason::NoProof)
+    );
+    // An int4 model is never failed, not even without proofs.
+    assert_eq!(
+        v.recheck(&no_proof, QuantType::Int4).await.verdict,
+        Outcome::Inconclusive(Inconclusive::UnsupportedPrecision)
+    );
+    // Proofs of another inference with the same counts.
+    let case = answered("a", 7, WORDS, 10, true).await;
+    let other = answered("b", 8, WORDS, 10, true).await;
+    let mut swapped = case.clone();
+    swapped.toploc.clone_from(&other.toploc);
+    assert_eq!(
+        v.recheck(&swapped, QuantType::Bf16).await.verdict,
+        Outcome::Fail(FailReason::CommitmentMismatch)
+    );
+    // A receipt whose counts are not the answer's.
+    let mut wrong = case.clone();
+    wrong.usage.completion_tokens += 1;
+    assert_eq!(
+        v.recheck(&wrong, QuantType::Bf16).await.verdict,
+        Outcome::Inconclusive(Inconclusive::InputMismatch)
+    );
+    std::fs::remove_dir_all(d).unwrap();
+}
+
+// Scenario "token 数不符", and finish reasons the rules do not cover.
+#[tokio::test]
+async fn tokens_that_cannot_be_recreated() {
+    let (v, d) = auditor("tokens", 7).await;
+    let case = answered("tokens", 7, WORDS, 12, true).await;
+    let mut short = case.clone();
+    let words: Vec<&str> = case.output.split_whitespace().collect();
+    short.output = words[..words.len() - 2]
+        .iter()
+        .map(|w| format!("{w} "))
+        .collect();
+    assert_eq!(
+        v.recheck(&short, QuantType::Bf16).await.verdict,
+        Outcome::Inconclusive(Inconclusive::Tokens)
+    );
+    // With "stop" the text shows one token less than the count: 12 shown is one too many.
+    let mut stop = case.clone();
+    stop.finish_reason = "stop".into();
+    assert_eq!(
+        v.recheck(&stop, QuantType::Bf16).await.verdict,
+        Outcome::Inconclusive(Inconclusive::Tokens)
+    );
+    let mut filtered = case.clone();
+    filtered.finish_reason = "content_filter".into();
+    assert_eq!(
+        v.recheck(&filtered, QuantType::Bf16).await.verdict,
+        Outcome::Inconclusive(Inconclusive::Tokens)
+    );
+    std::fs::remove_dir_all(d).unwrap();
+}
+
+// A re-check engine whose rows never arrive (its plugin sends elsewhere) is inconclusive.
+#[tokio::test]
+async fn missing_rows_are_an_engine_error() {
+    let d = dir("norows");
+    let rows = Rows::listen(&d.join("v.sock")).unwrap();
+    let engine = spawn(
+        "127.0.0.1:0",
+        mock(d.join("elsewhere.sock"), EngineMode::Verify, 7),
+    )
+    .await
+    .unwrap();
+    let mut v = Verifier::new(EngineClient::new(&engine.url()).unwrap(), rows);
+    v.rows_wait = Duration::from_millis(300);
+    let case = answered("norows", 7, WORDS, 10, true).await;
+    assert_eq!(
+        v.recheck(&case, QuantType::Bf16).await.verdict,
+        Outcome::Inconclusive(Inconclusive::Engine)
+    );
+    // An engine that is not there at all.
+    let v = Verifier::new(
+        EngineClient::new("http://127.0.0.1:9").unwrap(),
+        Rows::listen(&d.join("w.sock")).unwrap(),
+    );
+    assert_eq!(
+        v.recheck(&case, QuantType::Bf16).await.verdict,
+        Outcome::Inconclusive(Inconclusive::Engine)
+    );
+    std::fs::remove_dir_all(d).unwrap();
+}
+
+// Scenario "复核程序拒绝证明模式": a prove-mode plugin gets a top-k of 0 and is not counted.
+#[tokio::test]
+async fn a_prove_mode_plugin_is_turned_away() {
+    let d = dir("prove-plugin");
+    let path = d.join("v.sock");
+    let rows = Rows::listen(&path).unwrap();
+    let mut stream = tokio::net::UnixStream::connect(&path).await.unwrap();
+    let hello = EngineMsg::Hello {
+        version: ENGINE_PROTOCOL_VERSION,
+        hidden_size: 256,
+        mode: EngineMode::Prove,
+    };
+    stream.write_all(&hello.to_frame().unwrap()).await.unwrap();
+    let mut reply = Vec::new();
+    stream.read_to_end(&mut reply).await.unwrap();
+    assert_eq!(
+        EngineMsg::decode(&reply[4..]).unwrap(),
+        EngineMsg::Welcome {
+            version: ENGINE_PROTOCOL_VERSION,
+            topk: 0
+        }
+    );
+    assert_eq!(rows.connections(), 0);
+    std::fs::remove_dir_all(d).unwrap();
+}

@@ -1,0 +1,38 @@
+[package]
+name = "ac-auditor"
+description = "AgentCoin auditor agent: re-checks the TOPLOC proofs of inferences against the declared model with a verify-mode engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "GPL-3.0-or-later"
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "ac-auditor"
+path = "src/main.rs"
+
+[dependencies]
+ac-crypto = { workspace = true, features = ["std", "getrandom"] }
+ac-market-proto = { workspace = true }
+ac-primitives = { workspace = true, features = ["std"] }
+ac-toploc = { workspace = true, features = ["std"] }
+ac-wallet = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+hex = { workspace = true, features = ["std"] }
+log = { workspace = true, features = ["std"] }
+parity-scale-codec = { workspace = true, features = ["std"] }
+rand_core = { workspace = true }
+serde = { workspace = true, features = ["std", "derive"] }
+serde_json = { workspace = true, features = ["std"] }
+sp-core = { workspace = true, features = ["std"] }
+sp-runtime = { workspace = true, features = ["std"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net", "sync", "fs", "io-util"] }
+
+[dev-dependencies]
+ac-mock-engine = { workspace = true }
+
+[lints]
+workspace = true

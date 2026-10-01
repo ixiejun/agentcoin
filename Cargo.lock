@@ -13,6 +13,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "ac-auditor"
+version = "0.1.0"
+dependencies = [
+ "ac-crypto",
+ "ac-market-proto",
+ "ac-mock-engine",
+ "ac-primitives",
+ "ac-toploc",
+ "ac-wallet",
+ "anyhow",
+ "clap",
+ "hex",
+ "log",
+ "parity-scale-codec",
+ "rand_core 0.10.1",
+ "serde",
+ "serde_json",
+ "sp-core",
+ "sp-runtime",
+ "tokio",
+]
+
+[[package]]
 name = "ac-consensus-aura-pq"
 version = "0.1.0"
 dependencies = [
