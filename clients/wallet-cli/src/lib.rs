@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 pub mod amount;
+pub mod audit;
 pub mod client;
 pub mod evm;
 pub mod http;

@@ -115,6 +115,30 @@ ac-wallet market work --epoch 12                                          # 某�
 | `market claim [--account] [--epochs]` | 为某账户（默认钱包自己的）领取已结算纪元的全部冻结款项与排放份额 |
 | `market work [--account \| --epoch]` | 某账户的累计工作量、冻结款项与未领取的工作量，或某纪元的已核验工作量与市场排放 |
 
+## 审计
+
+审计员（m6-audit-chain；`pallet-audit`）质押、每轮被分配给提供者、根据 `ac-auditor` 的复核结果提交裁决，并在争议中投票。钱包在签名前检查本账户在当前轮次被分配给收据中的提供者。
+
+```bash
+ac-wallet audit register --wallet a.json                   # 质押：当前门槛
+ac-wallet audit assignments --wallet a.json                # 本轮被分配的提供者
+ac-wallet audit verdict --wallet a.json --report r.json --case c.json
+ac-wallet audit disputes --provider atc1…                   # 未关闭的争议、复核人、计数
+ac-wallet audit vote --wallet a.json --provider atc1… --id 0 --vote confirm
+ac-wallet audit close --wallet any.json --provider atc1… --id 0   # 期满后
+ac-wallet audit status --address atc1…
+ac-wallet audit pot && ac-wallet audit params
+```
+
+| 命令 | 作用 |
+|---|---|
+| `audit register [--stake]`、`bond`、`unbond`、`exit`、`withdraw` | 审计员质押，与提供者相同 |
+| `audit assignments` | 当前轮次与本账户被分配的提供者（已提交或待提交） |
+| `audit verdict --report --case` | 提交一行 `ac-auditor recheck` 结果对某案例的裁决：结果与阈值版本取自该行，收据取自案例，不通过时附证据承诺（并打印）；本账户未被分配时在签名前拒绝 |
+| `audit disputes --provider` | 提供者的裁决计数、未关闭的争议、提出者与复核人的投票 |
+| `audit vote --provider --id --vote confirm\|reject`、`audit close` | 以复核人身份投票；期满后关闭未决的争议 |
+| `audit status`、`audit pot`、`audit params` | 审计员记录与计数；资金池；参数 |
+
 ## 本地推理代理
 
 `ac-wallet market serve` 在本机提供 OpenAI 兼容接口（`GET /v1/models`、`POST /v1/chat/completions`，流式与非流式），用你的额度通道向网关付费，使未修改的 OpenAI SDK 可以直接使用推理市场。命令与 Python 示例见英文版 [README.md](README.md)：先托管额度，再运行 `market serve --gateway <网关地址> --max-usd 5`，然后把 OpenAI SDK 的 `base_url` 指向 `http://127.0.0.1:8411/v1`（模型可写名称或 `0x…` ID）。

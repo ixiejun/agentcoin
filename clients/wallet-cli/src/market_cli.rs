@@ -238,6 +238,18 @@ pub struct Signed {
     node: NodeArgs,
 }
 
+impl Signed {
+    /// The wallet arguments.
+    pub(crate) fn wallet(&self) -> &WalletArgs {
+        &self.wallet
+    }
+
+    /// The node arguments.
+    pub(crate) fn node(&self) -> &NodeArgs {
+        &self.node
+    }
+}
+
 #[derive(Debug, clap::Subcommand)]
 pub enum ProviderCommand {
     /// Register as a provider.
@@ -450,7 +462,7 @@ fn models(
     BoundedVec::try_from(list).map_err(|_| anyhow::anyhow!("at most 16 models"))
 }
 
-async fn send(signed: &Signed, call: RuntimeCall) -> Result<()> {
+pub(crate) async fn send(signed: &Signed, call: RuntimeCall) -> Result<()> {
     let w = load(&signed.wallet.wallet)?;
     let pw = password(&signed.wallet, false)?;
     let client = NodeClient::new(&signed.node.node)?;

@@ -137,6 +137,32 @@ ac-wallet market work --epoch 12                                          # an e
 | `market claim [--account] [--epochs]` | claims every held payment and emission share of settled epochs for an account (by default the wallet's) |
 | `market work [--account \| --epoch]` | an account's lifetime work, held payments and unclaimed work, or an epoch's verified work and market emission |
 
+## Audits
+
+Auditors (m6-audit-chain; `pallet-audit`) stake, get assigned to providers each round, submit
+verdicts from `ac-auditor` re-checks and vote in disputes. The wallet checks before signing that
+the account is assigned to the receipt's provider in the current round.
+
+```bash
+ac-wallet audit register --wallet a.json                   # stake: the current threshold
+ac-wallet audit assignments --wallet a.json                # this round's providers
+ac-wallet audit verdict --wallet a.json --report r.json --case c.json
+ac-wallet audit disputes --provider atc1…                   # open dispute, reviewers, counts
+ac-wallet audit vote --wallet a.json --provider atc1… --id 0 --vote confirm
+ac-wallet audit close --wallet any.json --provider atc1… --id 0   # after the deadline
+ac-wallet audit status --address atc1…
+ac-wallet audit pot && ac-wallet audit params
+```
+
+| Command | What it does |
+|---|---|
+| `audit register [--stake]`, `bond`, `unbond`, `exit`, `withdraw` | auditor stake, as for providers |
+| `audit assignments` | the current round and the providers the account is assigned to (submitted or pending) |
+| `audit verdict --report --case` | submits the verdict of an `ac-auditor recheck` line on a case: outcome and thresholds version from the line, receipt from the case and, for a failure, the evidence commitment (printed); refuses before signing if the account is not assigned |
+| `audit disputes --provider` | a provider's verdict counts, open dispute, accusers and reviewers' votes |
+| `audit vote --provider --id --vote confirm\|reject`, `audit close` | votes as a reviewer; closes an undecided dispute after its deadline |
+| `audit status`, `audit pot`, `audit params` | an auditor's record and counts; the pot; the parameters |
+
 ## Local inference proxy
 
 `ac-wallet market serve` runs an OpenAI-compatible endpoint on this machine (`GET /v1/models`,

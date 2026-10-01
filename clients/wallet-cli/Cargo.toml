@@ -34,6 +34,7 @@ jsonrpsee = { workspace = true, features = ["http-client"] }
 pallet-balances = { workspace = true, features = ["std"] }
 pallet-credits = { workspace = true, features = ["std"] }
 pallet-work = { workspace = true, features = ["std"] }
+pallet-audit = { workspace = true, features = ["std"] }
 pallet-gateways = { workspace = true, features = ["std"] }
 pallet-model-registry = { workspace = true, features = ["std"] }
 pallet-providers = { workspace = true, features = ["std"] }
@@ -51,6 +52,7 @@ zeroize = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
 ac-toploc = { workspace = true, features = ["std"] }
+ac-crypto = { workspace = true, features = ["std", "keystore", "mnemonic", "getrandom", "sealed", "deterministic"] }
 
 [lints]
 workspace = true
