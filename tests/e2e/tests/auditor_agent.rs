@@ -298,7 +298,7 @@ async fn agents_find_a_provider_that_starts_cheating() {
             "payers": [{"wallet": payer.file, "password_file": payer.password, "gateways": [g]}],
             "prompts": {"bank": bank, "bank_percent": 100, "min_tokens": 8, "max_tokens": 24},
         });
-        let cfg_file = base.join(format!("auditor{i}.json"));
+        let cfg_file = base.join(format!("agent{i}-config.json"));
         std::fs::write(&cfg_file, cfg.to_string()).unwrap();
         let mut agent = Command::new(bin("ac-auditor"));
         agent
