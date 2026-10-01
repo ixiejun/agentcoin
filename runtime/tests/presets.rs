@@ -205,7 +205,8 @@ fn audit_parameters() {
     let live = pallet_audit::GenesisConfig::<Runtime>::default().params;
     let (fixed, adjustable) = live.split();
     assert_eq!(fixed, AuditParams::LIVE);
-    assert_eq!(fixed.round_blocks, 1_800);
+    // m6-auditor-agent design D10: 20 minutes, so a cheat is found within two rounds and a vote.
+    assert_eq!(fixed.round_blocks, 1_200);
     assert_eq!((fixed.reviewers, fixed.quorum), (5, 3));
     assert_eq!(fixed.provider_slash, Perbill::from_percent(10));
     assert_eq!(fixed.auditor_slash, Perbill::from_percent(10));

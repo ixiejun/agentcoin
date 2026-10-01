@@ -14,12 +14,16 @@ name = "ac-auditor"
 path = "src/main.rs"
 
 [dependencies]
-ac-crypto = { workspace = true, features = ["std", "getrandom"] }
+ac-crypto = { workspace = true, features = ["std", "getrandom", "sealed"] }
 ac-market-proto = { workspace = true }
 ac-primitives = { workspace = true, features = ["std"] }
 ac-toploc = { workspace = true, features = ["std"] }
+ac-runtime = { workspace = true, features = ["std"] }
 ac-wallet = { workspace = true }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
+frame-support = { workspace = true, features = ["std"] }
+pallet-audit = { workspace = true, features = ["std"] }
 clap = { workspace = true }
 hex = { workspace = true, features = ["std"] }
 log = { workspace = true, features = ["std"] }
@@ -32,6 +36,7 @@ sp-runtime = { workspace = true, features = ["std"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net", "sync", "fs", "io-util"] }
 
 [dev-dependencies]
+ac-crypto = { workspace = true, features = ["std", "getrandom", "sealed", "deterministic"] }
 ac-mock-engine = { workspace = true }
 
 [lints]

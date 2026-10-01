@@ -116,6 +116,21 @@ pub enum AuditCommand {
         #[arg(long)]
         id: u64,
     },
+    /// Set or clear the endpoint where this auditor serves the evidence of its failing
+    /// verdicts to reviewers (`ac-auditor run` sets it by itself).
+    Endpoint {
+        #[command(flatten)]
+        signed: Signed,
+        /// The endpoint URL (with --kem-key).
+        #[arg(long, requires = "kem_key", conflicts_with = "clear")]
+        set: Option<String>,
+        /// The X-Wing public key reviewers encrypt to (hex, as `ac-auditor keygen` prints).
+        #[arg(long, requires = "set")]
+        kem_key: Option<String>,
+        /// Remove the endpoint.
+        #[arg(long)]
+        clear: bool,
+    },
     /// Show the audit pot.
     Pot {
         #[command(flatten)]
@@ -138,6 +153,27 @@ pub fn parse_vote(text: &str) -> Result<Vote> {
         "confirm" => Ok(Vote::Confirm),
         "reject" => Ok(Vote::Reject),
         other => bail!("a vote is `confirm` or `reject`, not `{other}`"),
+    }
+}
+
+/// The `set_endpoint` argument of `audit endpoint`.
+///
+/// # Errors
+///
+/// Neither `--set` nor `--clear`, a bad key or an overlong endpoint.
+pub fn endpoint_arg(
+    set: Option<String>,
+    kem_key: Option<String>,
+    clear: bool,
+) -> Result<Option<pallet_audit::AuditorEndpoint>> {
+    match (set, kem_key, clear) {
+        (None, None, true) => Ok(None),
+        (Some(url), Some(key), false) => {
+            let url = frame_support::BoundedVec::try_from(url.into_bytes())
+                .map_err(|_| anyhow::anyhow!("the endpoint is too long"))?;
+            Ok(Some((url, ac_wallet::market::parse_kem_key(&key)?)))
+        }
+        _ => bail!("give --set URL --kem-key KEY, or --clear"),
     }
 }
 
@@ -179,6 +215,17 @@ pub async fn run(command: AuditCommand) -> Result<()> {
             },
         ),
         AuditCommand::Exit { signed } => (signed, pallet_audit::Call::exit {}),
+        AuditCommand::Endpoint {
+            signed,
+            set,
+            kem_key,
+            clear,
+        } => (
+            signed,
+            pallet_audit::Call::set_endpoint {
+                endpoint: endpoint_arg(set, kem_key, clear)?,
+            },
+        ),
         AuditCommand::Withdraw { signed } => (signed, pallet_audit::Call::withdraw_unbonded {}),
         AuditCommand::Verdict {
             signed,
@@ -256,6 +303,10 @@ pub async fn run(command: AuditCommand) -> Result<()> {
                     }
                 }
                 None => println!("status: not registered"),
+            }
+            match client.audit_endpoint(&who).await? {
+                Some((url, _)) => println!("evidence endpoint: {}", String::from_utf8_lossy(&url)),
+                None => println!("evidence endpoint: none"),
             }
             let s = client.audit_auditor_stats(&who).await?;
             println!(
@@ -342,6 +393,22 @@ pub async fn run(command: AuditCommand) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Spec clients/wallet-cli (m6-auditor-agent 4.5): `audit endpoint` takes a URL and a key, or
+    // --clear.
+    #[test]
+    fn endpoint_arguments() {
+        let key = ac_crypto::KemPublicKey::new(ac_crypto::KemAlg::XWing, &[7; 1216]).unwrap();
+        let hex_key = hex::encode(key.to_canonical());
+        let (url, k) = endpoint_arg(Some("http://a:1".into()), Some(hex_key.clone()), false)
+            .unwrap()
+            .unwrap();
+        assert_eq!((&url[..], k), (&b"http://a:1"[..], key));
+        assert!(endpoint_arg(None, None, true).unwrap().is_none());
+        assert!(endpoint_arg(None, None, false).is_err());
+        assert!(endpoint_arg(Some("u".into()), Some("zz".into()), false).is_err());
+        assert!(endpoint_arg(Some("x".repeat(10_000)), Some(hex_key), false).is_err());
+    }
 
     #[test]
     fn votes_parse() {

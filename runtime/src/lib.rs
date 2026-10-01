@@ -29,7 +29,7 @@ pub struct ReadmeDoctests;
 mod benchmarks;
 mod apis;
 mod configs;
-pub use configs::RuntimeCallFilter;
+pub use configs::{AuditRetentionRounds, RuntimeCallFilter};
 pub mod evm_filter;
 pub mod genesis_config_presets;
 pub mod holder_lock;
@@ -65,7 +65,8 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // 5: the inference market: reference rate, models, providers, gateways, credits (m5).
     // 6: work settlement and market work emission (m5-work-settlement).
     // 7: on-chain audits (m6-audit-chain).
-    spec_version: 7,
+    // 8: auditors' evidence endpoints and the 20-minute live round (m6-auditor-agent).
+    spec_version: 8,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     // 2: `AuthorizeCall` joined the extension pipeline (m2-finality); encodings are unchanged.
@@ -87,7 +88,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     impl_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     authoring_version: 1,
-    spec_version: 8,
+    spec_version: 9,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     transaction_version: 7,

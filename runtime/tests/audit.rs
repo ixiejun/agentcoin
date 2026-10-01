@@ -17,7 +17,7 @@ use ac_primitives::market::audit::{AuditMetric, FailReason, VerdictOutcome, Vote
 use ac_primitives::market::model::QuantType;
 use ac_primitives::market::receipt::{RECEIPT_CONTEXT, fee_for};
 use ac_primitives::market::records::{ModelPrice, ProviderStatus, Tier};
-use ac_primitives::market::runtime_decl_for_audit_api::AuditApiV1;
+use ac_primitives::market::runtime_decl_for_audit_api::AuditApiV2;
 use ac_primitives::market::voucher::VOUCHER_CONTEXT;
 use ac_primitives::market::work::JobKind;
 use ac_primitives::market::{
@@ -154,7 +154,8 @@ fn no_call_punishes_directly() {
                     "submit_verdict",
                     "vote",
                     "close_dispute",
-                    "set_params"
+                    "set_params",
+                    "set_endpoint"
                 ]
             );
         }
@@ -185,7 +186,7 @@ fn the_floor_funds_the_audit_pot() {
         assert!(call.dispatch(RuntimeOrigin::root()).is_ok());
         assert_eq!(free(&pot), 10 * ATC);
         assert_eq!(ac_runtime::Balances::total_issuance(), issuance);
-        assert_eq!(<Runtime as AuditApiV1<_, _, _>>::pot(), (pot, 10 * ATC));
+        assert_eq!(<Runtime as AuditApiV2<_, _, _>>::pot(), (pot, 10 * ATC));
     });
 }
 
@@ -257,10 +258,10 @@ fn a_confirmed_dispute_jails_and_voids_unsettled_work() {
         while System::block_number() < 21 {
             next_block();
         }
-        let (round, start, _) = <Runtime as AuditApiV1<_, _, _>>::round().unwrap();
+        let (round, start, _) = <Runtime as AuditApiV2<_, _, _>>::round().unwrap();
         assert_eq!((round, start), (1, 21));
-        assert_eq!(<Runtime as AuditApiV1<_, _, _>>::roster(1).len(), 7);
-        let assigned = <Runtime as AuditApiV1<_, _, _>>::assignment(1, bob.account.clone());
+        assert_eq!(<Runtime as AuditApiV2<_, _, _>>::roster(1).len(), 7);
+        let assigned = <Runtime as AuditApiV2<_, _, _>>::assignment(1, bob.account.clone());
         assert_eq!(assigned.len(), 2);
         let signer = |who: &AccountId| auditors.iter().find(|a| a.account == *who).unwrap();
         let fail = VerdictOutcome::Fail(FailReason::Threshold {
@@ -283,11 +284,17 @@ fn a_confirmed_dispute_jails_and_voids_unsettled_work() {
                 }),
             );
         }
-        let assigned_to = <Runtime as AuditApiV1<_, _, _>>::assigned_to(1, assigned[0].clone());
+        let assigned_to = <Runtime as AuditApiV2<_, _, _>>::assigned_to(1, assigned[0].clone());
         assert_eq!(assigned_to, vec![(bob.account.clone(), true)]);
-        let id = <Runtime as AuditApiV1<_, _, _>>::open_dispute(bob.account.clone()).unwrap();
-        let dispute = <Runtime as AuditApiV1<_, _, _>>::dispute(id).unwrap();
+        let id = <Runtime as AuditApiV2<_, _, _>>::open_dispute(bob.account.clone()).unwrap();
+        let dispute = <Runtime as AuditApiV2<_, _, _>>::dispute(id).unwrap();
         assert_eq!(dispute.reviewers.len(), 3);
+
+        // m6-auditor-agent 4.2 (spec market/audit "未关闭争议列表" / "列出未关闭争议").
+        assert_eq!(
+            <Runtime as AuditApiV2<_, _, _>>::open_disputes(None, 10),
+            vec![(bob.account.clone(), id)]
+        );
 
         let stake = Providers::provider(&bob.account).unwrap().stake;
         let burned = ac_runtime::Emission::total_burned();
@@ -309,8 +316,46 @@ fn a_confirmed_dispute_jails_and_voids_unsettled_work() {
         // The report has not matured: bob's work leaves epoch 2.
         assert_eq!(Work::epoch_work(2).verified, 0);
         assert_eq!(
-            <Runtime as AuditApiV1<_, _, _>>::provider_stats(bob.account.clone()).confirmed,
+            <Runtime as AuditApiV2<_, _, _>>::provider_stats(bob.account.clone()).confirmed,
             1
         );
+        assert!(<Runtime as AuditApiV2<_, _, _>>::open_disputes(None, 10).is_empty());
     });
+}
+
+// m6-auditor-agent 4.1, 4.2: an auditor registers its evidence endpoint by transaction and the
+// runtime API returns it (spec market/audit "审计员证据地址" / "审计员登记证据地址").
+#[test]
+fn auditors_publish_their_evidence_endpoint() {
+    dev_ext().execute_with(|| {
+        let a = Signer::fresh(9, SigAlg::MlDsa44);
+        ac_runtime::Balances::set_balance(&a.account, 10_000 * ATC);
+        ok(
+            &a,
+            RuntimeCall::Audit(pallet_audit::Call::register { stake: 1_000 * ATC }),
+        );
+        let url: BoundedVec<u8, _> =
+            BoundedVec::truncate_from(b"https://auditor.example:8500".to_vec());
+        let kem = KemPublicKey::new(KemAlg::XWing, &[3; 1216]).unwrap();
+        ok(
+            &a,
+            RuntimeCall::Audit(pallet_audit::Call::set_endpoint {
+                endpoint: Some((url.clone(), kem.clone())),
+            }),
+        );
+        assert_eq!(
+            <Runtime as AuditApiV2<_, _, _>>::endpoint(a.account.clone()),
+            Some((url, kem))
+        );
+    });
+}
+
+// Spec market/audit "计数与查询": verdicts are kept at least 7 days of live rounds (one-second
+// blocks).
+#[test]
+fn retention_covers_seven_days_of_live_rounds() {
+    use frame_support::traits::Get;
+    let rounds = <ac_runtime::AuditRetentionRounds as Get<u32>>::get();
+    let live = ac_primitives::market::audit::AuditParams::LIVE.round_blocks;
+    assert!(u64::from(rounds) * u64::from(live) >= 7 * 86_400);
 }

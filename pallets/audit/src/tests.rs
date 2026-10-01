@@ -628,7 +628,9 @@ fn administration_cannot_punish() {
             "submit_verdict",
             "vote",
             "close_dispute",
-            "set_params"
+            "set_params",
+            // m6-auditor-agent: an auditor's own evidence endpoint; moves no funds.
+            "set_endpoint"
         ]
     );
     new_test_ext(8).execute_with(|| {
@@ -750,5 +752,132 @@ fn old_rounds_are_pruned() {
         assert!(Verdicts::<Test>::get(r, acc(PROVIDER)).is_empty());
         assert!(Verdicts::<Test>::get(r, acc(PROVIDER2)).is_empty());
         let _ = H256::zero();
+    });
+}
+
+// ---- 审计员证据地址与未关闭争议列表（m6-auditor-agent）----
+
+fn endpoint(url: &[u8]) -> crate::AuditorEndpoint {
+    (
+        frame_support::BoundedVec::truncate_from(url.to_vec()),
+        ac_crypto::KemPublicKey::new(ac_crypto::KemAlg::XWing, &[7; 1216]).unwrap(),
+    )
+}
+
+#[test]
+fn auditors_set_and_clear_their_endpoint() {
+    // "审计员证据地址" / "审计员登记证据地址", "非审计员不能设置".
+    new_test_ext(1).execute_with(|| {
+        let e = endpoint(b"http://auditor.example:8500");
+        assert_ok!(Audit::set_endpoint(
+            RuntimeOrigin::signed(acc(1)),
+            Some(e.clone())
+        ));
+        assert_eq!(Audit::endpoint(&acc(1)), Some(e.clone()));
+        assert!(has_event(Event::EndpointSet {
+            who: acc(1),
+            set: true
+        }));
+        assert_noop!(
+            Audit::set_endpoint(RuntimeOrigin::signed(acc(PROVIDER)), Some(e.clone())),
+            Error::<Test>::NotAuditor
+        );
+        // The administration cannot set or clear it for an auditor.
+        assert_noop!(
+            Audit::set_endpoint(RuntimeOrigin::root(), Some(e)),
+            sp_runtime::DispatchError::BadOrigin
+        );
+        assert_ok!(Audit::set_endpoint(RuntimeOrigin::signed(acc(1)), None));
+        assert_eq!(Audit::endpoint(&acc(1)), None);
+    });
+}
+
+#[test]
+fn bad_endpoints_and_keys_are_refused() {
+    // "审计员证据地址" / "非 X-Wing 公钥被拒绝": the record stays as it was.
+    new_test_ext(1).execute_with(|| {
+        let good = endpoint(b"http://auditor.example:8500");
+        assert_ok!(Audit::set_endpoint(
+            RuntimeOrigin::signed(acc(1)),
+            Some(good.clone())
+        ));
+        assert_noop!(
+            Audit::set_endpoint(RuntimeOrigin::signed(acc(1)), Some(endpoint(b""))),
+            Error::<Test>::InvalidEndpoint
+        );
+        assert_noop!(
+            Audit::set_endpoint(RuntimeOrigin::signed(acc(1)), Some(endpoint(&[0xff, 0xfe]))),
+            Error::<Test>::InvalidEndpoint
+        );
+        // The reserved ML-KEM-1024 AlgId is not even constructible today; if `ac-crypto` ever
+        // allows it, the call must still refuse it.
+        if let Ok(other) = ac_crypto::KemPublicKey::new(ac_crypto::KemAlg::MlKem1024, &[7; 1568]) {
+            assert_noop!(
+                Audit::set_endpoint(RuntimeOrigin::signed(acc(1)), Some((good.0.clone(), other))),
+                Error::<Test>::UnsupportedKem
+            );
+        }
+        assert_eq!(Audit::endpoint(&acc(1)), Some(good));
+    });
+}
+
+#[test]
+fn the_endpoint_goes_with_the_auditor() {
+    // "审计员证据地址" / "退出后删除".
+    new_test_ext(1).execute_with(|| {
+        assert_ok!(Audit::set_endpoint(
+            RuntimeOrigin::signed(acc(1)),
+            Some(endpoint(b"http://a"))
+        ));
+        assert_ok!(Audit::exit(RuntimeOrigin::signed(acc(1))));
+        // An exiting auditor may still be an accuser, so it keeps (and may change) its endpoint.
+        assert_ok!(Audit::set_endpoint(
+            RuntimeOrigin::signed(acc(1)),
+            Some(endpoint(b"http://b"))
+        ));
+        run_to(System::block_number() + 20);
+        assert_ok!(Audit::withdraw_unbonded(RuntimeOrigin::signed(acc(1))));
+        assert_eq!(Audit::endpoint(&acc(1)), None);
+    });
+}
+
+#[test]
+fn open_disputes_are_listed_until_decided() {
+    // "未关闭争议列表" / "列出未关闭争议".
+    new_test_ext(8).execute_with(|| {
+        let id = open_dispute();
+        // A second provider's open dispute (written directly: the list only reads the index).
+        OpenDispute::<Test>::insert(acc(PROVIDER2), 77);
+        let mut expected = vec![(acc(PROVIDER), id), (acc(PROVIDER2), 77)];
+        expected.sort();
+        assert_eq!(Audit::open_disputes(None, 10), expected);
+        let d = Disputes::<Test>::get(id).unwrap();
+        for (r, _) in d.reviewers.iter().take(2) {
+            assert_ok!(Audit::vote(
+                RuntimeOrigin::signed(r.clone()),
+                acc(PROVIDER),
+                id,
+                Vote::Confirm
+            ));
+        }
+        assert_eq!(Audit::open_disputes(None, 10), vec![(acc(PROVIDER2), 77)]);
+    });
+}
+
+#[test]
+fn open_disputes_page() {
+    // "未关闭争议列表" / "分页".
+    new_test_ext(1).execute_with(|| {
+        for (i, p) in [40u8, 41, 42].into_iter().enumerate() {
+            OpenDispute::<Test>::insert(acc(p), i as u64);
+        }
+        let first = Audit::open_disputes(None, 2);
+        assert_eq!(first.len(), 2);
+        let rest = Audit::open_disputes(Some(&first[1].0), 2);
+        let mut all: Vec<_> = first.into_iter().chain(rest).collect();
+        assert_eq!(all.len(), 3);
+        all.dedup();
+        assert_eq!(all.len(), 3);
+        assert!(Audit::open_disputes(None, 10_000).len() == 3);
     });
 }

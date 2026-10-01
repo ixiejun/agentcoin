@@ -60,7 +60,7 @@ fn pallet_indices_are_fixed() {
     // m6-audit-chain: audits at 22, new calls.
     assert_eq!(<ac_runtime::Audit as PalletInfoAccess>::index(), 22);
     assert_eq!(VERSION.transaction_version, 7);
-    assert_eq!(VERSION.spec_version, 7);
+    assert_eq!(VERSION.spec_version, 8);
 }
 
 // The M2 runtime APIs are declared by the runtime.

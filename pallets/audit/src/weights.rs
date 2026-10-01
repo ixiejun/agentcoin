@@ -32,6 +32,8 @@ pub trait WeightInfo {
     fn close_dispute() -> Weight;
     /// Benchmarked weight of `set_params`.
     fn set_params() -> Weight;
+    /// Benchmarked weight of `set_endpoint`.
+    fn set_endpoint() -> Weight;
     /// Benchmarked weight of `start_round`.
     fn start_round(n: u32) -> Weight;
     /// Benchmarked weight of `prune`.
@@ -56,7 +58,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `Balances::Holds` (r:1 w:1)
     /// Proof: `Balances::Holds` (`max_values`: None, `max_size`: Some(265), added: 2740, mode: `MaxEncodedLen`)
     fn register() -> Weight {
-        Weight::from_parts(104_312_000, 6233)
+        Weight::from_parts(120_094_000, 6233)
             .saturating_add(T::DbWeight::get().reads(7_u64))
             .saturating_add(T::DbWeight::get().writes(3_u64))
     }
@@ -67,7 +69,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `Balances::Holds` (r:1 w:1)
     /// Proof: `Balances::Holds` (`max_values`: None, `max_size`: Some(265), added: 2740, mode: `MaxEncodedLen`)
     fn bond_extra() -> Weight {
-        Weight::from_parts(82_748_000, 3730)
+        Weight::from_parts(82_236_000, 3730)
             .saturating_add(T::DbWeight::get().reads(3_u64))
             .saturating_add(T::DbWeight::get().writes(3_u64))
     }
@@ -80,7 +82,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `Audit::Params` (r:1 w:0)
     /// Proof: `Audit::Params` (`max_values`: Some(1), `max_size`: Some(23), added: 518, mode: `MaxEncodedLen`)
     fn unbond() -> Weight {
-        Weight::from_parts(35_999_000, 3675)
+        Weight::from_parts(39_029_000, 3675)
             .saturating_add(T::DbWeight::get().reads(4_u64))
             .saturating_add(T::DbWeight::get().writes(1_u64))
     }
@@ -89,7 +91,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `Audit::Params` (r:1 w:0)
     /// Proof: `Audit::Params` (`max_values`: Some(1), `max_size`: Some(23), added: 518, mode: `MaxEncodedLen`)
     fn exit() -> Weight {
-        Weight::from_parts(31_833_000, 3675)
+        Weight::from_parts(31_918_000, 3675)
             .saturating_add(T::DbWeight::get().reads(2_u64))
             .saturating_add(T::DbWeight::get().writes(1_u64))
     }
@@ -101,10 +103,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Proof: `Balances::Holds` (`max_values`: None, `max_size`: Some(265), added: 2740, mode: `MaxEncodedLen`)
     /// Storage: `Audit::AuditorCount` (r:1 w:1)
     /// Proof: `Audit::AuditorCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+    /// Storage: `Audit::AuditorEndpoints` (r:0 w:1)
+    /// Proof: `Audit::AuditorEndpoints` (`max_values`: None, `max_size`: Some(1507), added: 3982, mode: `MaxEncodedLen`)
     fn withdraw_unbonded() -> Weight {
-        Weight::from_parts(78_519_000, 3730)
+        Weight::from_parts(84_182_000, 3730)
             .saturating_add(T::DbWeight::get().reads(4_u64))
-            .saturating_add(T::DbWeight::get().writes(4_u64))
+            .saturating_add(T::DbWeight::get().writes(5_u64))
     }
     /// Storage: `Audit::Params` (r:1 w:0)
     /// Proof: `Audit::Params` (`max_values`: Some(1), `max_size`: Some(23), added: 518, mode: `MaxEncodedLen`)
@@ -143,7 +147,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `Audit::Disputes` (r:0 w:1)
     /// Proof: `Audit::Disputes` (`max_values`: None, `max_size`: Some(1151), added: 3626, mode: `MaxEncodedLen`)
     fn submit_verdict() -> Weight {
-        Weight::from_parts(3_608_531_000, 35479)
+        Weight::from_parts(3_829_192_000, 35479)
             .saturating_add(T::DbWeight::get().reads(19_u64))
             .saturating_add(T::DbWeight::get().writes(11_u64))
     }
@@ -168,7 +172,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `Emission::TotalBurned` (r:1 w:1)
     /// Proof: `Emission::TotalBurned` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
     fn vote() -> Weight {
-        Weight::from_parts(428_952_000, 14005)
+        Weight::from_parts(425_577_000, 14005)
             .saturating_add(T::DbWeight::get().reads(17_u64))
             .saturating_add(T::DbWeight::get().writes(14_u64))
     }
@@ -183,14 +187,23 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `Audit::Activity` (r:3 w:3)
     /// Proof: `Audit::Activity` (`max_values`: None, `max_size`: Some(44), added: 2519, mode: `MaxEncodedLen`)
     fn close_dispute() -> Weight {
-        Weight::from_parts(102_683_000, 8547)
+        Weight::from_parts(106_506_000, 8547)
             .saturating_add(T::DbWeight::get().reads(7_u64))
             .saturating_add(T::DbWeight::get().writes(5_u64))
     }
     /// Storage: `Audit::Adjustable` (r:1 w:1)
     /// Proof: `Audit::Adjustable` (`max_values`: Some(1), `max_size`: Some(34), added: 529, mode: `MaxEncodedLen`)
     fn set_params() -> Weight {
-        Weight::from_parts(28_131_000, 1519)
+        Weight::from_parts(30_573_000, 1519)
+            .saturating_add(T::DbWeight::get().reads(1_u64))
+            .saturating_add(T::DbWeight::get().writes(1_u64))
+    }
+    /// Storage: `Audit::Auditors` (r:1 w:0)
+    /// Proof: `Audit::Auditors` (`max_values`: None, `max_size`: Some(210), added: 2685, mode: `MaxEncodedLen`)
+    /// Storage: `Audit::AuditorEndpoints` (r:0 w:1)
+    /// Proof: `Audit::AuditorEndpoints` (`max_values`: None, `max_size`: Some(1507), added: 3982, mode: `MaxEncodedLen`)
+    fn set_endpoint() -> Weight {
+        Weight::from_parts(29_378_000, 3675)
             .saturating_add(T::DbWeight::get().reads(1_u64))
             .saturating_add(T::DbWeight::get().writes(1_u64))
     }
@@ -209,8 +222,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `Audit::LastRound` (r:0 w:1)
     /// Proof: `Audit::LastRound` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
     fn start_round(n: u32) -> Weight {
-        Weight::from_parts(47_202_000, 3675)
-            .saturating_add(Weight::from_parts(6_150_561, 0).saturating_mul(n.into()))
+        Weight::from_parts(83_848_956, 3675)
+            .saturating_add(Weight::from_parts(5_795_134, 0).saturating_mul(n.into()))
             .saturating_add(T::DbWeight::get().reads(4_u64))
             .saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(n.into())))
             .saturating_add(T::DbWeight::get().writes(3_u64))
@@ -223,8 +236,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Storage: `Audit::UsedRequests` (r:0 w:200)
     /// Proof: `Audit::UsedRequests` (`max_values`: None, `max_size`: Some(36), added: 2511, mode: `MaxEncodedLen`)
     fn prune(n: u32) -> Weight {
-        Weight::from_parts(11_439_315, 3606)
-            .saturating_add(Weight::from_parts(4_250_598, 0).saturating_mul(n.into()))
+        Weight::from_parts(74_782, 3606)
+            .saturating_add(Weight::from_parts(5_160_487, 0).saturating_mul(n.into()))
             .saturating_add(T::DbWeight::get().reads(2_u64))
             .saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(n.into())))
             .saturating_add(T::DbWeight::get().writes((2_u64).saturating_mul(n.into())))
@@ -235,61 +248,66 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 /// Same weights with RocksDB database weights, for tests and mocks.
 impl WeightInfo for () {
     fn register() -> Weight {
-        Weight::from_parts(104_312_000, 6233)
+        Weight::from_parts(120_094_000, 6233)
             .saturating_add(RocksDbWeight::get().reads(7_u64))
             .saturating_add(RocksDbWeight::get().writes(3_u64))
     }
     fn bond_extra() -> Weight {
-        Weight::from_parts(82_748_000, 3730)
+        Weight::from_parts(82_236_000, 3730)
             .saturating_add(RocksDbWeight::get().reads(3_u64))
             .saturating_add(RocksDbWeight::get().writes(3_u64))
     }
     fn unbond() -> Weight {
-        Weight::from_parts(35_999_000, 3675)
+        Weight::from_parts(39_029_000, 3675)
             .saturating_add(RocksDbWeight::get().reads(4_u64))
             .saturating_add(RocksDbWeight::get().writes(1_u64))
     }
     fn exit() -> Weight {
-        Weight::from_parts(31_833_000, 3675)
+        Weight::from_parts(31_918_000, 3675)
             .saturating_add(RocksDbWeight::get().reads(2_u64))
             .saturating_add(RocksDbWeight::get().writes(1_u64))
     }
     fn withdraw_unbonded() -> Weight {
-        Weight::from_parts(78_519_000, 3730)
+        Weight::from_parts(84_182_000, 3730)
             .saturating_add(RocksDbWeight::get().reads(4_u64))
-            .saturating_add(RocksDbWeight::get().writes(4_u64))
+            .saturating_add(RocksDbWeight::get().writes(5_u64))
     }
     fn submit_verdict() -> Weight {
-        Weight::from_parts(3_608_531_000, 35479)
+        Weight::from_parts(3_829_192_000, 35479)
             .saturating_add(RocksDbWeight::get().reads(19_u64))
             .saturating_add(RocksDbWeight::get().writes(11_u64))
     }
     fn vote() -> Weight {
-        Weight::from_parts(428_952_000, 14005)
+        Weight::from_parts(425_577_000, 14005)
             .saturating_add(RocksDbWeight::get().reads(17_u64))
             .saturating_add(RocksDbWeight::get().writes(14_u64))
     }
     fn close_dispute() -> Weight {
-        Weight::from_parts(102_683_000, 8547)
+        Weight::from_parts(106_506_000, 8547)
             .saturating_add(RocksDbWeight::get().reads(7_u64))
             .saturating_add(RocksDbWeight::get().writes(5_u64))
     }
     fn set_params() -> Weight {
-        Weight::from_parts(28_131_000, 1519)
+        Weight::from_parts(30_573_000, 1519)
+            .saturating_add(RocksDbWeight::get().reads(1_u64))
+            .saturating_add(RocksDbWeight::get().writes(1_u64))
+    }
+    fn set_endpoint() -> Weight {
+        Weight::from_parts(29_378_000, 3675)
             .saturating_add(RocksDbWeight::get().reads(1_u64))
             .saturating_add(RocksDbWeight::get().writes(1_u64))
     }
     fn start_round(n: u32) -> Weight {
-        Weight::from_parts(47_202_000, 3675)
-            .saturating_add(Weight::from_parts(6_150_561, 0).saturating_mul(n.into()))
+        Weight::from_parts(83_848_956, 3675)
+            .saturating_add(Weight::from_parts(5_795_134, 0).saturating_mul(n.into()))
             .saturating_add(RocksDbWeight::get().reads(4_u64))
             .saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(n.into())))
             .saturating_add(RocksDbWeight::get().writes(3_u64))
             .saturating_add(Weight::from_parts(0, 2685).saturating_mul(n.into()))
     }
     fn prune(n: u32) -> Weight {
-        Weight::from_parts(11_439_315, 3606)
-            .saturating_add(Weight::from_parts(4_250_598, 0).saturating_mul(n.into()))
+        Weight::from_parts(74_782, 3606)
+            .saturating_add(Weight::from_parts(5_160_487, 0).saturating_mul(n.into()))
             .saturating_add(RocksDbWeight::get().reads(2_u64))
             .saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(n.into())))
             .saturating_add(RocksDbWeight::get().writes((2_u64).saturating_mul(n.into())))

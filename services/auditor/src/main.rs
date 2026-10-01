@@ -36,6 +36,25 @@ enum Command {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Run the auditor agent: mystery-shopper audits of the assigned providers, verdicts, the
+    /// evidence service, and reviews of disputes (configuration: a JSON file, see the README).
+    Run {
+        /// The configuration file.
+        #[arg(long)]
+        config: PathBuf,
+        /// Log level (error, warn, info, debug, trace). Lines never contain request content.
+        #[arg(long, default_value = "info")]
+        log_level: log::LevelFilter,
+    },
+    /// Create the X-Wing key file of the evidence service; prints the public key.
+    Keygen {
+        /// Where to write the encrypted key.
+        #[arg(long)]
+        out: PathBuf,
+        /// Password file encrypting it.
+        #[arg(long)]
+        password_file: PathBuf,
+    },
     /// Build a re-check case from a prover engine's candidates (calibration and tests only:
     /// the receipt is signed by a key made for the run). Reads JSON, prints the case.
     CalibrationCase {
@@ -209,6 +228,16 @@ async fn run_recheck(args: RecheckArgs) -> Result<()> {
 async fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Recheck(args) => run_recheck(args).await,
+        Command::Run { config, log_level } => {
+            logging::init(log_level, Sink::Stderr);
+            ac_auditor::agent::live::run(ac_auditor::agent::config::Config::load(&config)?).await
+        }
+        Command::Keygen { out, password_file } => {
+            let password = ac_wallet::wallet::read_password_file(&password_file)?;
+            let key = ac_wallet::kem_key::generate(&out, &password)?;
+            println!("kem key: {}", ac_wallet::kem_key::encode(&key));
+            Ok(())
+        }
         Command::Evidence { case, out } => {
             let text = std::fs::read_to_string(&case)
                 .with_context(|| format!("reading {}", case.display()))?;

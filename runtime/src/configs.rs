@@ -450,8 +450,9 @@ impl pallet_work::Config for Runtime {
 }
 
 parameter_types! {
-    /// Audit rounds whose verdicts and used request IDs are kept: 7 days of 30-minute rounds.
-    pub const AuditRetentionRounds: u32 = 336;
+    /// Audit rounds whose verdicts and used request IDs are kept: 7 days of 20-minute rounds
+    /// (spec `market/audit` "计数与查询": at least 7 days; m6-auditor-agent design D10).
+    pub const AuditRetentionRounds: u32 = 504;
     /// Most verdicts per round: 2 per provider for up to 10,000 providers.
     pub const AuditMaxVerdictsPerRound: u32 = 20_000;
     /// Entries pruned per block (benchmarked weight `prune(200)`).

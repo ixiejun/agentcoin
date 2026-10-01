@@ -5,7 +5,7 @@
 //! - **Auditors** register with a stake in US dollars (live chains: $1,000, converted at the
 //!   reference rate rounding up) that unbonds over 7 days and stays slashable until then.
 //!   Provider and gateway accounts cannot register.
-//! - **Rounds** of [`AuditParams::round_blocks`] blocks (live: 1,800). The first block of a round
+//! - **Rounds** of [`AuditParams::round_blocks`] blocks (live: 1,200, 20 minutes). The first block of a round
 //!   stores the roster (auditors staked at or above the threshold and not exiting, in account
 //!   order) and a seed from the chain's randomness. Each provider's auditors of the round are
 //!   drawn from them with [`sample`]; anyone can recompute the draw.
@@ -51,6 +51,15 @@ pub mod weights;
 
 pub use weights::WeightInfo;
 
+/// An auditor's evidence endpoint and the X-Wing key reviewers seal their requests to.
+pub type AuditorEndpoint = (
+    ac_primitives::market::records::Endpoint,
+    ac_crypto::KemPublicKey,
+);
+
+/// Most open disputes one `open_disputes` query returns.
+pub const MAX_OPEN_DISPUTES_PAGE: u32 = 256;
+
 use ac_primitives::market::audit::{AdjustableParams, AuditParams};
 use ac_primitives::market::{MicroUsd, SignedReceipt};
 use parity_scale_codec::{Decode, DecodeWithMemTracking, Encode};
@@ -90,7 +99,7 @@ pub struct AuditGenesis {
 impl AuditGenesis {
     /// Draft values of live chains.
     pub const LIVE: Self = Self {
-        round_blocks: 1_800,
+        round_blocks: 1_200,
         assign: 2,
         reviewers: 5,
         quorum: 3,
@@ -181,7 +190,11 @@ pub trait AuditRandomness {
 #[allow(clippy::expect_used, clippy::unreachable)]
 #[frame_support::pallet]
 pub mod pallet {
-    use super::{AuditGenesis, AuditRandomness, VerdictSubmission, WeightInfo};
+    use super::{
+        AuditGenesis, AuditRandomness, AuditorEndpoint, MAX_OPEN_DISPUTES_PAGE, VerdictSubmission,
+        WeightInfo,
+    };
+    use ac_crypto::KemAlg;
     use ac_primitives::market::audit::{
         Accuser, AdjustableParams, AuditParams, AuditorRecord, AuditorStats, AuditorStatus,
         DisputeOutcome, DisputeRecord, Draw, MAX_ACCUSERS, MAX_ASSIGN, MAX_AUDITORS, MAX_REVIEWERS,
@@ -362,6 +375,12 @@ pub mod pallet {
     #[pallet::storage]
     pub type Activity<T: Config> = StorageMap<_, Identity, AccountId32, AuditorStats, ValueQuery>;
 
+    /// Where auditors serve the evidence of their failing verdicts, and the X-Wing key reviewers
+    /// seal their requests to (m6-auditor-agent design D3).
+    #[pallet::storage]
+    pub type AuditorEndpoints<T: Config> =
+        StorageMap<_, Identity, AccountId32, AuditorEndpoint, OptionQuery>;
+
     #[pallet::genesis_config]
     pub struct GenesisConfig<T: Config> {
         /// Parameters.
@@ -521,6 +540,13 @@ pub mod pallet {
             /// The new values.
             params: AdjustableParams,
         },
+        /// An auditor set or cleared its evidence endpoint.
+        EndpointSet {
+            /// The auditor.
+            who: AccountId32,
+            /// Whether an endpoint is now set.
+            set: bool,
+        },
     }
 
     #[pallet::error]
@@ -593,6 +619,10 @@ pub mod pallet {
         DeadlineNotPassed,
         /// Adjusted parameters break the guardrails, or the thresholds version decreases.
         OutOfBounds,
+        /// The endpoint is empty or not UTF-8.
+        InvalidEndpoint,
+        /// Only X-Wing encryption keys are accepted.
+        UnsupportedKem,
     }
 
     impl<T> From<PriceError> for Error<T> {
@@ -917,6 +947,35 @@ pub mod pallet {
             Self::deposit_event(Event::ParamsSet { params });
             Ok(())
         }
+
+        /// Sets or clears the caller's evidence endpoint and encryption key (spec
+        /// `market/audit` "审计员证据地址"). Exiting auditors may still set it: they can be the
+        /// accusers of a dispute that is still open.
+        #[pallet::call_index(9)]
+        #[pallet::weight(T::WeightInfo::set_endpoint())]
+        pub fn set_endpoint(
+            origin: OriginFor<T>,
+            endpoint: Option<AuditorEndpoint>,
+        ) -> DispatchResult {
+            let who = frame_system::ensure_signed(origin)?;
+            ensure!(Auditors::<T>::contains_key(&who), Error::<T>::NotAuditor);
+            let set = endpoint.is_some();
+            match endpoint {
+                Some((url, kem)) => {
+                    ensure!(
+                        !url.is_empty() && core::str::from_utf8(&url).is_ok(),
+                        Error::<T>::InvalidEndpoint
+                    );
+                    // Other KEM AlgIds do not decode today; the rule stays explicit for when
+                    // `ac-crypto` enables more (the providers' rule).
+                    ensure!(kem.alg() == KemAlg::XWing, Error::<T>::UnsupportedKem);
+                    AuditorEndpoints::<T>::insert(&who, (url, kem));
+                }
+                None => AuditorEndpoints::<T>::remove(&who),
+            }
+            Self::deposit_event(Event::EndpointSet { who, set });
+            Ok(())
+        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -1019,6 +1078,7 @@ pub mod pallet {
         fn store_or_remove(who: &AccountId32, a: AuditorOf<T>) {
             if a.status == AuditorStatus::Exiting && a.stake == 0 && a.unlocking.is_empty() {
                 Auditors::<T>::remove(who);
+                AuditorEndpoints::<T>::remove(who);
                 AuditorCount::<T>::mutate(|c| *c = c.saturating_sub(1));
                 Self::deposit_event(Event::Removed { who: who.clone() });
             } else {
@@ -1283,6 +1343,25 @@ pub mod pallet {
                     (p.clone(), done)
                 })
                 .collect()
+        }
+
+        /// An auditor's evidence endpoint and encryption key.
+        #[must_use]
+        pub fn endpoint(who: &AccountId32) -> Option<AuditorEndpoint> {
+            AuditorEndpoints::<T>::get(who)
+        }
+
+        /// Open disputes (provider, dispute) in provider order, after `after` if given, at most
+        /// `limit` (capped at [`MAX_OPEN_DISPUTES_PAGE`]). For the runtime API only.
+        #[must_use]
+        pub fn open_disputes(after: Option<&AccountId32>, limit: u32) -> Vec<(AccountId32, u64)> {
+            let limit = usize::try_from(limit.min(MAX_OPEN_DISPUTES_PAGE)).unwrap_or(0);
+            let mut all: Vec<(AccountId32, u64)> = OpenDispute::<T>::iter()
+                .filter(|(p, _)| after.is_none_or(|a| p > a))
+                .collect();
+            all.sort_by(|x, y| x.0.cmp(&y.0));
+            all.truncate(limit);
+            all
         }
 
         /// The first block of the current round and of the next one.

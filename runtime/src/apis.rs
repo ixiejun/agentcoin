@@ -631,6 +631,7 @@ impl_runtime_apis! {
         }
     }
 
+    #[api_version(2)]
     impl ac_primitives::market::AuditApi<Block, AccountId, BlockNumber> for Runtime {
         fn round() -> Option<(ac_primitives::market::audit::RoundIndex, u32, u32)> {
             Audit::round_bounds()
@@ -703,6 +704,16 @@ impl_runtime_apis! {
             let pot = Audit::pot();
             let balance = <crate::Balances as frame_support::traits::fungible::Inspect<AccountId>>::balance(&pot);
             (pot, balance)
+        }
+
+        fn endpoint(
+            who: AccountId,
+        ) -> Option<(ac_primitives::market::records::Endpoint, ac_crypto::KemPublicKey)> {
+            Audit::endpoint(&who)
+        }
+
+        fn open_disputes(after: Option<AccountId>, limit: u32) -> Vec<(AccountId, u64)> {
+            Audit::open_disputes(after.as_ref(), limit)
         }
     }
 

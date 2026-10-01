@@ -72,7 +72,9 @@ sp_api::decl_runtime_apis! {
         fn check_voucher(voucher: SignedVoucher) -> Result<VoucherCheck, VoucherError>;
     }
 
-    /// Read access to audits (m6-audit-chain).
+    /// Read access to audits (m6-audit-chain; version 2 adds the evidence endpoints and the
+    /// open dispute list of m6-auditor-agent).
+    #[api_version(2)]
     pub trait AuditApi<AccountId, BlockNumber>
     where
         AccountId: parity_scale_codec::Codec,
@@ -107,6 +109,13 @@ sp_api::decl_runtime_apis! {
         fn auditor_stats(who: AccountId) -> audit::AuditorStats;
         /// The audit pot's account and balance.
         fn pot() -> (AccountId, u128);
+        /// An auditor's evidence endpoint and X-Wing key.
+        #[api_version(2)]
+        fn endpoint(who: AccountId) -> Option<(records::Endpoint, ac_crypto::KemPublicKey)>;
+        /// Open disputes (provider, dispute) in provider order after `after`, at most `limit`
+        /// (capped at 256).
+        #[api_version(2)]
+        fn open_disputes(after: Option<AccountId>, limit: u32) -> Vec<(AccountId, u64)>;
     }
 
     /// Read access to work settlement (m5-work-settlement).

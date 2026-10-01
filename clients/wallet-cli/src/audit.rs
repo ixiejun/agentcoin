@@ -136,6 +136,31 @@ impl NodeClient {
         self.audit_api("auditor_stats", who).await
     }
 
+    /// An auditor's evidence endpoint and encryption key (`AuditApi` version 2).
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn audit_endpoint(
+        &self,
+        who: &AccountId32,
+    ) -> Result<Option<pallet_audit::AuditorEndpoint>> {
+        self.audit_api("endpoint", who).await
+    }
+
+    /// Open disputes after `after`, at most `limit` (`AuditApi` version 2).
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn audit_open_disputes(
+        &self,
+        after: Option<&AccountId32>,
+        limit: u32,
+    ) -> Result<Vec<(AccountId32, u64)>> {
+        self.audit_api("open_disputes", &(after, limit)).await
+    }
+
     /// The audit pot's account and balance.
     ///
     /// # Errors

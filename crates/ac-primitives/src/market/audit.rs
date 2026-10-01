@@ -327,7 +327,7 @@ impl std::error::Error for ParamsError {}
 impl AuditParams {
     /// Draft values of live chains.
     pub const LIVE: Self = Self {
-        round_blocks: 1_800,
+        round_blocks: 1_200,
         assign: 2,
         reviewers: 5,
         quorum: 3,
@@ -606,6 +606,15 @@ mod tests {
     #[test]
     fn live_params_pass_the_guardrails() {
         assert_eq!(AuditParams::LIVE.check(), Ok(()));
+    }
+
+    // Spec market/audit "审计轮次与抽样" / "活链轮次长度" (m6-auditor-agent design D10): 1,200
+    // one-second blocks, 3 rounds and 6 assigned audits per provider and hour.
+    #[test]
+    fn live_rounds_last_twenty_minutes() {
+        assert_eq!(AuditParams::LIVE.round_blocks, 1_200);
+        assert_eq!(3_600 / AuditParams::LIVE.round_blocks, 3);
+        assert_eq!(3 * u32::from(AuditParams::LIVE.assign), 6);
     }
 
     #[test]

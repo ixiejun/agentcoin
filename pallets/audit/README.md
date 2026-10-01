@@ -38,7 +38,7 @@ the commitment to its evidence.
 
 | Parameter | Live draft | Test presets | Guardrail | Changed by |
 |---|---|---|---|---|
-| Round length | 1,800 blocks | 20 | > 0 | genesis |
+| Round length | 1,200 blocks (20 minutes) | 20 | > 0 | genesis |
 | Auditors per provider and round | 2 | 2 | 1–8 | genesis |
 | Reviewers / quorum | 5 / 3 | 3 / 2 | 1 ≤ Q ≤ N ≤ 15, 2Q > N | genesis |
 | Voting period | 600 blocks | 20 | > 0 | genesis |

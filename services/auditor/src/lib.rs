@@ -8,6 +8,7 @@
 //! provider's proofs and judges them by the market's thresholds. Messages, outputs, tokens and
 //! candidates are never logged.
 
+pub mod agent;
 pub mod calibration;
 pub mod case;
 pub mod engine;

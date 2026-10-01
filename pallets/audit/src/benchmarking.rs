@@ -10,8 +10,8 @@ use crate::{Config, Pallet};
 mod benchmarks {
     use super::{Config, Pallet};
     use crate::{
-        Adjustable, BenchmarkHelper, Call, Disputes, OpenDispute, Params, PruneNext, RoundRequests,
-        UsedRequests, VerdictSubmission,
+        Adjustable, AuditorEndpoints, BenchmarkHelper, Call, Disputes, OpenDispute, Params,
+        PruneNext, RoundRequests, UsedRequests, VerdictSubmission,
     };
     use ac_crypto::SigAlg;
     use ac_crypto::sig::SigningKey;
@@ -260,6 +260,20 @@ mod benchmarks {
         p.thresholds_version = p.thresholds_version.saturating_add(1);
         #[extrinsic_call]
         _(RawOrigin::Root, p);
+    }
+
+    /// Setting the longest endpoint with an X-Wing key.
+    #[benchmark]
+    fn set_endpoint() {
+        world::<T>(1);
+        let url = frame_support::BoundedVec::truncate_from(alloc::vec![
+            b'e';
+            ac_primitives::market::records::MAX_ENDPOINT_LEN as usize
+        ]);
+        let kem = ac_crypto::KemPublicKey::new(ac_crypto::KemAlg::XWing, &[7; 1216]).unwrap();
+        #[extrinsic_call]
+        _(RawOrigin::Signed(auditor(0)), Some((url, kem)));
+        assert!(AuditorEndpoints::<T>::contains_key(auditor(0)));
     }
 
     /// A round's first block with `n` registered auditors.
