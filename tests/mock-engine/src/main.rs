@@ -35,6 +35,12 @@ struct Args {
     /// Seed of the pseudo-activations (another seed plays another model).
     #[arg(long, default_value_t = 0)]
     model_seed: u64,
+    /// Play the model of this seed once --switch-file exists (a provider starting to cheat).
+    #[arg(long, requires = "switch_file")]
+    switch_seed: Option<u64>,
+    /// See --switch-seed.
+    #[arg(long, requires = "switch_seed")]
+    switch_file: Option<std::path::PathBuf>,
 }
 
 #[tokio::main]
@@ -57,6 +63,7 @@ async fn main() -> anyhow::Result<()> {
                 },
             }),
             model_seed: a.model_seed,
+            switch: a.switch_seed.zip(a.switch_file),
         },
     )
     .await?;

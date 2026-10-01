@@ -33,7 +33,7 @@
 
 ## 调用
 
-`register`、`bond_extra`、`unbond`、`exit`、`withdraw_unbonded`、`submit_verdict`、`vote`、`close_dispute`、`set_params`（管理权限）。钱包以 `ac-wallet audit …` 封装这些调用。
+`register`、`bond_extra`、`unbond`、`exit`、`withdraw_unbonded`、`submit_verdict`、`vote`、`close_dispute`、`set_params`（管理权限）、`set_endpoint`（审计员的证据地址与 X-Wing 公钥，复核人据此取证据；m6-auditor-agent）。钱包以 `ac-wallet audit …` 封装这些调用。`AuditApi` 版本 2 增加了证据地址查询与未关闭争议的分页列表。
 
 ## 示例
 

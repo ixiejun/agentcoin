@@ -52,6 +52,9 @@ pub struct Config {
     pub toploc: Option<PluginConfig>,
     /// Seed of the pseudo-model's activations (another seed plays another model).
     pub model_seed: u64,
+    /// From the moment this file exists, play the model of this seed instead: a provider that
+    /// starts cheating while running (m6-auditor-agent 7.1).
+    pub switch: Option<(u64, std::path::PathBuf)>,
 }
 
 impl Default for Config {
@@ -63,6 +66,7 @@ impl Default for Config {
             fail_after: None,
             toploc: None,
             model_seed: 0,
+            switch: None,
         }
     }
 }
@@ -136,7 +140,7 @@ pub async fn spawn(listen: &str, config: Config) -> anyhow::Result<Engine> {
         plugin: config
             .toploc
             .clone()
-            .map(|c| plugin::Plugin::new(c, config.model_seed)),
+            .map(|c| plugin::Plugin::new(c, config.model_seed).switching(config.switch.clone())),
         config,
         served: Arc::clone(&served),
         vocab: Mutex::new(BTreeMap::new()),

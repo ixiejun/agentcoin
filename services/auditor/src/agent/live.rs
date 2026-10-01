@@ -448,7 +448,8 @@ pub async fn run(cfg: Config) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(&cfg.listen)
         .await
         .with_context(|| format!("listening on {}", cfg.listen))?;
-    log::info!(target: TARGET, "evidence service on {}", listener.local_addr()?);
+    // Tests and supervisors wait for this line, as with the other services.
+    println!("listening on {}", listener.local_addr()?);
     let service = Arc::new(EvidenceService {
         agent: Arc::clone(&agent),
         chain: Arc::clone(&chain),

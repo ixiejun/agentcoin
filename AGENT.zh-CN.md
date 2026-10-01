@@ -337,6 +337,9 @@ ac-auditor recheck --engine <url> --socket <path> --quant bf16 --cases <dir>  # 
 ac-auditor evidence --case <file> --out <evidence.bin>  # 不通过裁决的证据及其承诺
 ac-wallet audit verdict --report <line.json> --case <file>  # 提交裁决（另有 audit register / vote / disputes）
 AC_E2E=1 cargo test -p ac-e2e --test audit -- --test-threads 1  # 链上审计：裁决、争议、罚没
+ac-auditor run --config auditor.json            # 审计员代理：神秘顾客审计、证据服务、复核
+AC_E2E=1 cargo test -p ac-e2e --test auditor_agent -- --test-threads 1  # 六个代理找出中途开始作弊的提供者
+scripts/sim-audit-latency.py                      # 审计检出延迟的蒙特卡洛模拟
 scripts/measure-finality.sh [seconds]             # 终局性延迟，4/7/10 节点（release）
 scripts/wallet-smoke.sh                           # 针对开发节点运行钱包命令行
 

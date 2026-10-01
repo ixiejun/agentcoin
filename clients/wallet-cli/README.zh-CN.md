@@ -137,7 +137,8 @@ ac-wallet audit pot && ac-wallet audit params
 | `audit verdict --report --case` | 提交一行 `ac-auditor recheck` 结果对某案例的裁决：结果与阈值版本取自该行，收据取自案例，不通过时附证据承诺（并打印）；本账户未被分配时在签名前拒绝 |
 | `audit disputes --provider` | 提供者的裁决计数、未关闭的争议、提出者与复核人的投票 |
 | `audit vote --provider --id --vote confirm\|reject`、`audit close` | 以复核人身份投票；期满后关闭未决的争议 |
-| `audit status`、`audit pot`、`audit params` | 审计员记录与计数；资金池；参数 |
+| `audit endpoint --set URL --kem-key KEY` / `--clear` | 登记（或删除）审计员向复核人交付证据的地址；`ac-auditor run` 会自动登记 |
+| `audit status`、`audit pot`、`audit params` | 审计员记录、计数与证据地址；资金池；参数 |
 
 ## 本地推理代理
 
@@ -146,6 +147,7 @@ ac-wallet audit pot && ac-wallet audit params
 - 启动时检查：你与该网关有额度通道、钱包密钥是通道的凭证密钥、网关的加密公钥由网关账户签名。
 - 每个请求都密封给网关（X-Wing + ML-DSA），并附带恰好等于你已付总额的凭证。响应结束后，代理校验双签收据（签名、链、网关、模型、token 数与返回的 `usage` 一致、费用等于提供者的链上价格、网关的已计费总额）及其 TOPLOC 证明（承诺为全零时不得带证明；否则参数为市场参数、每块输出一份证明、复算承诺等于收据中的承诺），通过后才付清该总额。任何一项校验失败，代理都会停止后续所有付款与请求。证明不会被保存。
 - `--max-usd` 限制通道的累计付款；已付总额保存在钱包旁的 `serve-<网关>.json`（`--state`），重启后不会重复付款。
+- 带请求头 `X-AgentCoin-Provider: atc1…` 的请求指定该提供者：网关只转给它，否则回答 `no_provider`（从不改用其他提供者）；代理只为收据中提供者是该提供者的请求付款。OpenAI SDK 写法：`client.chat.completions.create(..., extra_headers={"X-AgentCoin-Provider": "atc1…"})`。
 - 默认只监听 `127.0.0.1:8411`，且没有鉴权：切勿对外暴露。私钥从不离开本机，代理也不记录 prompt 或输出。
 
 ## 库示例

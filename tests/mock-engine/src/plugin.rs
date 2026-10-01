@@ -47,6 +47,7 @@ impl PluginConfig {
 pub struct Plugin {
     config: PluginConfig,
     seed: u64,
+    switch: Option<(u64, PathBuf)>,
     conn: Mutex<Option<(UnixStream, usize)>>,
 }
 
@@ -97,7 +98,24 @@ impl Plugin {
         Self {
             config,
             seed,
+            switch: None,
             conn: Mutex::new(None),
+        }
+    }
+
+    /// Plays the model of `seed` once `file` exists (see `Config::switch`).
+    #[must_use]
+    pub fn switching(mut self, switch: Option<(u64, PathBuf)>) -> Self {
+        self.switch = switch;
+        self
+    }
+
+    /// The seed of the model played now.
+    #[must_use]
+    pub fn seed(&self) -> u64 {
+        match &self.switch {
+            Some((seed, file)) if file.exists() => *seed,
+            _ => self.seed,
         }
     }
 
@@ -113,7 +131,7 @@ impl Plugin {
     pub async fn send(&self, request: &str, prompt: &[u32], output: &[u32]) {
         let mut tokens = prompt.to_vec();
         tokens.extend_from_slice(output);
-        let prefixes = prefix_hashes(self.seed, &tokens);
+        let prefixes = prefix_hashes(self.seed(), &tokens);
         let p = prompt.len();
         let decode = output.len().saturating_sub(1);
         let decode = if self.config.half_decode {
@@ -147,7 +165,7 @@ impl Plugin {
 
     /// Verify mode: sends one segment per row of a prefilled sequence.
     pub async fn send_rows(&self, request: &str, tokens: &[u32]) {
-        let prefixes = prefix_hashes(self.seed, tokens);
+        let prefixes = prefix_hashes(self.seed(), tokens);
         let segs = (0..tokens.len())
             .map(|t| (Phase::Prefill, activations(&prefixes, t, t + 1)))
             .collect();
@@ -211,5 +229,30 @@ impl Plugin {
                 return Some((stream, usize::from(topk)));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod switch_tests {
+    #![allow(clippy::unwrap_used)] // Test code.
+
+    use super::*;
+
+    // m6-auditor-agent 7.1: the played model changes once the switch file appears.
+    #[test]
+    fn the_model_switches_when_the_file_appears() {
+        let file = std::env::temp_dir().join(format!("ac-mock-switch-{}", std::process::id()));
+        let _ = std::fs::remove_file(&file);
+        let p = Plugin::new(PluginConfig::prove(PathBuf::from("/nowhere")), 7)
+            .switching(Some((8, file.clone())));
+        assert_eq!(p.seed(), 7);
+        let before = prefix_hashes(p.seed(), &[1, 2, 3]);
+        std::fs::write(&file, b"").unwrap();
+        assert_eq!(p.seed(), 8);
+        assert_ne!(prefix_hashes(p.seed(), &[1, 2, 3]), before);
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(p.seed(), 7);
+        let plain = Plugin::new(PluginConfig::prove(PathBuf::from("/nowhere")), 7);
+        assert_eq!(plain.seed(), 7);
     }
 }

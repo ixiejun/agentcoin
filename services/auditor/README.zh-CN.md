@@ -61,10 +61,37 @@ ac-auditor recheck --engine http://127.0.0.1:8000 --socket /run/agentcoin/rechec
 
 链上不通过的裁决承诺的是这次复核的证据（m6-audit-chain；规格 `market/auditor-agent`“审计证据”）。`ac-auditor evidence --case c.json --out e.bin` 写出证据（SCALE 字节：messages、回答、用量、收据、证明），并打印 `{"commitment": "<hex>"}`。争议的复核人用 `ac-auditor recheck --evidence e.bin --commitment <链上的十六进制承诺> --engine-model <名称> …` 复核：字节与承诺不符时输出 `{"outcome": "mismatch", …}`，不调用任何引擎；相符时按其案例复核。每一行复核结果还带有 `onchain`：链上编码的结果（十六进制），供 `ac-wallet audit verdict` 提交。
 
+### 代理（`ac-auditor run`）
+
+服务模式就是 MVP 方案 §5.5 的神秘顾客（m6-auditor-agent；规格 `market/auditor-agent`“审计员代理服务”及其后各条）。它以一个已登记的审计员账户运行（`ac-wallet audit register`），无需人工操作：
+
+- **审计**：对本轮被分配的每个提供者审计一次，时刻随机，落在本轮前四分之三内的某个区块：
+  - 发一个指定该提供者的非流式请求（`X-AgentCoin-Provider`，对所有用户开放），经随机的网关和随机的付款账户；
+  - prompt 来自内置生成器或运营者的题库；
+  - 模型从该提供者的模型中挑本代理有引擎的那一个。
+  
+  在本轮结束前复核并提交裁决。不通过时先保存证据，再提交裁决。
+- **交付证据**：在启动时连同 X-Wing 公钥登记到链上的证据地址提供服务。只经密封通道把某条裁决的证据交给本审计员作为提出者的未关闭争议的复核人；拒绝时不说明任何原因。没有争议还能用到的证据会被删除；本审计员参与且已到期的争议由它关闭。
+- **复核**：被抽为复核人时，取回每名提出者的证据，与链上的承诺和收据核对后复核。只有至少两名不同提出者的证据复核为不通过才投“确认”，否则投“驳回”。本机引擎不可用时重试，到期仍不可用则不投票。
+
+```bash
+ac-auditor keygen --out auditor-kem.json --password-file auditor.pass
+ac-auditor run --config auditor.json
+```
+
+配置是 JSON 文件，相对路径以文件所在目录为基准（字段见英文版示例）。
+
+运维说明：
+
+- **付款账户**：每个付款账户都必须事先在所列的每个网关有透明额度通道（托管），且绝不能是审计员账户（启动时会拒绝）。网关看得到付款账户，托管存入在链上公开，因此要用与审计员无关的资金来源充值并定期轮换。M7 的匿名凭证将取代这一做法。
+- **引擎**：每个模型一个复核模式的引擎（见上文，CPU 上关闭 AMX）。只提供本代理没有引擎的模型的提供者会被跳过并计数。
+- **阈值**：代理按内置的 `AUDIT_THRESHOLDS` 版本判定。链上接受的版本与之不同时，代理既不审计也不投票，并说明原因：请升级。
+- **题库**：JSONL，每行一个 `messages` 数组；`bank_percent` 比例的 prompt 取自题库。
+
 ## 隐私
 
 复核只使用审计员自己的请求。代理的日志只包含请求 ID、模型 ID、计数、指标与判定结果；从不包含消息、输出、token 或候选，底层库的日志行一律丢弃。案例的 `Debug` 输出不含消息与输出。
 
 ## 测试
 
-`cargo test -p ac-auditor` 复核确定性模拟引擎（`tests/mock-engine`）的回答：诚实提供者、换了模型、没有证明、int4 模型、不符的证明、输入与 token、引擎不在线，以及连到审计员套接字的证明模式插件。CI 任务 `vllm-plugin` 复核真实 vLLM 的回答（`scripts/calibrate-toploc.py --quick`）。
+`cargo test -p ac-auditor` 复核确定性模拟引擎（`tests/mock-engine`）的回答：诚实提供者、换了模型、没有证明、int4 模型、不符的证明、输入与 token、引擎不在线，以及连到审计员套接字的证明模式插件。CI 任务 `vllm-plugin` 复核真实 vLLM 的回答（`scripts/calibrate-toploc.py --quick`）。代理的决策（`src/agent`）用链、网关、引擎与提出者的替身测试；`tests/e2e/tests/auditor_agent.rs` 让六个代理面对一个中途开始作弊的提供者（`AC_E2E=1 cargo test -p ac-e2e --test auditor_agent -- --test-threads 1`）。

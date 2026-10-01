@@ -107,6 +107,16 @@ jobs:
         run: cargo test -p ac-e2e --test settlement -- --test-threads 1
       - name: Audits on chain through the wallet and ac-auditor (verdicts, disputes, slashing, jailing, payments)
         run: cargo test -p ac-e2e --test audit -- --test-threads 1
+      - name: Auditor agents find a provider that starts cheating (pinned requests, evidence service, reviews, detection latency)
+        env:
+          AC_E2E_LATENCY: ${{ github.workspace }}/target/audit-latency.json
+        run: |
+          cargo test -p ac-e2e --test auditor_agent -- --test-threads 1
+          echo "### Audit detection latency (dev chain)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat "$AC_E2E_LATENCY" >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

@@ -93,6 +93,61 @@ engine is involved; otherwise the evidence is re-checked like its case. Every re
 carries `onchain`: the outcome as the chain encodes it (hex), which `ac-wallet audit verdict`
 submits.
 
+### The agent (`ac-auditor run`)
+
+The service mode is the mystery shopper of MVP plan §5.5 (m6-auditor-agent; spec
+`market/auditor-agent` "审计员代理服务" and after). It runs as a registered auditor account
+(`ac-wallet audit register`) and, with no one at the keyboard:
+
+- **audits** each provider it is assigned in a round once, at a random block of the first three
+  quarters of the round: one non-streamed request pinned to that provider
+  (`X-AgentCoin-Provider`, open to every user), through a random gateway with a random payment
+  account, with a prompt from the built-in generator or the operator's bank, for a model of the
+  provider it has an engine for. It re-checks the answer and submits the verdict before the
+  round ends. A failure's evidence is stored before the verdict is sent.
+- **serves evidence** at its endpoint (registered on chain at start-up with its X-Wing key). It
+  hands over a verdict's evidence, over a sealed channel, only to a reviewer of an open dispute
+  this auditor accused in. A refusal says nothing more. Evidence is deleted once no dispute can
+  use it, and expired disputes it is party to are closed.
+- **reviews** the disputes it is drawn for. It fetches every accuser's evidence, checks it
+  against the commitment and the receipt on chain, and re-checks it. It votes *confirm* only
+  when two distinct accusers' evidence fails, otherwise *reject*. If its own engine is down it
+  retries and, failing that, does not vote.
+
+```bash
+ac-auditor keygen --out auditor-kem.json --password-file auditor.pass
+ac-auditor run --config auditor.json
+```
+
+The configuration is a JSON file; relative paths are taken from its directory:
+
+```json
+{
+  "node": "http://127.0.0.1:9944",
+  "wallet": "auditor.json", "password_file": "auditor.pass", "kem_key": "auditor-kem.json",
+  "listen": "0.0.0.0:8500", "public_endpoint": "https://auditor.example:8500",
+  "data_dir": "auditor-data",
+  "engines": [{"model": "0x…", "engine": "http://127.0.0.1:8000",
+               "engine_model": "qwen", "socket": "/run/agentcoin/recheck.sock"}],
+  "payers": [{"wallet": "payer1.json", "password_file": "payer1.pass",
+              "gateways": ["atc1…"], "max_usd": "5"}],
+  "prompts": {"bank": "bank.jsonl", "bank_percent": 20, "min_tokens": 32, "max_tokens": 256},
+  "margin_percent": 25
+}
+```
+
+Operating notes:
+
+- **Payment accounts.** Each must already have a credit channel (escrow) at each listed gateway.
+  It must never be the auditor account: the start refuses that. Gateways see payment accounts,
+  and escrow deposits are public, so fund them from sources unrelated to the auditor and rotate
+  them. Anonymous vouchers (M7) replace this.
+- **Engines.** One verify-mode engine per model (see above, AMX off on CPUs). Providers serving
+  only models without an engine are skipped and counted.
+- **Thresholds.** The agent judges by its built-in `AUDIT_THRESHOLDS` version. When the chain
+  accepts another version, it neither audits nor votes and says why: upgrade it.
+- **Bank.** JSONL, one `messages` array per line; `bank_percent` of prompts come from it.
+
 ## Privacy
 
 Re-checks only use the auditor's own requests. The agent logs request IDs, model IDs, counts,
@@ -104,4 +159,7 @@ are dropped. A case's `Debug` output leaves out the messages and the output.
 `cargo test -p ac-auditor` re-checks answers of the deterministic mock engine
 (`tests/mock-engine`): an honest provider, another model, no proofs, an int4 model, mismatched
 proofs, inputs and tokens, a missing engine and a prove-mode plugin on the auditor's socket. The
-CI job `vllm-plugin` re-checks real vLLM answers (`scripts/calibrate-toploc.py --quick`).
+CI job `vllm-plugin` re-checks real vLLM answers (`scripts/calibrate-toploc.py --quick`). The
+agent's decisions (`src/agent`) are tested with stand-ins for the chain, gateways, engines and
+accusers; `tests/e2e/tests/auditor_agent.rs` runs six agents against a provider that starts
+cheating (`AC_E2E=1 cargo test -p ac-e2e --test auditor_agent -- --test-threads 1`).

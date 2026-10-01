@@ -53,7 +53,9 @@ The administration cannot slash, jail, open or decide anything (D6).
 ## Calls
 
 `register`, `bond_extra`, `unbond`, `exit`, `withdraw_unbonded`, `submit_verdict`, `vote`,
-`close_dispute`, `set_params` (administration). The wallet wraps them as `ac-wallet audit …`.
+`close_dispute`, `set_params` (administration), `set_endpoint` (an auditor's evidence endpoint and
+X-Wing key, which reviewers reach; m6-auditor-agent). The wallet wraps them as `ac-wallet audit …`.
+`AuditApi` version 2 adds the endpoint query and a paged list of open disputes.
 
 ## Example
 

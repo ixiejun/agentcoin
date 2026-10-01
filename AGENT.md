@@ -337,6 +337,9 @@ ac-auditor recheck --engine <url> --socket <path> --quant bf16 --cases <dir>  # 
 ac-auditor evidence --case <file> --out <evidence.bin>  # a failing verdict's evidence and its commitment
 ac-wallet audit verdict --report <line.json> --case <file>  # submit a verdict (also: audit register / vote / disputes)
 AC_E2E=1 cargo test -p ac-e2e --test audit -- --test-threads 1  # audits on chain: verdicts, disputes, slashing
+ac-auditor run --config auditor.json            # the auditor agent: mystery-shopper audits, evidence service, reviews
+AC_E2E=1 cargo test -p ac-e2e --test auditor_agent -- --test-threads 1  # six agents find a provider that starts cheating
+scripts/sim-audit-latency.py                      # Monte Carlo of the audit detection latency
 scripts/measure-finality.sh [seconds]             # finality latency, 4/7/10 nodes (release)
 scripts/wallet-smoke.sh                           # wallet CLI against a dev node
 

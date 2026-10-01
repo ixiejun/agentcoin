@@ -161,7 +161,8 @@ ac-wallet audit pot && ac-wallet audit params
 | `audit verdict --report --case` | submits the verdict of an `ac-auditor recheck` line on a case: outcome and thresholds version from the line, receipt from the case and, for a failure, the evidence commitment (printed); refuses before signing if the account is not assigned |
 | `audit disputes --provider` | a provider's verdict counts, open dispute, accusers and reviewers' votes |
 | `audit vote --provider --id --vote confirm\|reject`, `audit close` | votes as a reviewer; closes an undecided dispute after its deadline |
-| `audit status`, `audit pot`, `audit params` | an auditor's record and counts; the pot; the parameters |
+| `audit endpoint --set URL --kem-key KEY` / `--clear` | publishes (or removes) where the auditor serves evidence to reviewers; `ac-auditor run` does it by itself |
+| `audit status`, `audit pot`, `audit params` | an auditor's record, counts and evidence endpoint; the pot; the parameters |
 
 ## Local inference proxy
 
@@ -195,6 +196,10 @@ for chunk in client.chat.completions.create(
   fails any check stops all further payments and requests. The proofs are not stored.
 - `--max-usd` caps the channel's paid total; the paid total is kept in
   `serve-<gateway>.json` next to the wallet (`--state`) so restarts never pay twice.
+- A request with the header `X-AgentCoin-Provider: atc1…` is pinned to that provider: the
+  gateway sends it there or answers `no_provider` (never another provider), and the proxy pays
+  only a receipt naming that provider. With the OpenAI SDK:
+  `client.chat.completions.create(..., extra_headers={"X-AgentCoin-Provider": "atc1…"})`.
 - It listens on `127.0.0.1:8411` by default and has no authentication: never expose it. Your
   private key never leaves the machine, and the proxy logs no prompts or outputs.
 
