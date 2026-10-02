@@ -212,14 +212,17 @@ jobs:
         run: python scripts/probe-vllm-recheck.py
       - name: The vLLM interfaces the public job worker relies on
         run: python scripts/probe-public-jobs-vllm.py
+      # Only verify-mode re-checks need oneDNN kept off AMX (D66); this check and the end-to-end
+      # run below prove only, and the cap made the prove-mode engine die with SIGILL on a Xeon
+      # 6973P-C runner (run 36979003183), so they run without it.
       - name: The plugin in a real vLLM matches the activations and the reference proofs
-        run: python scripts/check-vllm-plugin.py
+        run: env -u ONEDNN_MAX_CPU_ISA python scripts/check-vllm-plugin.py
       - run: cargo build -p ac-node -p ac-wallet -p ac-provider -p ac-gateway -p ac-mock-engine
       - name: Inference through vLLM with the plugin (OpenAI SDK, proxy, gateway, provider, proofs, no content in logs)
         env:
           AC_E2E: "1"
           AC_VLLM_E2E: "1"
-        run: cargo test -p ac-e2e --test vllm -- --test-threads 1 --nocapture
+        run: env -u ONEDNN_MAX_CPU_ISA cargo test -p ac-e2e --test vllm -- --test-threads 1 --nocapture
       - run: cargo build -p ac-auditor
       - name: Re-check regression (honest answers pass, another model, int8, int4 and a changed prompt fail)
         run: python scripts/calibrate-toploc.py --quick

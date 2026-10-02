@@ -286,6 +286,10 @@ async fn work_settlement_flow() {
             "120",
             "--total-ms",
             "900",
+            // A non-zero TOPLOC commitment: receipts without proofs earn no market work
+            // (m6-public-jobs, I-008); the chain only tells zero from non-zero.
+            "--toploc",
+            &format!("0x{}", "ab".repeat(32)),
             "--out",
             file.to_str().unwrap(),
         ]));
