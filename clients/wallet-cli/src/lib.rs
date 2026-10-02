@@ -9,6 +9,7 @@ pub mod kem_key;
 pub mod market;
 pub mod ops;
 pub mod proxy;
+pub mod public;
 pub mod sealed_http;
 pub mod wallet;
 pub mod work;

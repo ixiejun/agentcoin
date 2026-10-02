@@ -7,6 +7,7 @@
 //! fingerprints, data cleaning), commits to the summary, reveals it after the commit deadline and
 //! uploads the full result to the publisher. Data and results are never logged.
 
+pub mod agent;
 pub mod clean;
 pub mod engine;
 pub mod exec;

@@ -10,6 +10,11 @@
 //! per word ([`token_id`]), behind vLLM's `/tokenize` and `/detokenize`, and `/v1/completions`
 //! for a prompt of token IDs: the chat template is the messages' words in order, and an output
 //! token renders as its word and a space.
+//!
+//! For public job workers (m6-public-jobs design D12) `/v1/completions` also answers
+//! `prompt_logprobs` (vLLM's format, values from [`prompt_logprob`]) and `/v1/embeddings` returns
+//! [`EMBEDDING_DIMS`]-dimensional vectors from [`embedding`]; both depend on the model seed, so
+//! another seed plays another model.
 
 pub mod plugin;
 
@@ -36,6 +41,8 @@ const WORDS: [&str; 8] = [
     "elit",
 ];
 const DEFAULT_MAX_TOKENS: u64 = 16;
+/// Dimension of the pseudo-model's embeddings.
+pub const EMBEDDING_DIMS: usize = 64;
 
 /// Engine behaviour.
 #[derive(Clone, Debug)]
@@ -100,6 +107,35 @@ pub fn token_id(word: &str) -> u32 {
         (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
     });
     u32::try_from(h % 49_999).unwrap_or(0).saturating_add(1)
+}
+
+/// SplitMix64's finalizer: a fixed, well-spread hash step (not a security primitive).
+fn mix(mut z: u64) -> u64 {
+    z = z.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^ (z >> 31)
+}
+
+/// The log probability the pseudo-model of `seed` gives `token` after `prefix`: in `(-8, 0]`,
+/// from a rolling hash of the seed and the prefix tokens.
+#[must_use]
+pub fn prompt_logprob(seed: u64, prefix: &[u32], token: u32) -> f64 {
+    let state = prefix.iter().fold(mix(seed), |h, t| mix(h ^ u64::from(*t)));
+    let [a, b, c, d, ..] = mix(state ^ u64::from(token).rotate_left(32)).to_le_bytes();
+    -f64::from(u32::from_le_bytes([a, b, c, d])) / f64::from(u32::MAX) * 8.0
+}
+
+/// The pseudo-model's embedding of `text` under `seed`: [`EMBEDDING_DIMS`] values in `[-1, 1)`.
+#[must_use]
+pub fn embedding(seed: u64, text: &str) -> Vec<f32> {
+    let h = text.bytes().fold(mix(!seed), |h, b| mix(h ^ u64::from(b)));
+    (0..EMBEDDING_DIMS)
+        .map(|i| {
+            let [a, b, ..] = mix(h ^ u64::try_from(i).unwrap_or(0)).to_le_bytes();
+            f32::from(i16::from_le_bytes([a, b])) / 32_768.0
+        })
+        .collect()
 }
 
 struct Shared {
@@ -300,15 +336,71 @@ async fn handle(req: Request, shared: Arc<Shared>) -> Response {
                 .get("model")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
+            let mut choice =
+                json!({ "index": 0, "text": format!("{} ", WORDS[0]), "finish_reason": "length" });
+            if request.get("prompt_logprobs").is_some_and(|v| !v.is_null()) {
+                choice["prompt_logprobs"] = prompt_logprobs(&shared, &ids);
+            }
             let body = json!({
                 "id": engine_id, "object": "text_completion", "created": 0, "model": model,
-                "choices": [{ "index": 0, "text": format!("{} ", WORDS[0]), "finish_reason": "length" }],
+                "choices": [choice],
                 "usage": { "prompt_tokens": ids.len(), "completion_tokens": 1, "total_tokens": ids.len().saturating_add(1) },
+            });
+            http::json(200, body.to_string())
+        }
+        ("POST", "/v1/embeddings") => {
+            let request = match body_json(req, &shared).await {
+                Ok(r) => r,
+                Err(e) => return e,
+            };
+            let texts: Vec<String> = match request.get("input") {
+                Some(Value::String(s)) => vec![s.clone()],
+                Some(Value::Array(a)) => a
+                    .iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect(),
+                _ => return error(400, "no input"),
+            };
+            let data: Vec<Value> = texts
+                .iter()
+                .enumerate()
+                .map(|(i, t)| {
+                    json!({ "object": "embedding", "index": i,
+                            "embedding": embedding(shared.config.model_seed, t) })
+                })
+                .collect();
+            let tokens: usize = texts.iter().map(|t| t.split_whitespace().count()).sum();
+            let model = request
+                .get("model")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let body = json!({
+                "object": "list", "model": model, "data": data,
+                "usage": { "prompt_tokens": tokens, "total_tokens": tokens },
             });
             http::json(200, body.to_string())
         }
         _ => error(404, "not found"),
     }
+}
+
+/// vLLM's `prompt_logprobs`: `null` for the first token, then the prompt token's entry.
+fn prompt_logprobs(shared: &Shared, ids: &[u32]) -> Value {
+    let vocab = shared
+        .vocab
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut out = vec![Value::Null];
+    for (i, id) in ids.iter().enumerate().skip(1) {
+        let lp = prompt_logprob(
+            shared.config.model_seed,
+            ids.get(..i).unwrap_or_default(),
+            *id,
+        );
+        let word = vocab.get(id).cloned().unwrap_or_default();
+        out.push(json!({ id.to_string(): { "logprob": lp, "rank": 1, "decoded_token": word } }));
+    }
+    Value::Array(out)
 }
 
 fn words(m: &Value) -> Vec<String> {

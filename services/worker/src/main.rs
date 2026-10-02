@@ -17,6 +17,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Runs the worker service (configuration: see the README).
+    Run {
+        /// The configuration file (JSON).
+        #[arg(long)]
+        config: PathBuf,
+    },
     /// Runs one unit's shard and prints its summary and result hash (checks and debugging).
     Exec {
         /// `eval`, `embed` or `clean`.
@@ -44,6 +50,9 @@ enum Command {
 async fn main() -> Result<()> {
     ac_worker::logging::init(log::LevelFilter::Info, ac_worker::logging::Sink::Stderr);
     match Cli::parse().command {
+        Command::Run { config } => {
+            ac_worker::agent::live::run(ac_worker::agent::config::Config::load(&config)?).await
+        }
         Command::Exec {
             kind,
             shard,

@@ -504,6 +504,7 @@ dependencies = [
  "log",
  "pallet-public-jobs",
  "parity-scale-codec",
+ "rand_core 0.10.1",
  "serde",
  "serde_json",
  "sp-core",

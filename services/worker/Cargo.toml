@@ -25,6 +25,7 @@ frame-support = { workspace = true, features = ["std"] }
 hex = { workspace = true, features = ["std"] }
 log = { workspace = true, features = ["std"] }
 pallet-public-jobs = { workspace = true, features = ["std"] }
+rand_core = { workspace = true }
 parity-scale-codec = { workspace = true, features = ["std"] }
 serde = { workspace = true, features = ["std", "derive"] }
 serde_json = { workspace = true, features = ["std"] }

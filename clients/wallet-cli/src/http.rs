@@ -231,6 +231,31 @@ impl Client {
             .with_context(|| format!("POST {url}"))
     }
 
+    /// `PUT url` with a complete body and extra request headers.
+    ///
+    /// # Errors
+    ///
+    /// Invalid URLs or header values, and transport errors.
+    pub async fn put_with(
+        &self,
+        url: &str,
+        content_type: &str,
+        headers: &[(&str, &str)],
+        body: impl Into<Bytes>,
+    ) -> Result<hyper::Response<Incoming>> {
+        let mut req = hyper::Request::put(url).header(CONTENT_TYPE, content_type);
+        for (name, value) in headers {
+            req = req.header(*name, *value);
+        }
+        let req = req
+            .body(Full::new(body.into()))
+            .context("building the request")?;
+        self.inner
+            .request(req)
+            .await
+            .with_context(|| format!("PUT {url}"))
+    }
+
     /// `GET url` and the whole body, which must be a 2xx response of at most `limit` bytes.
     ///
     /// # Errors
