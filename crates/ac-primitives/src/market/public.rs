@@ -813,8 +813,8 @@ sp_api::decl_runtime_apis! {
         AccountId: parity_scale_codec::Codec,
         BlockNumber: parity_scale_codec::Codec,
     {
-        /// The current round and its first and last block.
-        fn round() -> (RoundIndex, BlockNumber, BlockNumber);
+        /// The current round and its first and last block (`None` before genesis parameters).
+        fn round() -> Option<(RoundIndex, u32, u32)>;
         /// The current round's roster and seed.
         fn roster() -> (Vec<AccountId>, Option<H256>);
         /// A worker's record.
@@ -836,7 +836,7 @@ sp_api::decl_runtime_apis! {
         /// Balance of the public payout account.
         fn pot_balance() -> u128;
         /// Current parameters.
-        fn params() -> PublicParams;
+        fn params() -> Option<PublicParams>;
     }
 }
 

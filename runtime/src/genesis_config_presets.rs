@@ -214,6 +214,10 @@ fn testnet_genesis(preset: &Preset<'_>) -> Result<Value, ac_crypto::Error> {
                 ..pallet_audit::AuditGenesis::LIVE
             }
         },
+        // Public jobs (m6-public-jobs design D9): rounds, deadlines and locks of tens of blocks.
+        public_jobs: pallet_public_jobs::GenesisConfig {
+            params: ac_primitives::market::public::PublicParams::DEV
+        },
     }))
 }
 

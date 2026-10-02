@@ -18,4 +18,5 @@ frame_benchmarking::define_benchmarks!(
     [pallet_credits, Credits]
     [pallet_work, Work]
     [pallet_audit, Audit]
+    [pallet_public_jobs, PublicJobs]
 );

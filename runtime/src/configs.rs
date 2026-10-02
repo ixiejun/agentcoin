@@ -201,16 +201,17 @@ impl pallet_randomness_cr::Config for Runtime {
 impl pallet_emission::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
-    /// Verified market work: reports that matured in the epoch (`pallet-work`).
-    type WorkSource = crate::Work;
+    /// Verified market work: reports that matured in the epoch (`pallet-work`); verified public
+    /// work: accepted units that matured in the epoch (`pallet-public-jobs`).
+    type WorkSource = MarketAndPublicWork;
     /// PoA: the security budget rolls over (decision D19); PoS: paid by work points to
     /// validators and their stakers (`m3-pos`).
     type SecurityBudget = StakingPos;
     type Treasury = TreasuryDual;
     /// The market share goes to the settlement pot, claimed by work.
     type MarketPayout = crate::Work;
-    // Wired to `pallet-public-jobs` in m6-public-jobs task 8.1.
-    type PublicPayout = ();
+    /// The public share goes to the public jobs' payout account, claimed by work.
+    type PublicPayout = crate::PublicJobs;
     type WeightInfo = pallet_emission::weights::SubstrateWeight<Runtime>;
 }
 
@@ -490,6 +491,51 @@ impl pallet_audit::Config for Runtime {
     type BenchmarkHelper = MarketBenchmarkHelper;
 }
 
+/// Verified work of an epoch: the market's from `pallet-work`, the public from
+/// `pallet-public-jobs`.
+pub struct MarketAndPublicWork;
+impl ac_primitives::emission::WorkSource for MarketAndPublicWork {
+    fn verified_work(epoch: ac_primitives::emission::EpochIndex) -> (u128, u128) {
+        use ac_primitives::emission::WorkSource;
+        (
+            <crate::Work as WorkSource>::verified_work(epoch).0,
+            <crate::PublicJobs as WorkSource>::verified_work(epoch).1,
+        )
+    }
+}
+
+parameter_types! {
+    /// Settled unit records pruned per block (benchmarked weight `prune(64)`).
+    pub const PublicJobsPruneLimit: u32 = 64;
+}
+
+/// Seeds public job rounds from the chain's commit-reveal randomness.
+pub struct PublicJobsRandomness;
+impl pallet_public_jobs::JobsRandomness for PublicJobsRandomness {
+    fn random(subject: &[u8]) -> Option<sp_core::H256> {
+        RandomnessCr::random(subject).map(|(_, value)| value)
+    }
+}
+
+impl pallet_public_jobs::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeHoldReason = RuntimeHoldReason;
+    type Currency = Balances;
+    type Models = crate::ModelRegistry;
+    type Price = crate::RefRate;
+    type Randomness = PublicJobsRandomness;
+    type Epochs = Emission;
+    /// Slashed locked rewards are burned and counted in `Emission::TotalBurned`.
+    type Burn = Emission;
+    /// The PoA administration publishes jobs until holder voting (M8).
+    type PublisherOrigin = TreasuryAdminOrigin;
+    type AdminOrigin = TreasuryAdminOrigin;
+    type PruneLimit = PublicJobsPruneLimit;
+    type WeightInfo = pallet_public_jobs::weights::SubstrateWeight<Runtime>;
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = MarketBenchmarkHelper;
+}
+
 /// Accounts' current keys, from `pallet-pq-accounts`: the fingerprint vouchers are checked
 /// against (`ac_primitives::market::voucher::key_fingerprint` computes the same value).
 pub struct PqAccountKeys;
@@ -690,6 +736,22 @@ impl pallet_credits::BenchmarkHelper for MarketBenchmarkHelper {
     }
     fn set_rate(rate: u128) {
         Self::put_rate(rate);
+    }
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+impl pallet_public_jobs::BenchmarkHelper for MarketBenchmarkHelper {
+    fn set_rate(rate: u128) {
+        Self::put_rate(rate);
+    }
+    fn register_model(model: ac_primitives::market::ModelId) {
+        <Self as pallet_providers::BenchmarkHelper>::register_model(model);
+    }
+    fn set_randomness(seed: sp_core::H256) {
+        pallet_randomness_cr::Latest::<Runtime>::put((0, seed));
+    }
+    fn set_epoch(_epoch: ac_primitives::emission::EpochIndex) {
+        // The emission epoch follows the block number; benchmarks start in epoch 0.
     }
 }
 

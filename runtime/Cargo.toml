@@ -32,6 +32,7 @@ pallet-gateways = { workspace = true }
 pallet-credits = { workspace = true }
 pallet-work = { workspace = true }
 pallet-audit = { workspace = true }
+pallet-public-jobs = { workspace = true }
 pallet-transaction-payment = { workspace = true }
 pallet-transaction-payment-rpc-runtime-api = { workspace = true }
 parity-scale-codec = { workspace = true, features = ["derive"] }
@@ -95,6 +96,7 @@ std = [
     "pallet-credits/std",
     "pallet-work/std",
     "pallet-audit/std",
+    "pallet-public-jobs/std",
     "pallet-transaction-payment-rpc-runtime-api/std",
     "pallet-transaction-payment/std",
     "frame-benchmarking?/std",
@@ -143,6 +145,7 @@ runtime-benchmarks = [
     "pallet-credits/runtime-benchmarks",
     "pallet-work/runtime-benchmarks",
     "pallet-audit/runtime-benchmarks",
+    "pallet-public-jobs/runtime-benchmarks",
     # Brings in pallet-revive-fixtures (GPL-3.0-only): allowed only because runtime-benchmarks
     # is a registered internal feature whose builds are never distributed.
     "pallet-revive/runtime-benchmarks",

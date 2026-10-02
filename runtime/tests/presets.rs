@@ -218,3 +218,29 @@ fn audit_parameters() {
         ac_market_proto::AUDIT_THRESHOLDS.version
     );
 }
+
+// m6-public-jobs, spec node/chain-spec "公共任务参数": test presets use rounds and locks of tens
+// of blocks; a live chain spec starts from the draft live values.
+#[test]
+fn public_jobs_parameters() {
+    use ac_primitives::market::{MicroUsd, public::PublicParams};
+    use ac_runtime::Runtime;
+
+    for id in [
+        sp_genesis_builder::DEV_RUNTIME_PRESET,
+        sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET,
+    ] {
+        preset_ext(id).execute_with(|| {
+            let p = pallet_public_jobs::Params::<Runtime>::get().unwrap();
+            assert_eq!(p, PublicParams::DEV);
+            assert!(p.round_blocks <= 20 && p.commit_blocks <= 50 && p.lock_blocks <= 100);
+            assert_eq!(p.check(), Ok(()));
+        });
+    }
+    // Scenario "导出正式链公共任务参数".
+    let live = pallet_public_jobs::GenesisConfig::<Runtime>::default().params;
+    assert_eq!(live, PublicParams::LIVE);
+    assert_eq!(live.round_blocks, 600);
+    assert_eq!(live.lock_blocks, 604_800);
+    assert_eq!(live.price_cap, MicroUsd(1_000_000));
+}

@@ -14,8 +14,8 @@ use sp_version::RuntimeVersion;
 use super::{
     AccountId, Audit, AuraPq, Balance, Block, BlockNumber, Credits, Emission, EvmSupport,
     Executive, Gateways, InherentDataExt, ModelRegistry, Nonce, Offences, PqAccounts, Providers,
-    RandomnessCr, RefRate, Revive, Runtime, RuntimeCall, RuntimeGenesisConfig, StakingPos, System,
-    TransactionPayment, TreasuryDual, VERSION, ValidatorSet, Work,
+    PublicJobs, RandomnessCr, RefRate, Revive, Runtime, RuntimeCall, RuntimeGenesisConfig,
+    StakingPos, System, TransactionPayment, TreasuryDual, VERSION, ValidatorSet, Work,
 };
 
 impl_runtime_apis! {
@@ -631,7 +631,65 @@ impl_runtime_apis! {
         }
     }
 
-    #[api_version(2)]
+    impl ac_primitives::market::public::PublicJobsApi<Block, AccountId, BlockNumber> for Runtime {
+        fn round() -> Option<(ac_primitives::market::audit::RoundIndex, u32, u32)> {
+            PublicJobs::round_bounds()
+        }
+
+        fn roster() -> (Vec<AccountId>, Option<sp_core::H256>) {
+            (
+                pallet_public_jobs::CurrentRoster::<Runtime>::get()
+                    .into_iter()
+                    .map(|(who, _)| who)
+                    .collect(),
+                pallet_public_jobs::Seed::<Runtime>::get(),
+            )
+        }
+
+        fn worker(who: AccountId) -> Option<ac_primitives::market::public::WorkerRecord<BlockNumber>> {
+            pallet_public_jobs::Workers::<Runtime>::get(who)
+        }
+
+        fn job(id: ac_primitives::market::public::JobId) -> Option<ac_primitives::market::public::JobRecord<BlockNumber>> {
+            pallet_public_jobs::Jobs::<Runtime>::get(id)
+        }
+
+        fn jobs() -> Vec<ac_primitives::market::public::JobId> {
+            pallet_public_jobs::ActiveJobs::<Runtime>::get().to_vec()
+        }
+
+        fn unit(
+            job: ac_primitives::market::public::JobId,
+            unit: ac_primitives::market::public::UnitIndex,
+        ) -> Option<ac_primitives::market::public::UnitRecord<AccountId, BlockNumber>> {
+            pallet_public_jobs::Units::<Runtime>::get(job, unit)
+        }
+
+        fn assigned(who: AccountId) -> Vec<ac_primitives::market::public::Assignment<BlockNumber>> {
+            PublicJobs::assigned(&who)
+        }
+
+        fn epoch(epoch: ac_primitives::emission::EpochIndex) -> ac_primitives::market::public::EpochPublic<u128> {
+            pallet_public_jobs::Epochs::<Runtime>::get(epoch)
+        }
+
+        fn pending(who: AccountId) -> Vec<(ac_primitives::emission::EpochIndex, u128)> {
+            pallet_public_jobs::Pending::<Runtime>::get(who).to_vec()
+        }
+
+        fn locked(who: AccountId) -> Vec<(BlockNumber, u128)> {
+            pallet_public_jobs::Locked::<Runtime>::get(who).to_vec()
+        }
+
+        fn pot_balance() -> u128 {
+            PublicJobs::pot_balance()
+        }
+
+        fn params() -> Option<ac_primitives::market::public::PublicParams> {
+            pallet_public_jobs::Params::<Runtime>::get()
+        }
+    }
+
     impl ac_primitives::market::AuditApi<Block, AccountId, BlockNumber> for Runtime {
         fn round() -> Option<(ac_primitives::market::audit::RoundIndex, u32, u32)> {
             Audit::round_bounds()

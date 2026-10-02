@@ -398,6 +398,7 @@ dependencies = [
  "pallet-poa-admin",
  "pallet-pq-accounts",
  "pallet-providers",
+ "pallet-public-jobs",
  "pallet-randomness-cr",
  "pallet-ref-rate",
  "pallet-revive",

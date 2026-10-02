@@ -5,6 +5,8 @@
 //! cannot be decoded (decision D36).
 
 #![cfg_attr(not(feature = "std"), no_std)]
+// The runtime macros expand recursively per pallet; 24 pallets exceed the default limit of 128.
+#![recursion_limit = "256"]
 // `construct_runtime`-style macros generate items without docs and with patterns that the
 // workspace lints reject; the lints still apply to hand-written code in the submodules.
 #![allow(
@@ -66,7 +68,8 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // 6: work settlement and market work emission (m5-work-settlement).
     // 7: on-chain audits (m6-audit-chain).
     // 8: auditors' evidence endpoints and the 20-minute live round (m6-auditor-agent).
-    spec_version: 8,
+    // 9: public jobs, public work emission and unproven fees in work reports (m6-public-jobs).
+    spec_version: 9,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     // 2: `AuthorizeCall` joined the extension pipeline (m2-finality); encodings are unchanged.
@@ -75,7 +78,8 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // 5: the market calls (m5-market-registry).
     // 6: the work settlement calls (m5-work-settlement).
     // 7: the audit calls (m6-audit-chain).
-    transaction_version: 7,
+    // 8: the public jobs calls and the work report entry's unproven fees (m6-public-jobs).
+    transaction_version: 8,
     system_version: 1,
 };
 
@@ -88,10 +92,10 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     impl_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     authoring_version: 1,
-    spec_version: 9,
+    spec_version: 10,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
-    transaction_version: 7,
+    transaction_version: 8,
     system_version: 1,
 };
 
@@ -287,4 +291,7 @@ mod runtime {
 
     #[runtime::pallet_index(22)]
     pub type Audit = pallet_audit;
+
+    #[runtime::pallet_index(23)]
+    pub type PublicJobs = pallet_public_jobs;
 }
