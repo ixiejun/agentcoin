@@ -1,0 +1,15 @@
+{
+  "inputs": [
+    "short",
+    "  The quick brown fox jumps over the lazy dog near the river bank.  ",
+    "The quick brown fox jumps over the lazy dog near the river bank.",
+    "The quick brown fox jumps over the lazy dog near the river bank!",
+    "Café au lait, s'il vous plaît, avec un croissant très frais.",
+    "Line one of a document\twith a tab.\n\n\n   Line   two   after blank lines.\u0007",
+    "Hash functions map data of any size to values of a fixed size, quickly and repeatably.",
+    "数据清洗规则第一版：规范化、去除控制字符、合并空白、按长度过滤、精确去重与近似去重。"
+  ],
+  "result": "{\"index\":1,\"text\":\"The quick brown fox jumps over the lazy dog near the river bank.\"}\n{\"index\":4,\"text\":\"Café au lait, s'il vous plaît, avec un croissant très frais.\"}\n{\"index\":5,\"text\":\"Line one of a document with a tab.\\n\\n\\nLine two after blank lines.\"}\n{\"index\":6,\"text\":\"Hash functions map data of any size to values of a fixed size, quickly and repeatably.\"}\n{\"index\":7,\"text\":\"数据清洗规则第一版：规范化、去除控制字符、合并空白、按长度过滤、精确去重与近似去重。\"}\n",
+  "rules": 1,
+  "summary": "3aa993d163c072d17b7b8fd9d6334c44517a71626f200e1fa7558a2385ae70b3"
+}

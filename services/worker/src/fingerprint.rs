@@ -30,7 +30,9 @@ pub fn direction(job: JobId, j: u32, dims: usize) -> Vec<bool> {
 /// The directions of `job` for vectors of `dims` dimensions.
 #[must_use]
 pub fn directions(job: JobId, dims: usize) -> Vec<Vec<bool>> {
-    (0..FINGERPRINT_BITS).map(|j| direction(job, j, dims)).collect()
+    (0..FINGERPRINT_BITS)
+        .map(|j| direction(job, j, dims))
+        .collect()
 }
 
 /// The fingerprint of an embedding.
@@ -47,7 +49,11 @@ pub fn fingerprint(directions: &[Vec<bool>], embedding: &[f32]) -> u32 {
             .iter()
             .zip(dir)
             .map(|(x, plus)| {
-                let v = if norm > 0.0 { f64::from(*x) / norm } else { 0.0 };
+                let v = if norm > 0.0 {
+                    f64::from(*x) / norm
+                } else {
+                    0.0
+                };
                 if *plus { v } else { -v }
             })
             .sum();
@@ -69,7 +75,11 @@ pub fn summary(directions: &[Vec<bool>], embeddings: &[Vec<f32>]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::indexing_slicing, clippy::cast_precision_loss)] // Test code.
+    #![allow(
+        clippy::unwrap_used,
+        clippy::indexing_slicing,
+        clippy::cast_precision_loss
+    )] // Test code.
 
     use super::*;
 

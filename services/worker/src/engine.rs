@@ -30,7 +30,11 @@ impl EngineClient {
     async fn post(&self, path: &str, body: &Value) -> Result<Value> {
         let resp = self
             .http
-            .post(&join(&self.base, path), "application/json", body.to_string())
+            .post(
+                &join(&self.base, path),
+                "application/json",
+                body.to_string(),
+            )
             .await?;
         let status = resp.status().as_u16();
         let bytes = read_body(resp.into_body(), LIMIT).await?;
@@ -82,7 +86,11 @@ impl EngineClient {
             .and_then(Value::as_array)
             .context("no prompt_logprobs")?;
         if entries.len() != ids.len() {
-            bail!("prompt_logprobs has {} entries for {} tokens", entries.len(), ids.len());
+            bail!(
+                "prompt_logprobs has {} entries for {} tokens",
+                entries.len(),
+                ids.len()
+            );
         }
         entries
             .iter()

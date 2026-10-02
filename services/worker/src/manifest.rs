@@ -143,10 +143,7 @@ mod tests {
         };
         check_shard(shard, &entry).unwrap();
         assert!(check_shard(b"{\"text\":\"hellO\"}\n", &entry).is_err());
-        let m = serde_json::to_vec(&Manifest {
-            units: vec![entry],
-        })
-        .unwrap();
+        let m = serde_json::to_vec(&Manifest { units: vec![entry] }).unwrap();
         parse_manifest(&m, &blake3(&m)).unwrap();
         assert!(parse_manifest(&m, &[0; 32]).is_err());
     }
@@ -156,7 +153,12 @@ mod tests {
         let eval = b"{\"context\":\"2+2=\",\"choices\":[\" 4\",\" 5\"]}\n";
         assert_eq!(parse_eval(eval).unwrap()[0].choices.len(), 2);
         assert!(parse_eval(b"{\"context\":\"x\",\"choices\":[\"a\"]}\n").is_err());
-        assert_eq!(parse_texts(b"{\"text\":\"a\"}\n\n{\"text\":\"b\"}\n", 10).unwrap().len(), 2);
+        assert_eq!(
+            parse_texts(b"{\"text\":\"a\"}\n\n{\"text\":\"b\"}\n", 10)
+                .unwrap()
+                .len(),
+            2
+        );
         assert!(parse_texts(b"", 10).is_err());
         assert!(parse_texts(b"not json\n", 10).is_err());
     }

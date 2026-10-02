@@ -49,7 +49,10 @@ pub struct EvalResult {
 /// A value that is not finite or does not fit.
 pub fn millinats(nats: f64) -> Result<i64> {
     let m = (nats * 1000.0).round();
-    ensure!(m.is_finite() && m.abs() < 9.0e15, "log likelihood out of range");
+    ensure!(
+        m.is_finite() && m.abs() < 9.0e15,
+        "log likelihood out of range"
+    );
     // Rounded and range-checked above, so the conversion is exact.
     Ok(m as i64)
 }
@@ -134,7 +137,11 @@ pub async fn embed_unit(
 }
 
 fn normalized(v: &[f32]) -> Vec<f32> {
-    let norm = v.iter().map(|x| f64::from(*x) * f64::from(*x)).sum::<f64>().sqrt();
+    let norm = v
+        .iter()
+        .map(|x| f64::from(*x) * f64::from(*x))
+        .sum::<f64>()
+        .sqrt();
     if norm == 0.0 {
         return v.to_vec();
     }

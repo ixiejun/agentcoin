@@ -487,6 +487,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "ac-worker"
+version = "0.1.0"
+dependencies = [
+ "ac-crypto",
+ "ac-mock-engine",
+ "ac-primitives",
+ "ac-runtime",
+ "ac-wallet",
+ "anyhow",
+ "async-trait",
+ "clap",
+ "frame-support",
+ "hex",
+ "log",
+ "pallet-public-jobs",
+ "parity-scale-codec",
+ "serde",
+ "serde_json",
+ "sp-core",
+ "sp-runtime",
+ "tokio",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

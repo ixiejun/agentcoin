@@ -215,12 +215,10 @@ mod tests {
     fn near_duplicates_are_dropped() {
         let a = "Hash functions map data of any size to values of a fixed size, quickly and repeatably.";
         let b = "Hash functions map data of any size to values of a fixed size; quickly and repeatably.";
-        let c = "Pancakes need flour, milk and eggs, a hot pan, and a little patience in the morning.";
+        let c =
+            "Pancakes need flour, milk and eggs, a hot pan, and a little patience in the morning.";
         let kept = clean(&s(&[a, b, c]));
-        assert_eq!(
-            kept.iter().map(|k| k.index).collect::<Vec<_>>(),
-            vec![0, 2]
-        );
+        assert_eq!(kept.iter().map(|k| k.index).collect::<Vec<_>>(), vec![0, 2]);
     }
 
     #[test]
