@@ -11,6 +11,7 @@ use zeroize::Zeroizing;
 
 mod audit_cli;
 mod market_cli;
+mod public_cli;
 
 /// AgentCoin command-line wallet (ML-DSA keys, `atc1…` addresses).
 #[derive(Debug, Parser)]
@@ -104,6 +105,11 @@ enum Command {
     Audit {
         #[command(subcommand)]
         command: audit_cli::AuditCommand,
+    },
+    /// Public jobs: worker registration, publishing calls, canaries, rewards and queries.
+    Public {
+        #[command(subcommand)]
+        command: public_cli::PublicCommand,
     },
     /// Rotate to a new key (next derivation index); the address stays the same.
     Rotate {
@@ -564,6 +570,7 @@ async fn main() -> Result<()> {
         Command::Evm { command } => run_evm(command).await?,
         Command::Market { command } => market_cli::run(command).await?,
         Command::Audit { command } => audit_cli::run(command).await?,
+        Command::Public { command } => public_cli::run(command).await?,
         Command::Rotate { wallet, node, alg } => {
             let mut w = load(&wallet.wallet)?;
             let alg = match alg {

@@ -5,138 +5,7 @@
 //! tree whose root goes into the job. The file of leaves and proofs stays with the publisher
 //! until each unit passes, when `collect` (or the wallet) reveals it.
 
-use ac_primitives::market::public::{
-    CanaryProof, CanaryReveal, CanarySiblings, JobId, Summary, UnitIndex, canary_leaf,
-    canary_proof, canary_root,
-};
-use anyhow::{Context, Result, ensure};
-use serde::{Deserialize, Serialize};
-
-/// One canary unit.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Canary {
-    /// The unit.
-    pub unit: UnitIndex,
-    /// The expected summary, hexadecimal.
-    pub summary: String,
-    /// The leaf's salt, hexadecimal.
-    pub salt: String,
-    /// The leaf's position.
-    pub index: u32,
-    /// The tree's number of leaves.
-    pub leaves: u32,
-    /// The proof's siblings, leaf level first, hexadecimal.
-    pub siblings: Vec<String>,
-}
-
-/// A job's canaries.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CanaryFile {
-    /// The job.
-    pub job: JobId,
-    /// The Merkle root the job is published with, hexadecimal.
-    pub root: String,
-    /// The canaries, in unit order.
-    pub canaries: Vec<Canary>,
-}
-
-fn hex32(s: &str) -> Result<[u8; 32]> {
-    let v = hex::decode(s.trim_start_matches("0x"))?;
-    <[u8; 32]>::try_from(v.as_slice()).context("not 32 bytes")
-}
-
-impl Canary {
-    /// The `reveal_canary` argument for this leaf.
-    ///
-    /// # Errors
-    ///
-    /// A corrupt file.
-    pub fn reveal(&self) -> Result<CanaryReveal> {
-        let siblings = self
-            .siblings
-            .iter()
-            .map(|s| hex32(s))
-            .collect::<Result<Vec<_>>>()?;
-        Ok(CanaryReveal {
-            summary: Summary::try_from(hex::decode(&self.summary)?)
-                .map_err(|_| anyhow::anyhow!("summary too long"))?,
-            salt: hex32(&self.salt)?,
-            proof: CanaryProof {
-                index: self.index,
-                leaves: self.leaves,
-                siblings: CanarySiblings::try_from(siblings)
-                    .map_err(|_| anyhow::anyhow!("proof too deep"))?,
-            },
-        })
-    }
-}
-
-impl CanaryFile {
-    /// Builds the canaries of `job` from each unit's expected summary; `salt` draws the leaves'
-    /// salts.
-    ///
-    /// # Errors
-    ///
-    /// No units, a unit given twice, too many units or a failing random source.
-    pub fn build(
-        job: JobId,
-        units: &[(UnitIndex, Vec<u8>)],
-        mut salt: impl FnMut() -> Result<[u8; 32]>,
-    ) -> Result<Self> {
-        ensure!(!units.is_empty(), "no canary units");
-        let mut sorted = units.to_vec();
-        sorted.sort_by_key(|(u, _)| *u);
-        ensure!(
-            sorted
-                .windows(2)
-                .all(|w| w.first().map(|a| a.0) != w.get(1).map(|b| b.0)),
-            "a canary unit is given twice"
-        );
-        let salts = sorted.iter().map(|_| salt()).collect::<Result<Vec<_>>>()?;
-        let leaves: Vec<[u8; 32]> = sorted
-            .iter()
-            .zip(&salts)
-            .map(|((unit, summary), s)| canary_leaf(job, *unit, summary, s))
-            .collect();
-        let root = canary_root(&leaves).context("no leaves")?;
-        let canaries = sorted
-            .iter()
-            .zip(&salts)
-            .enumerate()
-            .map(|(i, ((unit, summary), s))| {
-                let proof = canary_proof(&leaves, i).context("too many canary units")?;
-                Ok(Canary {
-                    unit: *unit,
-                    summary: hex::encode(summary),
-                    salt: hex::encode(s),
-                    index: proof.index,
-                    leaves: proof.leaves,
-                    siblings: proof.siblings.iter().map(hex::encode).collect(),
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        Ok(Self {
-            job,
-            root: hex::encode(root),
-            canaries,
-        })
-    }
-
-    /// The root.
-    ///
-    /// # Errors
-    ///
-    /// A corrupt file.
-    pub fn root(&self) -> Result<[u8; 32]> {
-        hex32(&self.root)
-    }
-
-    /// The canary of `unit`, if it is one.
-    #[must_use]
-    pub fn get(&self, unit: UnitIndex) -> Option<&Canary> {
-        self.canaries.iter().find(|c| c.unit == unit)
-    }
-}
+pub use ac_wallet::public::{Canary, CanaryFile};
 
 #[cfg(test)]
 mod tests {
@@ -144,10 +13,12 @@ mod tests {
 
     use ac_primitives::market::MicroUsd;
     use ac_primitives::market::public::{
-        JobRecord, JobSpec, PublicParams, RULES_V1, UnitRecord, UnitState, Url, verify_canary,
+        JobRecord, JobSpec, PublicParams, RULES_V1, Summary, UnitIndex, UnitRecord, UnitState, Url,
+        canary_leaf, verify_canary,
     };
     use ac_primitives::market::work::JobKind;
     use ac_runtime::{Runtime, RuntimeCall, RuntimeOrigin};
+    use anyhow::Result;
     use sp_runtime::traits::Dispatchable;
     use sp_runtime::{AccountId32, BuildStorage};
 

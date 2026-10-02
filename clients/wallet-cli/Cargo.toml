@@ -35,6 +35,7 @@ pallet-balances = { workspace = true, features = ["std"] }
 pallet-credits = { workspace = true, features = ["std"] }
 pallet-work = { workspace = true, features = ["std"] }
 pallet-audit = { workspace = true, features = ["std"] }
+pallet-public-jobs = { workspace = true, features = ["std"] }
 pallet-gateways = { workspace = true, features = ["std"] }
 pallet-model-registry = { workspace = true, features = ["std"] }
 pallet-providers = { workspace = true, features = ["std"] }

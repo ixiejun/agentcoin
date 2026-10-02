@@ -474,6 +474,7 @@ dependencies = [
  "pallet-model-registry",
  "pallet-pq-accounts",
  "pallet-providers",
+ "pallet-public-jobs",
  "pallet-revive",
  "pallet-work",
  "parity-scale-codec",
