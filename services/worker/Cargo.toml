@@ -1,0 +1,40 @@
+[package]
+name = "ac-worker"
+description = "AgentCoin public job worker: runs evaluation, data cleaning and embedding units, commits and reveals their summaries; plus the publisher's result collector and canary tool"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "GPL-3.0-or-later"
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[[bin]]
+name = "ac-worker"
+path = "src/main.rs"
+
+[dependencies]
+ac-crypto = { workspace = true, features = ["std", "getrandom"] }
+ac-primitives = { workspace = true, features = ["std"] }
+ac-runtime = { workspace = true, features = ["std"] }
+ac-wallet = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true }
+frame-support = { workspace = true, features = ["std"] }
+hex = { workspace = true, features = ["std"] }
+log = { workspace = true, features = ["std"] }
+pallet-public-jobs = { workspace = true, features = ["std"] }
+parity-scale-codec = { workspace = true, features = ["std"] }
+serde = { workspace = true, features = ["std", "derive"] }
+serde_json = { workspace = true, features = ["std"] }
+sp-core = { workspace = true, features = ["std"] }
+sp-runtime = { workspace = true, features = ["std"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net", "sync", "fs", "io-util"] }
+unicode-normalization = { workspace = true }
+
+[dev-dependencies]
+ac-mock-engine = { workspace = true }
+
+[lints]
+workspace = true
