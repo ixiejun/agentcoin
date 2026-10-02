@@ -38,26 +38,28 @@ async fn finalized(node: &TestNode) -> u64 {
     node.finalized().await.map_or(0, |f| f.0)
 }
 
-async fn authority_set(node: &TestNode) -> (SetId, Vec<Authority>) {
+async fn authority_set(node: &TestNode) -> Result<(SetId, Vec<Authority>), String> {
     let bytes = node
         .state_call("ValidatorSetApi_authority_set", &[], None)
-        .await
-        .unwrap();
-    Decode::decode(&mut &bytes[..]).unwrap()
+        .await?;
+    Decode::decode(&mut &bytes[..]).map_err(|e| e.to_string())
 }
 
-/// Every offence recorded in any set so far.
-async fn offences(node: &TestNode) -> Vec<(PqPublicKey, OffenceKey)> {
-    let (current, _) = authority_set(node).await;
+/// Every offence recorded in any set so far, at the best block. While two nodes sign with one
+/// key the best block can be on a fork whose state is discarded before the call reaches it;
+/// that is an error the caller polls past.
+async fn offences(node: &TestNode) -> Result<Vec<(PqPublicKey, OffenceKey)>, String> {
+    let (current, _) = authority_set(node).await?;
     let mut all = Vec::new();
     for set_id in 0..=current {
         let bytes = node
             .state_call("OffencesApi_offences", &set_id.encode(), None)
-            .await
-            .unwrap();
-        all.extend(Vec::<(PqPublicKey, OffenceKey)>::decode(&mut &bytes[..]).unwrap());
+            .await?;
+        all.extend(
+            Vec::<(PqPublicKey, OffenceKey)>::decode(&mut &bytes[..]).map_err(|e| e.to_string())?,
+        );
     }
-    all
+    Ok(all)
 }
 
 /// Waits until `node` is within 3 blocks of `reference` in both best and finalized height.
@@ -173,7 +175,10 @@ async fn same_key_on_two_nodes_is_reported_and_disabled() {
 
     let started = Instant::now();
     let recorded_at = loop {
-        if offences(bob).await.iter().any(|(who, _)| *who == alice) {
+        if offences(bob)
+            .await
+            .is_ok_and(|all| all.iter().any(|(who, _)| *who == alice))
+        {
             break bob.height().await.unwrap();
         }
         assert!(
