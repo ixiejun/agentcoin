@@ -48,6 +48,7 @@ ac-crypto = { workspace = true, features = ["deterministic", "rand"] }
 blake3 = { workspace = true }
 hex = { workspace = true, features = ["alloc"] }
 proptest = { workspace = true, features = ["std"] }
+serde_json = { workspace = true, features = ["std"] }
 
 [lints.rust]
 unsafe_code = "forbid"

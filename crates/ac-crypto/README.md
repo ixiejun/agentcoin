@@ -117,6 +117,10 @@ reused for another purpose.
 | `agentcoin 2026-10 audit-evidence v1` | hash | commitment to audit evidence: its SCALE encoding (`ac-market-proto::audit`) | in use from M6 |
 | `agentcoin 2026-10 audit-assign v1` | hash | audit assignment draw: `seed ‖ provider ‖ u32_le(i)` | in use from M6 (on chain) |
 | `agentcoin 2026-10 audit-review v1` | hash | dispute reviewer draw: `seed ‖ provider ‖ u64_le(dispute) ‖ u32_le(i)` | in use from M6 (on chain) |
+| `agentcoin 2026-10 public-commit v1` | hash | public job commitment: `SCALE(job, unit, attempt, worker, summary, result_hash, salt)` | in use from M6 (on chain) |
+| `agentcoin 2026-10 public-canary v1` | hash | canary tree: leaves `0x00 ‖ SCALE(job, unit, summary, salt)`, nodes `0x01 ‖ left ‖ right` | in use from M6 (on chain) |
+| `agentcoin 2026-10 public-assign v1` | hash | public job worker draw: `seed ‖ SCALE(job, unit, attempt) ‖ u32_le(i)`; round seeds use the randomness subject `agentcoin/public-round ‖ u32_le(round)` | in use from M6 (on chain) |
+| `agentcoin 2026-10 public-direction v1` | hash | embedding fingerprint directions: `SCALE(job, j, block)`, one bit per dimension | in use from M6 |
 | `agentcoin/tx/v1` | signature | transaction signatures | in use from M1 (consensus-critical) |
 | `agentcoin/aura-seal/v1` | signature | Aura-PQ block seals | in use from M1 (consensus-critical) |
 | `agentcoin/key-rotation/v1` | signature | proof of possession of a rotated-in key | in use from M1 (consensus-critical) |

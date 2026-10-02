@@ -84,6 +84,10 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 | `agentcoin 2026-10 audit-evidence v1` | 哈希 | 审计证据的承诺：证据的 SCALE 编码（`ac-market-proto::audit`） | 自 M6 起使用 |
 | `agentcoin 2026-10 audit-assign v1` | 哈希 | 审计分配抽样：`种子 ‖ 提供者 ‖ u32_le(i)` | 自 M6 起使用（链上） |
 | `agentcoin 2026-10 audit-review v1` | 哈希 | 争议复核人抽样：`种子 ‖ 提供者 ‖ u64_le(争议编号) ‖ u32_le(i)` | 自 M6 起使用（链上） |
+| `agentcoin 2026-10 public-commit v1` | 哈希 | 公共任务承诺：`SCALE(任务, 单元, 尝试序号, 工作者, 摘要, 结果哈希, 随机数)` | 自 M6 起使用（链上） |
+| `agentcoin 2026-10 public-canary v1` | 哈希 | 金丝雀树：叶子 `0x00 ‖ SCALE(任务, 单元, 摘要, 随机数)`，内部节点 `0x01 ‖ 左 ‖ 右` | 自 M6 起使用（链上） |
+| `agentcoin 2026-10 public-assign v1` | 哈希 | 公共任务的工作者抽样：`种子 ‖ SCALE(任务, 单元, 尝试序号) ‖ u32_le(i)`；轮次种子用随机数主题 `agentcoin/public-round ‖ u32_le(轮次)` | 自 M6 起使用（链上） |
+| `agentcoin 2026-10 public-direction v1` | 哈希 | 嵌入指纹的方向：`SCALE(任务, j, 块)`，每维一位 | 自 M6 起使用 |
 | `agentcoin/tx/v1` | 签名 | 交易签名 | 自 M1 起使用（共识关键） |
 | `agentcoin/aura-seal/v1` | 签名 | Aura-PQ 区块封印 | 自 M1 起使用（共识关键） |
 | `agentcoin/key-rotation/v1` | 签名 | 轮换新密钥的持有证明 | 自 M1 起使用（共识关键） |
