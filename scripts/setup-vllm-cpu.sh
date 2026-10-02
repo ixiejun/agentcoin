@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install the pinned CPU build of vLLM, the AgentCoin TOPLOC plugin, the TOPLOC reference
-# implementation and the pinned test models (m5-engine-toploc 7.1, m6-toploc-verify 7.1; CI job
-# vllm-plugin).
+# implementation and the pinned test models (m5-engine-toploc 7.1, m6-toploc-verify 7.1,
+# m6-public-jobs 6.1; CI job vllm-plugin).
 #
 # Usage: scripts/setup-vllm-cpu.sh
 # Environment: PYTHON (default python3). Under GitHub Actions the needed LD_PRELOAD (Intel
@@ -63,6 +63,13 @@ if [ -z "$cheat_revision" ]; then
   echo "model $CHEAT_MODEL is at revision $cheat_revision; pin it as CHEAT_MODEL_REVISION (plugins/vllm/ci/pins.env)" >&2
   failed=1
 fi
+embed_revision="$EMBED_MODEL_REVISION"
+if [ -z "$embed_revision" ]; then
+  "$py" -m pip install -q huggingface_hub
+  embed_revision="$("$py" -c "from huggingface_hub import HfApi; print(HfApi().model_info('$EMBED_MODEL').sha)")"
+  echo "model $EMBED_MODEL is at revision $embed_revision; pin it as EMBED_MODEL_REVISION (plugins/vllm/ci/pins.env)" >&2
+  failed=1
+fi
 [ "$failed" = 0 ] || exit 1
 
 # 3. vLLM (CPU), the plugin, the SDK and pytest.
@@ -83,6 +90,7 @@ fi
 # 5. The models, at their pinned revisions.
 "$py" -c "from huggingface_hub import snapshot_download; print(snapshot_download('$MODEL', revision='$revision'))"
 "$py" -c "from huggingface_hub import snapshot_download; print(snapshot_download('$CHEAT_MODEL', revision='$cheat_revision'))"
+"$py" -c "from huggingface_hub import snapshot_download; print(snapshot_download('$EMBED_MODEL', revision='$embed_revision'))"
 
 # 6. Intel OpenMP for the CPU wheel, and a report of what was installed.
 iomp="$("$py" -c "import pathlib, sys; print(next((str(p) for p in pathlib.Path(sys.prefix).rglob('libiomp5.so')), ''))")"
@@ -93,6 +101,8 @@ if [ -n "${GITHUB_ENV:-}" ]; then
     echo "AC_VLLM_REVISION=$revision"
     echo "AC_CHEAT_MODEL=$CHEAT_MODEL"
     echo "AC_CHEAT_REVISION=$cheat_revision"
+    echo "AC_EMBED_MODEL=$EMBED_MODEL"
+    echo "AC_EMBED_REVISION=$embed_revision"
   } >>"$GITHUB_ENV"
 fi
 LD_PRELOAD="$iomp" "$py" -c "import torch, vllm; print('vllm', vllm.__version__, 'torch', torch.__version__, 'cpu', torch.backends.cpu.get_cpu_capability(), 'bf16', torch.ones(1, dtype=torch.bfloat16).dtype)"

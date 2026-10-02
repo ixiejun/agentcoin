@@ -210,6 +210,8 @@ jobs:
         run: scripts/setup-vllm-cpu.sh
       - name: The vLLM interfaces the auditor's re-check relies on
         run: python scripts/probe-vllm-recheck.py
+      - name: The vLLM interfaces the public job worker relies on
+        run: python scripts/probe-public-jobs-vllm.py
       - name: The plugin in a real vLLM matches the activations and the reference proofs
         run: python scripts/check-vllm-plugin.py
       - run: cargo build -p ac-node -p ac-wallet -p ac-provider -p ac-gateway -p ac-mock-engine
