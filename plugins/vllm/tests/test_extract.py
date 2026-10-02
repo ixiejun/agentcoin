@@ -55,15 +55,19 @@ def test_candidates_are_each_spans_top_k():
     step = extract.spans(["a", "b", "c"], [1, 5, 3], [4, 0, 2], [4, 20, 2])
     meta, idx, bits = extract.candidates(hidden, step, k=6)
     got = list(extract.frames(meta, idx, bits))
+    # "c" has its whole prompt computed, so its three rows are three decode spans (spec
+    # "抢占后重算").
     assert [(r, p, n) for r, p, n, _ in got] == [
         ("a", client.DECODE, 16),
         ("b", client.PREFILL, 80),
-        ("c", client.DECODE, 48),
+        ("c", client.DECODE, 16),
+        ("c", client.DECODE, 16),
+        ("c", client.DECODE, 16),
     ]
-    rows = {"a": hidden[0:1], "b": hidden[1:6], "c": hidden[6:9]}
-    for request, _, _, pairs in got:
+    rows = [hidden[0:1], hidden[1:6], hidden[6:7], hidden[7:8], hidden[8:9]]
+    for (_, _, _, pairs), row in zip(got, rows):
         assert len(pairs) == 6
-        assert set(pairs) == reference_topk(rows[request], 6)
+        assert set(pairs) == reference_topk(row, 6)
 
 
 def test_a_segment_smaller_than_k_sends_everything():
