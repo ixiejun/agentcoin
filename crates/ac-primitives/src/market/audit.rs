@@ -527,24 +527,67 @@ pub fn sample<A: Encode + PartialEq + Clone>(
     count: usize,
 ) -> Vec<A> {
     let Pool { roster, excluded } = pool;
-    let eligible = roster.iter().filter(|a| !excluded.contains(a)).count();
-    let want = count.min(eligible);
+    let mut prefix = provider.encode();
+    let context = match draw {
+        Draw::Assign => ASSIGN_CONTEXT,
+        Draw::Review(dispute) => {
+            prefix.extend_from_slice(&dispute.to_le_bytes());
+            REVIEW_CONTEXT
+        }
+    };
+    draw_distinct(
+        Drawing {
+            context,
+            seed,
+            prefix: &prefix,
+        },
+        roster,
+        |a| !excluded.contains(a),
+        count,
+    )
+}
+
+/// What a [`draw_distinct`] hashes: the context, the seed and the bytes that identify the draw.
+#[derive(Clone, Copy, Debug)]
+pub struct Drawing<'a> {
+    /// Domain-separation context of the draw (registered in the `ac-crypto` README).
+    pub context: &'static str,
+    /// The round's seed.
+    pub seed: &'a H256,
+    /// Bytes identifying what is drawn for (hashed between the seed and the draw index).
+    pub prefix: &'a [u8],
+}
+
+/// Draws up to `count` distinct members of `roster` for which `eligible` holds.
+///
+/// Draw `i` hashes `seed ‖ prefix ‖ u32_le(i)` under the context and takes the first 8 bytes,
+/// little endian, modulo the roster length; a member already drawn or not eligible is replaced
+/// by the next eligible one after it, wrapping around. The result is in draw order; it is
+/// shorter than `count` only when fewer members are eligible. [`sample`] is this function with
+/// the audit contexts, and the public jobs draw their workers with it.
+#[must_use]
+pub fn draw_distinct<A: PartialEq + Clone>(
+    drawing: Drawing<'_>,
+    roster: &[A],
+    eligible: impl Fn(&A) -> bool,
+    count: usize,
+) -> Vec<A> {
+    let Drawing {
+        context,
+        seed,
+        prefix,
+    } = drawing;
+    let available = roster.iter().filter(|a| eligible(a)).count();
+    let want = count.min(available);
     let mut out: Vec<A> = Vec::with_capacity(want);
-    let n = roster.len() as u64;
+    let n = u64::try_from(roster.len()).unwrap_or(u64::MAX);
     let mut i: u32 = 0;
     while out.len() < want {
-        let mut data = Vec::with_capacity(32 + 40 + 12);
+        let mut data = Vec::with_capacity(32usize.saturating_add(prefix.len()).saturating_add(4));
         data.extend_from_slice(seed.as_bytes());
-        provider.encode_to(&mut data);
-        let context = match draw {
-            Draw::Assign => ASSIGN_CONTEXT,
-            Draw::Review(dispute) => {
-                data.extend_from_slice(&dispute.to_le_bytes());
-                REVIEW_CONTEXT
-            }
-        };
+        data.extend_from_slice(prefix);
         data.extend_from_slice(&i.to_le_bytes());
-        // Both contexts are well formed, so `derive` cannot fail; an error ends the draw early
+        // The contexts are well formed, so `derive` cannot fail; an error ends the draw early
         // rather than panicking.
         let Ok(h) = ac_crypto::hash::derive(context, &data) else {
             break;
@@ -554,12 +597,12 @@ pub fn sample<A: Encode + PartialEq + Clone>(
             word.copy_from_slice(head);
         }
         let start = u64::from_le_bytes(word).checked_rem(n).unwrap_or(0);
-        // Probe from `start`: `want <= eligible` guarantees an eligible member is found.
+        // Probe from `start`: `want <= available` guarantees an eligible member is found.
         let mut k = 0u64;
         while k < n {
             let idx = start.saturating_add(k).checked_rem(n).unwrap_or(0);
             if let Some(a) = usize::try_from(idx).ok().and_then(|j| roster.get(j))
-                && !excluded.contains(a)
+                && eligible(a)
                 && !out.contains(a)
             {
                 out.push(a.clone());
