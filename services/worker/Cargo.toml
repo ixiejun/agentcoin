@@ -36,6 +36,8 @@ unicode-normalization = { workspace = true }
 
 [dev-dependencies]
 ac-mock-engine = { workspace = true }
+frame-system = { workspace = true, features = ["std"] }
+sp-io = { workspace = true, features = ["std"] }
 
 [lints]
 workspace = true

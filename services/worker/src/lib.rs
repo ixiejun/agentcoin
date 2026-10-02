@@ -8,7 +8,9 @@
 //! uploads the full result to the publisher. Data and results are never logged.
 
 pub mod agent;
+pub mod canary;
 pub mod clean;
+pub mod collect;
 pub mod engine;
 pub mod exec;
 pub mod fingerprint;
