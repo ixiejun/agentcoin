@@ -27,6 +27,27 @@ def test_spans_split_a_mixed_batch():
     ]
 
 
+# Spec "抢占后重算": a request with a prompt of 20 that generated 5 tokens is preempted and
+# recomputed in one step: one prefill span for the prompt, one decode span per generated row.
+def test_a_recomputed_request_splits_at_the_prompt():
+    s = extract.spans(["a", "b"], [1, 25], [9, 0], [8, 20])
+    assert s == [
+        extract.Span("a", client.DECODE, 0, 1),
+        extract.Span("b", client.PREFILL, 1, 20),
+    ] + [extract.Span("b", client.DECODE, 21 + i, 1) for i in range(5)]
+
+
+# A recomputation split over steps: the prompt's rest, then generated rows each on their own,
+# and a later chunk that holds only generated rows.
+def test_a_chunked_recomputation_splits_by_row():
+    first = extract.spans(["b"], [12], [12], [20])
+    assert first == [extract.Span("b", client.PREFILL, 0, 8)] + [
+        extract.Span("b", client.DECODE, 8 + i, 1) for i in range(4)
+    ]
+    later = extract.spans(["b"], [3], [24], [20])
+    assert later == [extract.Span("b", client.DECODE, i, 1) for i in range(3)]
+
+
 # Scenario "候选与激活值一致" on a synthetic step.
 def test_candidates_are_each_spans_top_k():
     torch.manual_seed(7)

@@ -5,7 +5,8 @@
 //!
 //! In the prove mode, after each answer the engine sends a prefill (in two segments when the
 //! prompt has more than one token) and one decode segment per output token but the last, then
-//! the end marker, as the vLLM plugin does. In the verify mode it sends one segment per prefilled
+//! the end marker, as the vLLM plugin does (optionally with a preemption and recomputation
+//! midway, see [`PluginConfig::preempt_after`]). In the verify mode it sends one segment per prefilled
 //! token row of a completion, then the end marker.
 
 use std::path::PathBuf;
@@ -26,6 +27,10 @@ pub struct PluginConfig {
     pub socket: PathBuf,
     /// Send only half of the decode segments (to test missing proofs; prove mode).
     pub half_decode: bool,
+    /// After this many decode segments, play a preemption: the request is recomputed (the
+    /// prompt as one prefill segment, then one decode segment per generated row, as the vLLM
+    /// plugin splits a recomputation) and finishes (prove mode; m6-public-jobs 5.5).
+    pub preempt_after: Option<usize>,
     /// Prove (provider) or verify (auditor).
     pub mode: EngineMode,
 }
@@ -37,6 +42,7 @@ impl PluginConfig {
         Self {
             socket,
             half_decode: false,
+            preempt_after: None,
             mode: EngineMode::Prove,
         }
     }
@@ -146,8 +152,23 @@ impl Plugin {
                 segs.push((Phase::Prefill, activations(&prefixes, from, to)));
             }
         }
-        for t in p..p.saturating_add(decode) {
-            segs.push((Phase::Decode, activations(&prefixes, t, t + 1)));
+        let end = p.saturating_add(decode);
+        match self.config.preempt_after.filter(|n| *n < decode) {
+            Some(n) => {
+                for t in p..p.saturating_add(n) {
+                    segs.push((Phase::Decode, activations(&prefixes, t, t + 1)));
+                }
+                // Recomputed from the start: the prompt, then every generated row on its own.
+                segs.push((Phase::Prefill, activations(&prefixes, 0, p)));
+                for t in p..end {
+                    segs.push((Phase::Decode, activations(&prefixes, t, t + 1)));
+                }
+            }
+            None => {
+                for t in p..end {
+                    segs.push((Phase::Decode, activations(&prefixes, t, t + 1)));
+                }
+            }
         }
         self.write(request, segs).await;
     }

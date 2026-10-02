@@ -939,6 +939,7 @@ async fn users_get_the_proofs_the_gateway_keeps() {
             toploc: Some(ac_mock_engine::PluginConfig {
                 socket,
                 half_decode: false,
+                preempt_after: None,
                 mode: ac_market_proto::engine::EngineMode::Prove,
             }),
             ..fast()

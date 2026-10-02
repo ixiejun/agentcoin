@@ -46,7 +46,8 @@ pub enum Missing {
     Timeout,
     /// Segments do not fit the usage, or no segments at all.
     Incomplete,
-    /// A prefill after decode steps: the engine preempted and recomputed the request.
+    /// Segments the proofs cannot be built from in order. A preempted and recomputed request
+    /// no longer lands here: its recomputation is proved (m6-public-jobs, I-008).
     Recomputed,
     /// The candidates do not build proofs.
     Invalid,
@@ -304,7 +305,17 @@ impl Collector {
                 else {
                     return;
                 };
-                if p.finished || p.segments.len() >= MAX_SEGMENTS {
+                if p.finished {
+                    p.overflow = true;
+                    return;
+                }
+                // A prefill after decode steps: the engine preempted the request and recomputes
+                // it from the start; prove the recomputation (spec "被抢占的请求带证明").
+                if phase == Phase::Prefill && p.segments.iter().any(|s| s.phase == Phase::Decode) {
+                    p.segments.clear();
+                    p.overflow = false;
+                }
+                if p.segments.len() >= MAX_SEGMENTS {
                     p.overflow = true;
                     return;
                 }
@@ -532,21 +543,68 @@ mod tests {
         assert_eq!(c.take(&id, usage(5, 6)).await, Err(Missing::Incomplete));
     }
 
+    // Spec "被抢占的请求带证明" (m6-public-jobs, I-008): a request preempted after 5 of 12
+    // tokens is recomputed (the prompt as prefill, then one decode segment per generated row,
+    // as the plugin splits it) and proved over the recomputation; an auditor's re-check passes.
     #[tokio::test]
-    async fn recomputed_requests_and_unknown_ids() {
+    async fn recomputed_requests_are_proved() {
         let (_dir, path) = socket();
         let c = Collector::listen(&path).unwrap();
         let mut plugin = Plugin::connect(&path).await;
-        // A prefill after decode steps: preempted and recomputed.
         let id = [3u8; 32];
         assert!(c.expect(id));
         let pre = values(1, 2 * HIDDEN);
         plugin.segment(&id, Phase::Prefill, &pre).await;
-        plugin.segment(&id, Phase::Decode, &values(2, HIDDEN)).await;
+        for s in 0..4 {
+            plugin
+                .segment(&id, Phase::Decode, &values(s + 2, HIDDEN))
+                .await;
+        }
+        // Preempted: the prompt and the 5 generated rows again, then the remaining steps.
+        let mut acts = vec![pre.clone()];
         plugin.segment(&id, Phase::Prefill, &pre).await;
+        for s in 0..11 {
+            let row = values(s + 100, HIDDEN);
+            plugin.segment(&id, Phase::Decode, &row).await;
+            acts.push(row);
+        }
         plugin.finish(&id).await;
-        assert_eq!(c.take(&id, usage(2, 2)).await, Err(Missing::Recomputed));
-        // Candidates of a request the provider did not forward are dropped.
+        let proofs = c.take(&id, usage(2, 12)).await.unwrap();
+        let whole: Vec<&[Bf16]> = acts.iter().map(Vec::as_slice).collect();
+        let expected = build_proofs(&whole, &MARKET_PARAMS).unwrap();
+        assert_eq!(proofs, ToplocProofs::new(&MARKET_PARAMS, &expected));
+        // The auditor's comparison: one segment per row of a single prefill of the sequence.
+        let mut rows: Vec<Segment> = pre
+            .chunks(usize::try_from(HIDDEN).unwrap())
+            .map(|r| row_segment(Phase::Prefill, r))
+            .collect();
+        rows.extend(acts[1..].iter().map(|r| row_segment(Phase::Decode, r)));
+        let polys: Vec<ac_toploc::ProofPoly> = proofs
+            .proofs
+            .iter()
+            .map(|b| ac_toploc::ProofPoly::from_bytes(b).unwrap())
+            .collect();
+        let cmp = ac_toploc::compare_from_candidates(&rows, &polys, &MARKET_PARAMS).unwrap();
+        assert_eq!(
+            ac_market_proto::toploc::judge(&cmp, &ac_market_proto::toploc::AUDIT_THRESHOLDS),
+            ac_market_proto::toploc::Judgement::Pass
+        );
+    }
+
+    fn row_segment(phase: Phase, row: &[Bf16]) -> Segment {
+        Segment {
+            phase,
+            len: u32::try_from(row.len()).unwrap(),
+            candidates: top_k_candidates(row, 128),
+        }
+    }
+
+    // Candidates of a request the provider did not forward are dropped.
+    #[tokio::test]
+    async fn unknown_ids_are_dropped() {
+        let (_dir, path) = socket();
+        let c = Collector::listen(&path).unwrap();
+        let mut plugin = Plugin::connect(&path).await;
         let other = [4u8; 32];
         run(&mut plugin, &other, 2, 2).await;
         tokio::time::sleep(Duration::from_millis(100)).await;

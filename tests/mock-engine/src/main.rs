@@ -29,6 +29,9 @@ struct Args {
     /// With --toploc-socket: send only half of the decode segments (no proof results).
     #[arg(long)]
     toploc_half_decode: bool,
+    /// With --toploc-socket: after this many decode steps, play a preemption and recomputation.
+    #[arg(long)]
+    toploc_preempt_after: Option<usize>,
     /// With --toploc-socket: `prove` (a provider's engine) or `verify` (an auditor's).
     #[arg(long, default_value = "prove", value_parser = ["prove", "verify"])]
     toploc_mode: String,
@@ -56,6 +59,7 @@ async fn main() -> anyhow::Result<()> {
             toploc: a.toploc_socket.map(|socket| ac_mock_engine::PluginConfig {
                 socket,
                 half_decode: a.toploc_half_decode,
+                preempt_after: a.toploc_preempt_after,
                 mode: if a.toploc_mode == "verify" {
                     EngineMode::Verify
                 } else {

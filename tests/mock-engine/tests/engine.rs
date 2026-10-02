@@ -213,6 +213,7 @@ async fn the_engine_plays_the_toploc_plugin() {
                 toploc: Some(ac_mock_engine::PluginConfig {
                     socket,
                     half_decode: half,
+                    preempt_after: None,
                     mode: ac_market_proto::engine::EngineMode::Prove,
                 }),
                 ..Config::default()
@@ -267,6 +268,59 @@ async fn the_engine_plays_the_toploc_plugin() {
     }
 }
 
+// m6-public-jobs 5.5: with `preempt_after`, the request is preempted after two decode steps and
+// recomputed as the vLLM plugin splits a recomputation: the prompt as one prefill segment, then
+// one decode segment per generated row; the decode rows end as without a preemption.
+#[tokio::test]
+async fn the_engine_plays_a_preemption() {
+    use ac_toploc::Phase;
+    let dir = std::env::temp_dir().join(format!("ac-mock-preempt-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("t.sock");
+    let mut rx = toploc_receiver(socket.clone()).await;
+    let engine = spawn(
+        "127.0.0.1:0",
+        Config {
+            ttft: Duration::ZERO,
+            token_interval: Duration::ZERO,
+            toploc: Some(ac_mock_engine::PluginConfig {
+                socket,
+                half_decode: false,
+                preempt_after: Some(2),
+                mode: ac_market_proto::engine::EngineMode::Prove,
+            }),
+            ..Config::default()
+        },
+    )
+    .await
+    .unwrap();
+    let header = ac_market_proto::engine::request_id_header(&[0x3d; 32]);
+    let resp = Client::new()
+        .unwrap()
+        .post_with(
+            &join(&engine.url(), "/v1/chat/completions"),
+            "application/json",
+            &[("x-request-id", &header)],
+            request(true).to_string(),
+        )
+        .await
+        .unwrap();
+    read_body(resp.into_body(), 1 << 20).await.unwrap();
+    let segs = segments_of(&mut rx).await;
+    let shape: Vec<(Phase, u32)> = segs.iter().map(|s| (s.phase, s.len)).collect();
+    let mut expected = vec![
+        (Phase::Prefill, 2 * 256),
+        (Phase::Prefill, 3 * 256),
+        (Phase::Decode, 256),
+        (Phase::Decode, 256),
+        (Phase::Prefill, 5 * 256),
+    ];
+    expected.extend([(Phase::Decode, 256); 4]);
+    assert_eq!(shape, expected);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// The segments of one request, up to its end marker.
 async fn segments_of(
     rx: &mut tokio::sync::mpsc::UnboundedReceiver<ac_market_proto::engine::EngineMsg>,
@@ -304,6 +358,7 @@ async fn engine_with(
             toploc: Some(ac_mock_engine::PluginConfig {
                 socket,
                 half_decode: false,
+                preempt_after: None,
                 mode,
             }),
             model_seed: seed,

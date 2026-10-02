@@ -94,6 +94,7 @@ fn mock(socket: PathBuf, mode: EngineMode, seed: u64) -> Config {
         toploc: Some(PluginConfig {
             socket,
             half_decode: false,
+            preempt_after: None,
             mode,
         }),
         model_seed: seed,

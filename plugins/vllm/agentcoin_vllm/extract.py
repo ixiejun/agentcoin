@@ -23,18 +23,23 @@ class Span:
 def spans(req_ids, scheduled, computed, prompt_lens) -> list[Span]:
     """Splits a step's rows by request, in batch order.
 
-    `scheduled[i]` tokens of request `req_ids[i]` were computed in this step; the step is a
-    prefill if the request had computed fewer tokens than its prompt before it (a prefill split
-    over several steps gives several prefill spans; a preempted and recomputed request shows up
-    as a prefill again, which the provider refuses to prove).
+    `scheduled[i]` tokens of request `req_ids[i]` were computed in this step. Rows inside the
+    prompt (the request had computed fewer tokens than its prompt) form one prefill span; a
+    prefill split over several steps gives several prefill spans. Every row after the prompt is a
+    decode span of its own: a normal decode step computes one, and a request the engine preempted
+    and recomputes (its prefill now covers the tokens it had generated) yields one prefill span
+    for the prompt and one decode span per generated row (spec "抢占后重算"), so the provider can
+    prove it as if it had never been preempted.
     """
     out = []
     start = 0
     for req, n, done, prompt in zip(req_ids, scheduled, computed, prompt_lens):
-        n = int(n)
-        if n > 0:
-            phase = PREFILL if int(done) < int(prompt) else DECODE
-            out.append(Span(req, phase, start, n))
+        n, done, prompt = int(n), int(done), int(prompt)
+        prefill = min(n, max(prompt - done, 0))
+        if prefill > 0:
+            out.append(Span(req, PREFILL, start, prefill))
+        for row in range(prefill, n):
+            out.append(Span(req, DECODE, start + row, 1))
         start += n
     return out
 

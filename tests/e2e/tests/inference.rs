@@ -122,6 +122,11 @@ async fn inference_through_the_market() {
                 c.args(["--listen", "127.0.0.1:0"])
                     .arg("--toploc-socket")
                     .arg(&toploc);
+                // m6-public-jobs 5.5: the dear engine is preempted midway through every request
+                // and recomputes it; the provider proves the recomputation.
+                if name == "dear" {
+                    c.args(["--toploc-preempt-after", "2"]);
+                }
                 c
             },
             base.join(format!("engine-{name}.log")),
@@ -340,6 +345,24 @@ async fn inference_through_the_market() {
     assert_eq!(receipts("cheap"), cheap_before);
     assert!(paid_now() > paid_before);
     let paid_pinned = paid_now();
+    // m6-public-jobs 5.5 (spec market/provider-agent "被抢占的请求带证明"): the dear engine
+    // preempted the pinned request, yet its receipt commits to proofs, which the gateway and the
+    // proxy checked before billing and paying.
+    assert!(
+        std::fs::read_dir(data("dear").join("receipts"))
+            .unwrap()
+            .flatten()
+            .all(|e| std::fs::read_to_string(e.path())
+                .unwrap()
+                .contains("\"toploc\"")),
+        "the preempted request's receipt has proofs"
+    );
+    assert!(
+        !std::fs::read_to_string(base.join("provider-dear.log"))
+            .unwrap()
+            .contains("toploc_missing"),
+        "no preempted request lacks proofs"
+    );
     let refused = common::openai_pinned(&via_proxy, MODEL_NAME, &user.address());
     assert_eq!(refused["error"]["code"], "no_provider", "{refused}");
     assert_eq!(paid_now(), paid_pinned);
