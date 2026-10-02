@@ -142,6 +142,7 @@ fn entry(provider: &AccountId, model: ModelId, micro_usd: u128) -> ReportEntry<A
         provider: provider.clone(),
         model,
         usd: MicroUsd(micro_usd),
+        unproven: MicroUsd(0),
         in_tokens: 1_000,
         out_tokens: 2_000,
     }

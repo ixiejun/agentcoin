@@ -71,7 +71,9 @@ pub mod pallet {
     use ac_primitives::market::traits::{
         Credit as CreditInterface, GatewayLookup, OnJail, PriceSource, ProviderLookup,
     };
-    use ac_primitives::market::work::{MAX_REPORT_ENTRIES, MAX_REPORT_VOUCHERS, allocate};
+    use ac_primitives::market::work::{
+        MAX_REPORT_ENTRIES, MAX_REPORT_VOUCHERS, allocate, proven_work,
+    };
     use ac_primitives::market::{
         EpochWork, Held, LifetimeWork, MicroUsd, ProviderWork, ReportEntry, ReportLine,
         ReportRecord, SignedVoucher, WorkParams,
@@ -295,6 +297,8 @@ pub mod pallet {
         UnsupportedJobKind,
         /// An entry of zero dollars.
         ZeroAmount,
+        /// An entry's unproven fees exceed its total.
+        UnprovenExceedsTotal,
         /// The same (provider, model) twice.
         DuplicateEntry,
         /// The provider is unregistered, jailed or does not list the model.
@@ -377,6 +381,7 @@ pub mod pallet {
             for e in &entries {
                 ensure!(e.kind.is_supported(), Error::<T>::UnsupportedJobKind);
                 ensure!(e.usd != MicroUsd::ZERO, Error::<T>::ZeroAmount);
+                ensure!(e.unproven <= e.usd, Error::<T>::UnprovenExceedsTotal);
                 ensure!(
                     keys.insert((e.provider.clone(), e.model)),
                     Error::<T>::DuplicateEntry
@@ -453,6 +458,8 @@ pub mod pallet {
             let mut lines = Vec::with_capacity(entries.len());
             let mut epoch_work = 0u128;
             for ((entry, share), work) in entries.into_iter().zip(alloc.shares).zip(alloc.work) {
+                // Receipts without proofs are paid but earn no market work (I-008).
+                let work = proven_work(work, entry.usd, entry.unproven);
                 Self::add_held(&entry.provider, matures, &gateway, share, 0);
                 WorkOf::<T>::mutate(&entry.provider, matures, |w| {
                     let w = w.get_or_insert_with(ProviderWork::default);

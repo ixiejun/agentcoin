@@ -210,7 +210,8 @@ pub struct Report {
     pub entries: Vec<ReportEntry<AccountId32>>,
 }
 
-/// Builds a report from named receipts of `gateway`: the Merkle root and the totals.
+/// Builds a report from named receipts of `gateway`: the Merkle root and the totals, with the
+/// fees of receipts without TOPLOC proofs (an all-zero commitment) as each entry's `unproven`.
 ///
 /// # Errors
 ///
@@ -222,7 +223,7 @@ pub fn build_report(gateway: &AccountId32, receipts: &[(String, SignedReceipt)])
     }
     let mut leaves = Vec::with_capacity(receipts.len());
     let mut order: Vec<(AccountId32, ModelId)> = Vec::new();
-    let mut totals: BTreeMap<(AccountId32, ModelId), (u128, u64, u64)> = BTreeMap::new();
+    let mut totals: BTreeMap<(AccountId32, ModelId), (u128, u64, u64, u128)> = BTreeMap::new();
     for (name, r) in receipts {
         let b = &r.body;
         if b.gateway != *gateway {
@@ -236,8 +237,12 @@ pub fn build_report(gateway: &AccountId32, receipts: &[(String, SignedReceipt)])
         if !totals.contains_key(&key) {
             order.push(key.clone());
         }
-        let t = totals.entry(key).or_insert((0, 0, 0));
+        let t = totals.entry(key).or_insert((0, 0, 0, 0));
         t.0 = t.0.checked_add(b.fee.0).context("fee overflow")?;
+        // Receipts without proofs are settled but earn no market work (I-008).
+        if b.toploc_commit == [0; 32] {
+            t.3 = t.3.checked_add(b.fee.0).context("fee overflow")?;
+        }
         t.1 = t.1.saturating_add(u64::from(b.in_tokens));
         t.2 = t.2.saturating_add(u64::from(b.out_tokens));
     }
@@ -245,12 +250,13 @@ pub fn build_report(gateway: &AccountId32, receipts: &[(String, SignedReceipt)])
     let entries = order
         .into_iter()
         .filter_map(|key| {
-            let (usd, i, o) = *totals.get(&key)?;
+            let (usd, i, o, unproven) = *totals.get(&key)?;
             Some(ReportEntry {
                 kind: JobKind::Inference,
                 provider: key.0,
                 model: key.1,
                 usd: MicroUsd(usd),
+                unproven: MicroUsd(unproven),
                 in_tokens: i,
                 out_tokens: o,
             })
@@ -529,10 +535,14 @@ mod tests {
     #[test]
     fn reports_total_by_provider_and_model() {
         let (p, q, g) = (key("bob"), key("dave"), key("charlie"));
+        let proven = ReceiptBody {
+            toploc_commit: [9; 32],
+            ..body(&p, &g, 3)
+        };
         let files = [
             signed_file(&p, &g, &body(&p, &g, 1)),
             signed_file(&q, &g, &body(&q, &g, 2)),
-            signed_file(&p, &g, &body(&p, &g, 3)),
+            signed_file(&p, &g, &proven),
         ];
         let receipts: Vec<(String, SignedReceipt)> = files
             .iter()
@@ -544,6 +554,9 @@ mod tests {
         assert_eq!(r.entries.len(), 2);
         assert_eq!(r.entries[0].provider, account(&p));
         assert_eq!(r.entries[0].usd, MicroUsd(1_400));
+        // Receipts without proofs (all-zero commitments) are totalled apart (I-008).
+        assert_eq!(r.entries[0].unproven, MicroUsd(700));
+        assert_eq!(r.entries[1].unproven, MicroUsd(700));
         assert_eq!(r.entries[0].in_tokens, 2_000);
         assert_eq!(r.entries[1].usd, MicroUsd(700));
         let leaves: Vec<_> = receipts

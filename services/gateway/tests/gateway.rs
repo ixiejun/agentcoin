@@ -559,6 +559,34 @@ async fn escrow_must_cover_the_maximum_fee() {
     assert_eq!(p.engine.requests(), 0);
 }
 
+// Spec "只接受单个回答的请求" / "多回答的请求被拒绝" (m6-public-jobs, I-008): proofs cover one
+// answer and auditors never ask for several, so `n > 1` is refused before any provider is asked.
+#[tokio::test]
+async fn several_answers_are_refused() {
+    let gw = party(1);
+    let p = provider(13, &gw, fast(), CHEAP).await;
+    let n = net("several", 10 * ATC, &[(&p, CHEAP)]).await;
+    let request = serde_json::json!({
+        "model": "Qwen-test",
+        "messages": [{ "role": "user", "content": "hi" }],
+        "max_tokens": 6,
+        "n": 2,
+    });
+    let reply = n
+        .send(&UserMsg::Chat {
+            request: request.to_string().into_bytes(),
+            payment: Payment::Transparent(n.voucher(0)),
+        })
+        .await;
+    assert_eq!(error_code(&reply), ErrorCode::BadRequest);
+    assert!(
+        !reply
+            .iter()
+            .any(|m| matches!(m, GatewayMsg::Billing { .. }))
+    );
+    assert_eq!(p.engine.requests(), 0);
+}
+
 // Scenarios "名称不唯一" (single model here: unknown names and IDs) and "首 token 前切换",
 // "不可服务的提供者不被选中", plus a failure after the first token is not billed.
 #[tokio::test]

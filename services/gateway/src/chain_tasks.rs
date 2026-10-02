@@ -105,13 +105,9 @@ pub async fn report_round(
     Ok(())
 }
 
-async fn submit(
-    node: &NodeClient,
-    signer: &Signer,
-    gateway: &Gateway,
-    data_dir: &Path,
-    portions: &[Portion],
-) -> Result<()> {
+/// The report of `portions`: their receipts' root and totals, with the fees of receipts without
+/// proofs counted as unproven (spec `market/gateway-service` "自动提交工作报告与领取").
+fn report_of(gateway: &AccountId32, portions: &[Portion]) -> Result<ac_wallet::work::Report> {
     let named: Vec<(String, SignedReceipt)> = portions
         .iter()
         .flat_map(|p| {
@@ -120,7 +116,17 @@ async fn submit(
                 .map(|r| (hex::encode(r.body.request_id), r.clone()))
         })
         .collect();
-    let report = build_report(gateway.account(), &named)?;
+    build_report(gateway, &named)
+}
+
+async fn submit(
+    node: &NodeClient,
+    signer: &Signer,
+    gateway: &Gateway,
+    data_dir: &Path,
+    portions: &[Portion],
+) -> Result<()> {
+    let report = report_of(gateway.account(), portions)?;
     let mut increments = Vec::new();
     for p in portions {
         let check = node
@@ -295,6 +301,10 @@ mod tests {
     use sp_core::H256;
 
     fn receipt(id: u8) -> SignedReceipt {
+        receipt_with(id, [0; 32], 1)
+    }
+
+    fn receipt_with(id: u8, toploc_commit: [u8; 32], fee: u128) -> SignedReceipt {
         let key = SigningKey::from_seed(SigAlg::MlDsa44, &SecretSeed::new([1; 32])).unwrap();
         let body = ReceiptBody {
             genesis: H256([0; 32]),
@@ -305,8 +315,8 @@ mod tests {
             request_id: [id; 32],
             in_tokens: 1,
             out_tokens: 1,
-            fee: MicroUsd(1),
-            toploc_commit: [0; 32],
+            fee: MicroUsd(fee),
+            toploc_commit,
             ttft_ms: 1,
             total_ms: 2,
         };
@@ -373,5 +383,24 @@ mod tests {
         assert_eq!(receipts, saved);
         assert_eq!(kept, [([2; 32], proofs)]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // Spec market/gateway-service "自动提交工作报告与领取" / "无证明的收据单独累计".
+    #[test]
+    fn unproven_receipts_are_totalled_apart() {
+        let portion = Portion {
+            user: AccountId32::new([6; 32]),
+            voucher: voucher(),
+            receipts: vec![
+                receipt_with(1, [9; 32], 300_000),
+                receipt_with(2, [0; 32], 100_000),
+                receipt_with(3, [9; 32], 200_000),
+            ],
+            proofs: Vec::new(),
+        };
+        let report = report_of(&AccountId32::new([2; 32]), &[portion]).unwrap();
+        assert_eq!(report.entries.len(), 1);
+        assert_eq!(report.entries[0].usd, MicroUsd(600_000));
+        assert_eq!(report.entries[0].unproven, MicroUsd(100_000));
     }
 }

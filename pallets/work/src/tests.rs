@@ -120,6 +120,43 @@ fn a_matching_report_is_settled_and_allocated() {
     });
 }
 
+// Scenarios "部分无证明" and "全部无证明" (m6-public-jobs, I-008): unproven fees are settled
+// and shared as usual but earn no market work.
+#[test]
+fn unproven_fees_are_paid_without_work() {
+    ext().execute_with(|| {
+        deposit(&alice(), 2 * UNITS_PER_USD);
+        let mut partly = entry(&p1(), 750_000);
+        partly.unproven = MicroUsd(187_500); // a quarter
+        let mut wholly = entry(&p2(), 250_000);
+        wholly.unproven = MicroUsd(250_000);
+        assert_ok!(submit(
+            &gw(),
+            vec![partly, wholly],
+            vec![voucher(&alice(), 1_000_000)],
+        ));
+        let r = Work::report(0).unwrap();
+        // Shares as with proofs, work only for the proven part: 375,000 × 3/4 and 0.
+        assert_eq!((r.lines[0].share, r.lines[1].share), (562_500, 187_500));
+        assert_eq!((r.lines[0].work, r.lines[1].work), (281_250, 0));
+        assert_eq!(<Work as WorkSource>::verified_work(2), (281_250, 0));
+    });
+}
+
+// Scenario "无证明费用超过合计".
+#[test]
+fn unproven_fees_cannot_exceed_the_total() {
+    ext().execute_with(|| {
+        deposit(&alice(), 2 * UNITS_PER_USD);
+        let mut e = entry(&p1(), 500_000);
+        e.unproven = MicroUsd(600_000);
+        assert_noop!(
+            submit(&gw(), vec![e], vec![voucher(&alice(), 500_000)]),
+            Error::<Test>::UnprovenExceedsTotal
+        );
+    });
+}
+
 // Scenario "汇总与凭证一致" with two vouchers: 0.7 dollars on both sides.
 #[test]
 fn totals_across_vouchers_match() {

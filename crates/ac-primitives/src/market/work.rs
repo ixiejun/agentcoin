@@ -90,6 +90,9 @@ pub struct ReportEntry<AccountId> {
     pub model: ModelId,
     /// Sum of the receipts' fees; positive.
     pub usd: MicroUsd,
+    /// Part of `usd` from receipts without TOPLOC proofs (an all-zero commitment), at most
+    /// `usd`; it is settled like the rest but earns no market work (m6-public-jobs, I-008).
+    pub unproven: MicroUsd,
     /// Sum of prompt tokens.
     pub in_tokens: u64,
     /// Sum of generated tokens.
@@ -419,6 +422,18 @@ pub fn allocate(
     })
 }
 
+/// Market work of an entry whose `unproven` of `usd` came from receipts without proofs:
+/// `work × (usd − unproven) / usd`, rounded down (spec `market/work-settlement` "工作量"). Zero
+/// when everything is unproven, when `unproven` exceeds `usd` or when `usd` is zero.
+#[must_use]
+pub fn proven_work(work: u128, usd: MicroUsd, unproven: MicroUsd) -> u128 {
+    let proven = usd.0.saturating_sub(unproven.0);
+    if proven == 0 {
+        return 0;
+    }
+    part(work, proven, usd.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -548,6 +563,35 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    // Spec market/work-settlement "工作量" / "工作量计算", "部分无证明", "全部无证明".
+    #[test]
+    fn unproven_fees_earn_no_work() {
+        let usd = MicroUsd(400);
+        assert_eq!(proven_work(375_000, usd, MicroUsd(0)), 375_000);
+        assert_eq!(proven_work(375_000, usd, MicroUsd(100)), 281_250);
+        assert_eq!(proven_work(375_000, usd, usd), 0);
+        assert_eq!(proven_work(375_000, usd, MicroUsd(401)), 0);
+        assert_eq!(proven_work(375_000, MicroUsd(0), MicroUsd(0)), 0);
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn proven_work_is_monotonic_and_bounded(
+            work in 0u128..1_000_000_000_000_000_000_000,
+            usd in 1u128..1_000_000_000,
+            a in 0u128..1_000_000_000,
+            b in 0u128..1_000_000_000,
+        ) {
+            let (lo, hi) = (a.min(b).min(usd), a.max(b).min(usd));
+            let more = proven_work(work, MicroUsd(usd), MicroUsd(lo));
+            let less = proven_work(work, MicroUsd(usd), MicroUsd(hi));
+            proptest::prop_assert!(less <= more);
+            proptest::prop_assert!(more <= work);
+            proptest::prop_assert_eq!(proven_work(work, MicroUsd(usd), MicroUsd(0)), work);
+            proptest::prop_assert_eq!(proven_work(work, MicroUsd(usd), MicroUsd(usd)), 0);
         }
     }
 }

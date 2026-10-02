@@ -228,6 +228,7 @@ fn a_confirmed_dispute_jails_and_voids_unsettled_work() {
                     provider: bob.account.clone(),
                     model,
                     usd: MicroUsd(600_000),
+                    unproven: MicroUsd(0),
                     in_tokens: 1_000,
                     out_tokens: 2_000,
                 }]),

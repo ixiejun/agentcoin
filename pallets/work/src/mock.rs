@@ -341,6 +341,7 @@ pub fn entry(provider: &AccountId32, micro_usd: u128) -> ReportEntry<AccountId32
         provider: provider.clone(),
         model: MODEL,
         usd: MicroUsd(micro_usd),
+        unproven: MicroUsd(0),
         in_tokens: 1_000,
         out_tokens: 2_000,
     }

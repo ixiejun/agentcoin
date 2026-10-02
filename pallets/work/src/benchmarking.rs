@@ -50,6 +50,7 @@ mod benchmarks {
                     provider,
                     model: MODEL,
                     usd: MicroUsd(usd),
+                    unproven: MicroUsd(0),
                     in_tokens: 1_000,
                     out_tokens: 1_000,
                 }
