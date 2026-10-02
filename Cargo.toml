@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["clients/wallet-cli", "tests/e2e", "tests/mock-engine", "tests/sim", "tests/overmint-runtime", "tests/early-switch-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "crates/ac-toploc", "crates/ac-market-proto", "services/eth-rpc", "services/provider", "services/gateway", "services/auditor", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "pallets/staking-pos", "pallets/evm-support", "pallets/ref-rate", "pallets/model-registry", "pallets/providers", "pallets/gateways", "pallets/credits", "pallets/work", "pallets/audit", "runtime"]
+members = ["clients/wallet-cli", "tests/e2e", "tests/mock-engine", "tests/sim", "tests/overmint-runtime", "tests/early-switch-runtime", "crates/ac-crypto", "crates/ac-primitives", "crates/ac-invariants", "crates/ac-toploc", "crates/ac-market-proto", "services/eth-rpc", "services/provider", "services/gateway", "services/auditor", "pallets/emission", "pallets/treasury-dual", "pallets/poa-admin", "node", "node/consensus/ac-bft", "node/consensus/aura-pq", "pallets/aura-pq", "pallets/offences", "pallets/pq-accounts", "pallets/randomness-cr", "pallets/validator-set", "pallets/staking-pos", "pallets/evm-support", "pallets/ref-rate", "pallets/model-registry", "pallets/providers", "pallets/gateways", "pallets/credits", "pallets/work", "pallets/audit", "pallets/public-jobs", "runtime"]
 
 [workspace.package]
 version = "0.1.0"
@@ -135,6 +135,7 @@ pallet-ref-rate = { path = "pallets/ref-rate", version = "0.1", default-features
 pallet-model-registry = { path = "pallets/model-registry", version = "0.1", default-features = false }
 pallet-providers = { path = "pallets/providers", version = "0.1", default-features = false }
 pallet-audit = { path = "pallets/audit", version = "0.1", default-features = false }
+pallet-public-jobs = { path = "pallets/public-jobs", version = "0.1", default-features = false }
 pallet-gateways = { path = "pallets/gateways", version = "0.1", default-features = false }
 pallet-credits = { path = "pallets/credits", version = "0.1", default-features = false }
 pallet-work = { path = "pallets/work", version = "0.1", default-features = false }

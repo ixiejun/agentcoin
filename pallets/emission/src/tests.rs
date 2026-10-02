@@ -12,8 +12,8 @@ use frame_support::traits::fungible::{Balanced, Inspect};
 use frame_support::traits::{Hooks, OnUnbalanced};
 
 use crate::mock::{
-    Balances, COMMUNITY, Emission, FLOOR, FLOOR_MINTED, HOLDER, PAYOUT_ON, PHASE, POT,
-    RuntimeEvent, SETTLED, System, Test, VALIDATOR, WORK, ext,
+    Balances, COMMUNITY, Emission, FLOOR, FLOOR_MINTED, HOLDER, PAYOUT_ON, PHASE, POT, PUBLIC_ON,
+    PUBLIC_POT, PUBLIC_SETTLED, RuntimeEvent, SETTLED, System, Test, VALIDATOR, WORK, ext,
 };
 use crate::{EpochLength, Event, LastSettled, Reserve, TotalBurned, TotalMinted};
 
@@ -239,6 +239,56 @@ fn a_refused_market_mint_returns_to_the_reserve() {
         assert_eq!(settled_reports(), vec![(0, 0, 5)]);
         let s = schedule().scheduled(0);
         assert_eq!(Reserve::<Test>::get() + TotalMinted::<Test>::get(), s);
+    });
+}
+
+fn public_reports() -> Vec<(u64, u128, u128)> {
+    PUBLIC_SETTLED.with(|s| s.borrow().clone())
+}
+
+// Scenario "公共工作排放" (m6-public-jobs): public emission equals the verified public work
+// below the cap, goes to the public payout account, and the proportional treasury share
+// follows it (max(20/70 × public, 5% × S)).
+#[test]
+fn public_work_below_the_cap_is_minted_to_its_account() {
+    ext(L).execute_with(|| {
+        PUBLIC_ON.with(|p| *p.borrow_mut() = true);
+        let s = schedule().scheduled(0);
+        let work = s / 10; // half of 20% × avail
+        WORK.with(|w| *w.borrow_mut() = (0, work));
+        run_to(L + 1);
+        let out = settle(&EpochInput::new(s, 0, (0, work), Phase::Poa));
+        assert_eq!(out.public, work);
+        assert_eq!(Balances::balance(&PUBLIC_POT), work);
+        assert_eq!(public_reports(), vec![(0, work, work)]);
+        assert_eq!(out.treasury(), (work * 20 / 70).max(s * 5 / 100));
+        assert_eq!(Reserve::<Test>::get() + TotalMinted::<Test>::get(), s);
+        assert_eq!(Balances::total_issuance(), TotalMinted::<Test>::get());
+    });
+}
+
+// Scenario "公共工作量超过上限": public emission is capped at 20% × avail, the excess is not
+// minted, and reserve + minted is conserved.
+#[test]
+fn public_work_above_the_cap_is_capped() {
+    ext(L).execute_with(|| {
+        PUBLIC_ON.with(|p| *p.borrow_mut() = true);
+        PAYOUT_ON.with(|p| *p.borrow_mut() = true);
+        let s = schedule().scheduled(0);
+        let work = s * 6 / 10; // three times 20% × avail
+        WORK.with(|w| *w.borrow_mut() = (s / 4, work));
+        run_to(L + 1);
+        let out = settle(&EpochInput::new(s, 0, (s / 4, work), Phase::Poa));
+        assert_eq!(out.public, s * 20 / 100);
+        assert_eq!(Balances::balance(&PUBLIC_POT), out.public);
+        assert_eq!(Balances::balance(&POT), out.market);
+        assert_eq!(public_reports(), vec![(0, out.public, work)]);
+        assert_eq!(
+            out.treasury(),
+            ((out.market + out.public) * 20 / 70).max(s * 5 / 100)
+        );
+        assert_eq!(Reserve::<Test>::get() + TotalMinted::<Test>::get(), s);
+        assert_eq!(Balances::total_issuance(), TotalMinted::<Test>::get());
     });
 }
 

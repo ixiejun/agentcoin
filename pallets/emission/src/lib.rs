@@ -47,8 +47,8 @@ pub use weights::WeightInfo;
 pub mod pallet {
     use super::WeightInfo;
     use ac_primitives::emission::{
-        EmissionSchedule, EpochIndex, EpochIndexSource, EpochInput, MarketPayout, SecurityBudget,
-        TreasuryDeposit, WorkSource, settle,
+        EmissionSchedule, EpochIndex, EpochIndexSource, EpochInput, MarketPayout, PublicPayout,
+        SecurityBudget, TreasuryDeposit, WorkSource, settle,
     };
     use alloc::vec::Vec;
     use frame_support::pallet_prelude::{
@@ -80,6 +80,8 @@ pub mod pallet {
         type Treasury: TreasuryDeposit<Self::AccountId>;
         /// Receiver of the market work emission (`()`: none; M5 `pallet-work`).
         type MarketPayout: MarketPayout<Self::AccountId>;
+        /// Receiver of the public work emission (`()`: none; M6 `pallet-public-jobs`).
+        type PublicPayout: PublicPayout<Self::AccountId>;
         /// Weights.
         type WeightInfo: WeightInfo;
     }
@@ -232,8 +234,7 @@ pub mod pallet {
                 T::Treasury::recipients(out.treasury_proportional, out.treasury_floor_topup);
             payments.push(community);
             payments.push(holder);
-            // Public work is paid by its module from M6 on; until then it is zero because no
-            // public work is verified. Market work is minted below.
+            // Market and public work are minted below, into their modules' payout accounts.
             let mut minted = 0u128;
             for (who, amount) in &payments {
                 if Self::mint(who, *amount) {
@@ -252,6 +253,14 @@ pub mod pallet {
             };
             minted = minted.saturating_add(market);
             T::MarketPayout::settled(epoch, market, work.0);
+            // Public work emission goes to the public jobs' payout account, where workers claim
+            // it by work (m6-public-jobs design D7). A refused mint returns to the reserve below.
+            let public = match T::PublicPayout::account() {
+                Some(pot) if out.public > 0 && Self::mint(&pot, out.public) => out.public,
+                _ => 0,
+            };
+            minted = minted.saturating_add(public);
+            T::PublicPayout::settled(epoch, public, work.1);
             // Everything the formula allotted but that was not minted (unpaid security budget,
             // refused mints) returns to the reserve: reserve' = reserve + S − minted.
             let reserve = out.reserve.saturating_add(out.total.saturating_sub(minted));

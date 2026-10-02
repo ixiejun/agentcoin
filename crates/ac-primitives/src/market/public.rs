@@ -441,6 +441,32 @@ pub fn canary_proof(leaves: &[[u8; 32]], index: usize) -> Option<CanaryProof> {
     })
 }
 
+/// What a worker reveals for a unit (one call argument, G.FUD.01).
+#[derive(
+    Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo,
+)]
+pub struct WorkerReveal {
+    /// The summary it committed to.
+    pub summary: Summary,
+    /// BLAKE3 of its full result.
+    pub result_hash: [u8; 32],
+    /// The salt of its commitment.
+    pub salt: [u8; 32],
+}
+
+/// A canary leaf's content and its proof (one call argument, G.FUD.01).
+#[derive(
+    Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo,
+)]
+pub struct CanaryReveal {
+    /// The expected summary.
+    pub summary: Summary,
+    /// The leaf's salt.
+    pub salt: [u8; 32],
+    /// The Merkle proof.
+    pub proof: CanaryProof,
+}
+
 /// Whether `leaf` is in the tree with `root` according to `proof`.
 #[must_use]
 pub fn verify_canary(root: &[u8; 32], leaf: &[u8; 32], proof: &CanaryProof) -> bool {
@@ -723,6 +749,8 @@ pub struct UnitRecord<AccountId, BlockNumber> {
     pub reveal_by: BlockNumber,
     /// The workers, in draw order.
     pub assigned: [AccountId; REDUNDANCY],
+    /// Workers of earlier attempts, never drawn again for this unit.
+    pub tried: BoundedVec<AccountId, ConstU32<{ (MAX_ATTEMPTS as u32 - 1) * REDUNDANCY as u32 }>>,
     /// Their commitments.
     pub commits: [Option<H256>; REDUNDANCY],
     /// Their reveals.

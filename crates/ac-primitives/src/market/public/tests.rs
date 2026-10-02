@@ -386,6 +386,7 @@ fn records_round_trip() {
         commit_by: 30,
         reveal_by: 40,
         assigned: [[1; 32], [2; 32], [3; 32]],
+        tried: BoundedVec::truncate_from(vec![[9; 32]]),
         commits: [Some(H256([4; 32])), None, None],
         reveals: [
             Some((Summary::truncate_from(vec![1, 2]), [5; 32])),

@@ -92,6 +92,10 @@ std::thread_local! {
     pub static PAYOUT_ON: RefCell<bool> = const { RefCell::new(false) };
     /// `(epoch, minted, work)` reported to the market payout.
     pub static SETTLED: RefCell<Vec<(u64, u128, u128)>> = const { RefCell::new(Vec::new()) };
+    /// Whether the public payout has an account (default: none, like `()`).
+    pub static PUBLIC_ON: RefCell<bool> = const { RefCell::new(false) };
+    /// `(epoch, minted, work)` reported to the public payout.
+    pub static PUBLIC_SETTLED: RefCell<Vec<(u64, u128, u128)>> = const { RefCell::new(Vec::new()) };
 }
 
 /// The settlement pot of the mock.
@@ -105,6 +109,20 @@ impl ac_primitives::emission::MarketPayout<u64> for TestPayout {
     }
     fn settled(epoch: u64, market: u128, work: u128) {
         SETTLED.with(|s| s.borrow_mut().push((epoch, market, work)));
+    }
+}
+
+/// The public payout account of the mock.
+pub const PUBLIC_POT: u64 = 51;
+
+/// Public payout: `PUBLIC_POT` when switched on, recording what it is told.
+pub struct TestPublicPayout;
+impl ac_primitives::emission::PublicPayout<u64> for TestPublicPayout {
+    fn account() -> Option<u64> {
+        PUBLIC_ON.with(|p| *p.borrow()).then_some(PUBLIC_POT)
+    }
+    fn settled(epoch: u64, public: u128, work: u128) {
+        PUBLIC_SETTLED.with(|s| s.borrow_mut().push((epoch, public, work)));
     }
 }
 
@@ -136,6 +154,7 @@ impl pallet_emission::Config for Test {
     type SecurityBudget = TestBudget;
     type Treasury = TestTreasury;
     type MarketPayout = TestPayout;
+    type PublicPayout = TestPublicPayout;
     type WeightInfo = ();
 }
 
@@ -146,6 +165,8 @@ pub fn ext(length: u64) -> sp_io::TestExternalities {
     FLOOR_MINTED.with(|f| *f.borrow_mut() = 0);
     PAYOUT_ON.with(|p| *p.borrow_mut() = false);
     SETTLED.with(|s| s.borrow_mut().clear());
+    PUBLIC_ON.with(|p| *p.borrow_mut() = false);
+    PUBLIC_SETTLED.with(|s| s.borrow_mut().clear());
     let storage = RuntimeGenesisConfig {
         system: Default::default(),
         balances: Default::default(),

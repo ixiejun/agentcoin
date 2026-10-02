@@ -209,6 +209,8 @@ impl pallet_emission::Config for Runtime {
     type Treasury = TreasuryDual;
     /// The market share goes to the settlement pot, claimed by work.
     type MarketPayout = crate::Work;
+    // Wired to `pallet-public-jobs` in m6-public-jobs task 8.1.
+    type PublicPayout = ();
     type WeightInfo = pallet_emission::weights::SubstrateWeight<Runtime>;
 }
 

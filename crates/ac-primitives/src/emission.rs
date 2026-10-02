@@ -364,6 +364,22 @@ impl<AccountId> MarketPayout<AccountId> for () {
     fn settled(_epoch: EpochIndex, _market: u128, _work: u128) {}
 }
 
+/// Where public work emission goes (m6-public-jobs design D7): the public jobs pallet's payout
+/// account, from which workers claim by work. `()` takes none, as before M6.
+pub trait PublicPayout<AccountId> {
+    /// Account the public emission is minted to.
+    fn account() -> Option<AccountId>;
+    /// Epoch `epoch` was settled: `public` was minted for `work` verified public work.
+    fn settled(epoch: EpochIndex, public: u128, work: u128);
+}
+
+impl<AccountId> PublicPayout<AccountId> for () {
+    fn account() -> Option<AccountId> {
+        None
+    }
+    fn settled(_epoch: EpochIndex, _public: u128, _work: u128) {}
+}
+
 /// The emission epoch the current block belongs to.
 pub trait EpochIndexSource {
     /// Index of the current epoch.
