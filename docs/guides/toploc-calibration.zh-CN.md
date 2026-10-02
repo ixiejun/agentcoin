@@ -1,0 +1,71 @@
+> 🌐 [English](toploc-calibration.md) | **简体中文**
+
+# TOPLOC 复核校准
+
+复核阈值 `AUDIT_THRESHOLDS`（`crates/ac-market-proto/src/toploc.rs`）是怎么定的，以及它区分诚实与作弊提供者的效果（m6-toploc-verify 任务 8.1、8.2）。M6 的目标（MVP 方案 §10）是诚实误判率低于 0.1%，同时换模型和降精度都能被发现。
+
+## 方法
+
+`scripts/calibrate-toploc.py` 在 CPU 上用真实 vLLM 生成样本并复核（工作流 `toploc-calibration`，在 GitHub 运行器上分十片运行，由 `calibrate-toploc.py --merge` 合并）：
+
+- **固定版本**（`plugins/vllm/ci/pins.env`）：vLLM 0.30.0（CPU 版 wheel），模型 `Qwen/Qwen2.5-0.5B-Instruct`（`7ae55760…`），bfloat16。
+- **诚实样本**：登记的模型在证明模式下运行，由 `ac-auditor recheck` 用同一模型的复核模式 vLLM 复核。
+- **四类作弊**：同架构的另一个模型（`Qwen/Qwen2.5-0.5B`，`060db649…`）、登记模型的 int8 与 int4 权重，以及隐藏的 system prompt。
+- 记录每个样本的结果与每一块的指标（指数不一致次数、尾数误差均值与中位数），并按 CPU 统计诚实样本的结果与不精确的预填充块数。
+
+## 阈值（版本 2）
+
+| 块 | 指数不一致 ≤ | 尾数误差均值 ≤ | 尾数误差中位数 ≤ |
+|---|---|---|---|
+| 预填充（第 0 块） | 2 | 0.50 | 1 |
+| 解码（之后每一块） | 20 | 8.00 | 8 |
+
+每一块都通过，推理才算通过。预填充块用严格阈值：审计员按提供者相同的方式计算 prompt，同类硬件上结果逐位相同。解码块用较宽的阈值：审计员在一次预填充里重算它们，计算方式不同。int8 作弊说明了预填充阈值为什么必须严格：它的解码块落在解码阈值以内（最差块的指数不一致为 2–11，均值为 1.6–4.6），主要靠预填充块被抓到。
+
+## 运行记录
+
+| 运行 | 种子 | 诚实 / 每类作弊 | 设置 | 诚实：通过 / 不通过 / 无法判定 | 作弊被放过 |
+|---|---|---|---|---|---|
+| [36826010034](https://github.com/ixiejun/agentcoin/actions/runs/36826010034) | 1 | 3,000 / 100 | 默认 | 2,776 / 204 / 20 | 0 |
+| [36843601960](https://github.com/ixiejun/agentcoin/actions/runs/36843601960) | 2 | 600 / 50 | 默认，记录 CPU | 77 个不通过，全部在 AMX CPU 上 | 0 |
+| [36854446006](https://github.com/ixiejun/agentcoin/actions/runs/36854446006) | 3 | 600 / 50 | 关闭 AMX | 599 / 0 / 1 | 0 |
+| [36871671591](https://github.com/ixiejun/agentcoin/actions/runs/36871671591) | 4 | 3,000 / 100 | 关闭 AMX | **2,983 / 1 / 16** | **0** |
+
+种子 4 按作弊类型：换模型 98 个不通过、2 个无法判定；int8 99 个不通过、1 个无法判定；int4 100 个不通过；隐藏 prompt 98 个不通过、2 个无法判定。
+
+### 运行结果说明了什么
+
+- **AMX**：在支持 AMX 的 Intel CPU（Xeon 6973P-C、Platinum 8573C）上，oneDNN 的 AMX 内核使诚实的预填充块不精确，种子 1、2 的诚实误判几乎全部由此造成。让 oneDNN 不使用 AMX（`ONEDNN_MAX_CPU_ISA=AVX512_CORE_BF16`）后，同样的 CPU 是精确的：种子 3 中 60 个全部通过。因此 CPU 上的复核关闭 AMX；插件在复核模式下，若在 AMX CPU 上未设置该变量就拒绝启动。
+- **种子 4 按 CPU 统计**（诚实样本；有 AMX 的已关闭）：
+
+  | CPU | 样本 | 不通过 | 无法判定 | 不精确的预填充块 |
+  |---|---|---|---|---|
+  | AMD EPYC 7763（AVX2） | 1,200 | 1 | 7 | 50 |
+  | Intel Xeon Platinum 8370C（AVX-512） | 600 | 0 | 2 | 1 |
+  | AMD EPYC 9V74（AVX-512 BF16） | 600 | 0 | 2 | 0 |
+  | Intel Xeon Platinum 8573C（AMX，已关闭） | 300 | 0 | 4 | 1 |
+  | AMD EPYC 9V74（AVX2） | 300 | 0 | 1 | 0 |
+
+  唯一的诚实误判发生在 AMD EPYC 7763 上，这款 CPU 约 4% 的预填充块不是逐位相同。它很可能超出了严格的预填充阈值；诚实样本的解码块离解码阈值都很远（最差：指数不一致 8，均值 3.4）。
+- **无法判定**占诚实样本的 0.5%，全部是“token 无法重现”（I-013）。作弊样本中无法判定的比例相近，且从未被判为通过。
+
+## 决定
+
+按用户决定（2026-10-01），`AUDIT_THRESHOLDS` 保持版本 2，CPU 上的复核关闭 AMX。任务 8.1 的验收标准采用 M6 的目标：诚实误判率低于 0.1%。种子 4 测得 3,000 中 1 个（0.033%），且没有作弊被放过。
+
+这是单个审计员的误判率。要处罚一个提供者，需要两名独立审计员在两轮内都判其不通过，再由复核人复核证据并达到票数门槛（`market/audit`），因此错误处罚的概率还要低得多。
+
+## 局限
+
+- 只在 CPU（GitHub 运行器）上校准过，证明方与审计员在同类 CPU 上。GPU 上的提供者、审计员与提供者硬件不同、提供者用 AMX 出证明而审计员不用 AMX 复核，这些情况都没有测量（I-012；α 测试网之前必须完成）。
+- AMD EPYC 7763 上约 4% 的预填充块不精确，原因尚未查明（I-012）。
+- 只用了一个小模型（0.5B）。更大的模型与其他架构需要各自校准。
+
+## 复现
+
+修改并推送 `plugins/vllm/ci/calibration.env`（样本数与种子）；或在运行 `scripts/setup-vllm-cpu.sh` 与 `cargo build -p ac-auditor` 之后在本地运行：
+
+```bash
+python scripts/calibrate-toploc.py --honest 300 --cheat 10 --seed 4
+python scripts/calibrate-toploc.py --quick   # CI 中的回归检查
+```
