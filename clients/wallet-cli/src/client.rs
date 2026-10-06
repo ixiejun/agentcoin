@@ -158,6 +158,22 @@ impl NodeClient {
         Ok(u32::decode(&mut &raw[..])?)
     }
 
+    /// The nonce for `who`'s next transaction, counting those waiting in the node's pool.
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn next_nonce(&self, who: &AccountId32) -> Result<u32> {
+        // The RPC decodes the account from its SS58 form (not the `atc1…` address).
+        let address = sp_core::crypto::Ss58Codec::to_ss58check(who);
+        let nonce: u64 = self
+            .rpc
+            .request("system_accountNextIndex", rpc_params![address])
+            .await
+            .context("system_accountNextIndex")?;
+        Ok(u32::try_from(nonce)?)
+    }
+
     /// Registered key and rotation count of `who`, or `None` before its first transaction.
     ///
     /// # Errors

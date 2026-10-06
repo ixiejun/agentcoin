@@ -68,7 +68,8 @@ pub trait WorkerChain: Send + Sync {
     async fn epoch(&self, epoch: EpochIndex) -> Result<EpochPublic<u128>>;
     /// A worker's locked rewards as `(unlock block, amount)`.
     async fn locked(&self, who: &AccountId32) -> Result<Vec<(u32, u128)>>;
-    /// Sends a transaction; `Ok(false)` when it was included but failed.
+    /// Sends a transaction; `Ok(true)` once the node accepted it (the agent reads its effect back
+    /// from the chain), `Ok(false)` when it was rejected without an error.
     async fn submit(&self, call: WorkerCall) -> Result<bool>;
 }
 

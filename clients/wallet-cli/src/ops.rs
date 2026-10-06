@@ -59,6 +59,22 @@ impl Signer {
         client: &NodeClient,
         call: RuntimeCall,
     ) -> Result<UncheckedExtrinsic> {
+        let nonce = client.nonce(&self.account).await?;
+        self.sign_call_at(client, call, nonce).await
+    }
+
+    /// Builds and signs a transaction for `call` with `nonce` (for several transactions in
+    /// flight at once, see [`NodeClient::next_nonce`]).
+    ///
+    /// # Errors
+    ///
+    /// RPC failures, or a key that does not match the registered key.
+    pub async fn sign_call_at(
+        &self,
+        client: &NodeClient,
+        call: RuntimeCall,
+        nonce: u32,
+    ) -> Result<UncheckedExtrinsic> {
         let registered = client.current_key(&self.account).await?;
         let public_key = match registered {
             None => Some(self.first_key.clone()),
@@ -71,7 +87,7 @@ impl Signer {
         };
         let context = client.chain_context().await?;
         let params = TxParams {
-            nonce: client.nonce(&self.account).await?,
+            nonce,
             tip: 0,
             era: Era::Immortal,
             era_birth_hash: context.genesis_hash,

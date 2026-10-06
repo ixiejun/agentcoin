@@ -107,11 +107,16 @@ impl WorkerChain for NodeChain {
             },
             WorkerCall::Withdraw => pallet_public_jobs::Call::withdraw {},
         };
-        let inclusion = self
+        // Sent without waiting for inclusion: a worker has many commitments and reveals with
+        // deadlines a few blocks apart, and the agent reads their effect back from the chain.
+        // The nonce counts the worker's transactions still in the pool.
+        let nonce = self.node.next_nonce(&self.signer.account).await?;
+        let xt = self
             .signer
-            .submit(&self.node, RuntimeCall::PublicJobs(call))
+            .sign_call_at(&self.node, RuntimeCall::PublicJobs(call), nonce)
             .await?;
-        Ok(inclusion.success)
+        self.node.submit(&xt).await?;
+        Ok(true)
     }
 }
 
@@ -140,7 +145,8 @@ impl Net for HttpNet {
             .await?;
         let status = resp.status();
         let _ = read_body(resp.into_body(), 4096).await;
-        if !status.is_success() {
+        // 409: the unit's result is already collected (another majority worker uploaded it).
+        if !status.is_success() && status.as_u16() != 409 {
             bail!("the collector answered {status}");
         }
         Ok(())

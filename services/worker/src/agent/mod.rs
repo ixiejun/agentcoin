@@ -44,6 +44,8 @@ use store::{Key, Store};
 pub const MAX_MANIFEST: usize = 4 << 20;
 /// Largest shard downloaded.
 pub const MAX_SHARD: usize = 64 << 20;
+/// Blocks a sent transaction is given to take effect before it is sent again.
+pub const RESEND_BLOCKS: u32 = 4;
 
 /// Why a unit was not executed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,6 +91,11 @@ pub struct Agent {
     running: BTreeMap<Key, (Running, Instant)>,
     failed: BTreeSet<Key>,
     unclaimable: BTreeSet<EpochIndex>,
+    /// Block each claimed epoch was last claimed in.
+    claimed: BTreeMap<EpochIndex, u32>,
+    /// Transactions in flight, by purpose, and the block they were sent in.
+    sent: BTreeMap<String, u32>,
+    now: u32,
     /// What it did so far.
     pub counters: Counters,
 }
@@ -124,6 +131,9 @@ impl Agent {
             running: BTreeMap::new(),
             failed: BTreeSet::new(),
             unclaimable: BTreeSet::new(),
+            claimed: BTreeMap::new(),
+            sent: BTreeMap::new(),
+            now: 0,
             counters: Counters::default(),
         }
     }
@@ -165,6 +175,9 @@ impl Agent {
             return Ok(());
         }
         let now = self.chain.best_block().await?;
+        self.now = now;
+        self.sent
+            .retain(|_, at| now < at.saturating_add(RESEND_BLOCKS.saturating_mul(25)));
         self.ready().await?;
         self.units(now).await?;
         self.settled().await?;
@@ -179,9 +192,33 @@ impl Agent {
             return Ok(());
         };
         if record.last_ready != Some(round) {
-            self.chain.submit(WorkerCall::Ready).await?;
+            self.send(format!("ready {round}"), WorkerCall::Ready).await;
         }
         Ok(())
+    }
+
+    /// Sends `call` unless a transaction for the same `purpose` was sent within
+    /// [`RESEND_BLOCKS`]; a failure to send is logged and retried on a later tick, without
+    /// holding up the other transactions of this one.
+    async fn send(&mut self, purpose: String, call: WorkerCall) -> bool {
+        let now = self.now;
+        if self
+            .sent
+            .get(&purpose)
+            .is_some_and(|at| now < at.saturating_add(RESEND_BLOCKS))
+        {
+            return false;
+        }
+        let sent = match self.chain.submit(call).await {
+            Ok(sent) => sent,
+            Err(e) => {
+                // Node and chain errors name the call and the reason, never data.
+                log::warn!(target: TARGET, "{purpose} not sent: {e:#}");
+                false
+            }
+        };
+        self.sent.insert(purpose, now);
+        sent
     }
 
     async fn units(&mut self, now: u32) -> Result<()> {
@@ -202,7 +239,8 @@ impl Agent {
                 }
             } else if !a.revealed
                 && now > a.commit_by
-                && now <= a.reveal_by
+                // Sent now, it is included in a later block, which must be within the window.
+                && now < a.reveal_by
                 && let Some(saved) = self.store.get(key)
             {
                 let reveal = WorkerReveal {
@@ -211,11 +249,13 @@ impl Agent {
                     result_hash: saved.result_hash()?,
                     salt: saved.salt()?,
                 };
-                let (job, unit, _) = key;
+                let (job, unit, attempt) = key;
                 if self
-                    .chain
-                    .submit(WorkerCall::Reveal { job, unit, reveal })
-                    .await?
+                    .send(
+                        format!("reveal {job}/{unit}/{attempt}"),
+                        WorkerCall::Reveal { job, unit, reveal },
+                    )
+                    .await
                 {
                     self.counters.reveals += 1;
                     log::info!(target: TARGET, "revealed job {job} unit {unit}");
@@ -334,9 +374,11 @@ impl Agent {
             salt: &saved.salt()?,
         });
         if self
-            .chain
-            .submit(WorkerCall::Commit { job, unit, hash })
-            .await?
+            .send(
+                format!("commit {job}/{unit}/{attempt}"),
+                WorkerCall::Commit { job, unit, hash },
+            )
+            .await
         {
             self.counters.commits += 1;
             log::info!(target: TARGET, "committed job {job} unit {unit}");
@@ -422,6 +464,16 @@ impl Agent {
     async fn rewards(&mut self, now: u32) -> Result<()> {
         let mut due = Vec::new();
         for (epoch, _) in self.chain.pending(&self.me).await? {
+            match self.claimed.get(&epoch) {
+                // Claimed and still pending after the claim had time to land: its share rounds
+                // to nothing, so it is never claimable; do not pay for claiming it again.
+                Some(at) if now >= at.saturating_add(RESEND_BLOCKS) => {
+                    self.unclaimable.insert(epoch);
+                    continue;
+                }
+                Some(_) => continue,
+                None => {}
+            }
             if !self.unclaimable.contains(&epoch)
                 && self.chain.epoch(epoch).await?.emission.is_some()
             {
@@ -429,18 +481,20 @@ impl Agent {
             }
         }
         due.truncate(usize::try_from(MAX_CLAIM_EPOCHS).unwrap_or(16));
-        if !due.is_empty() {
-            if self.chain.submit(WorkerCall::Claim(due.clone())).await? {
-                self.counters.claims += 1;
-                log::info!(target: TARGET, "claimed {} epochs", due.len());
-            } else {
-                // Shares that round to nothing are never claimable; do not retry them.
-                self.unclaimable.extend(due);
+        if !due.is_empty()
+            && self
+                .send(format!("claim {due:?}"), WorkerCall::Claim(due.clone()))
+                .await
+        {
+            self.counters.claims += 1;
+            log::info!(target: TARGET, "claimed {} epochs", due.len());
+            for e in due {
+                self.claimed.insert(e, now);
             }
         }
         let locked = self.chain.locked(&self.me).await?;
         if locked.iter().any(|(at, _)| *at <= now)
-            && self.chain.submit(WorkerCall::Withdraw).await?
+            && self.send("withdraw".into(), WorkerCall::Withdraw).await
         {
             self.counters.withdrawals += 1;
             log::info!(target: TARGET, "withdrew unlocked rewards");

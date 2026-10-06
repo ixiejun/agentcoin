@@ -48,6 +48,9 @@ struct State {
     epochs: BTreeMap<EpochIndex, EpochPublic<u128>>,
     locked: Vec<(u32, u128)>,
     sent: Vec<WorkerCall>,
+    /// Submissions of this job's commitments fail.
+    refuse_commits_of: Option<JobId>,
+    attempts: u32,
 }
 
 #[derive(Default)]
@@ -100,6 +103,12 @@ impl WorkerChain for FakeChain {
     }
     async fn submit(&self, call: WorkerCall) -> Result<bool> {
         self.with(|s| {
+            if let WorkerCall::Commit { job, .. } = &call
+                && s.refuse_commits_of == Some(*job)
+            {
+                s.attempts += 1;
+                bail!("the node rejected the transaction");
+            }
             let round = s.now / 10;
             match &call {
                 WorkerCall::Ready => {
@@ -483,5 +492,53 @@ async fn an_eval_unit_runs_on_the_engine_and_preflight_syncs_models() {
 
     s.chain.with(|st| st.worker = None);
     assert!(s.agent.preflight(&WorkerModels::default()).await.is_err());
+    let _ = std::fs::remove_dir_all(&s.dir);
+}
+
+// A transaction that cannot be sent does not hold up the others of the tick, and is sent again
+// only after RESEND_BLOCKS.
+#[tokio::test]
+async fn a_failed_submission_holds_up_nothing_else() {
+    let shard = marker_shard("resend");
+    let mut s = setup(
+        "resend",
+        JobKind::DataClean,
+        &shard,
+        &shard,
+        "http://127.0.0.1:1",
+    );
+    // Job 1 is a copy of job 0 whose commitments the node refuses.
+    s.chain.with(|st| {
+        let job = st.jobs.get(&0).unwrap().clone();
+        st.jobs.insert(1, job);
+        let mut a = st.assigned[0].clone();
+        a.job = 1;
+        st.assigned.insert(0, a);
+        st.refuse_commits_of = Some(1);
+    });
+    for _ in 0..200 {
+        s.agent.tick().await.unwrap();
+        if s.agent.counters.executed == 2 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(
+        s.chain
+            .sent()
+            .iter()
+            .any(|c| matches!(c, WorkerCall::Commit { job: 0, .. }))
+    );
+    let tries = s.chain.with(|st| st.attempts);
+    assert_eq!(tries, 1);
+    s.agent.tick().await.unwrap();
+    assert_eq!(
+        s.chain.with(|st| st.attempts),
+        1,
+        "resent within RESEND_BLOCKS"
+    );
+    s.chain.with(|st| st.now += super::RESEND_BLOCKS);
+    s.agent.tick().await.unwrap();
+    assert_eq!(s.chain.with(|st| st.attempts), 2);
     let _ = std::fs::remove_dir_all(&s.dir);
 }
