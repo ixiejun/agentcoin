@@ -137,6 +137,7 @@ dependencies = [
  "pallet-emission",
  "pallet-poa-admin",
  "pallet-pq-accounts",
+ "pallet-public-jobs",
  "pallet-ref-rate",
  "pallet-staking-pos",
  "pallet-treasury-dual",

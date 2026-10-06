@@ -23,6 +23,7 @@ ac-wallet = { workspace = true }
 jsonrpsee = { workspace = true, features = ["http-client", "ws-client"] }
 pallet-balances = { workspace = true, features = ["std"] }
 pallet-collective = { workspace = true, features = ["std"] }
+pallet-public-jobs = { workspace = true, features = ["std"] }
 pallet-emission = { workspace = true, features = ["std"] }
 pallet-poa-admin = { workspace = true, features = ["std"] }
 pallet-ref-rate = { workspace = true, features = ["std"] }

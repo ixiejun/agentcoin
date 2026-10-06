@@ -86,7 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-substrate
-      - run: cargo build -p ac-node -p ac-wallet -p ac-eth-rpc -p ac-provider -p ac-gateway -p ac-mock-engine -p ac-auditor
+      - run: cargo build -p ac-node -p ac-wallet -p ac-eth-rpc -p ac-provider -p ac-gateway -p ac-mock-engine -p ac-auditor -p ac-worker
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: v1.7.1
@@ -107,6 +107,8 @@ jobs:
         run: cargo test -p ac-e2e --test settlement -- --test-threads 1
       - name: Audits on chain through the wallet and ac-auditor (verdicts, disputes, slashing, jailing, payments)
         run: cargo test -p ac-e2e --test audit -- --test-threads 1
+      - name: Public jobs through ac-worker (workers, collector, canaries, colluders punished, rewards claimed and withdrawn, no data in logs)
+        run: cargo test -p ac-e2e --test public_jobs -- --test-threads 1
       - name: Auditor agents find a provider that starts cheating (pinned requests, evidence service, reviews, detection latency)
         env:
           AC_E2E_LATENCY: ${{ github.workspace }}/target/audit-latency.json
@@ -217,7 +219,9 @@ jobs:
       # 6973P-C runner (run 36979003183), so they run without it.
       - name: The plugin in a real vLLM matches the activations and the reference proofs
         run: env -u ONEDNN_MAX_CPU_ISA python scripts/check-vllm-plugin.py
-      - run: cargo build -p ac-node -p ac-wallet -p ac-provider -p ac-gateway -p ac-mock-engine
+      - run: cargo build -p ac-node -p ac-wallet -p ac-provider -p ac-gateway -p ac-mock-engine -p ac-worker
+      - name: Public job summaries on a real vLLM (batching, another model, cleaning)
+        run: env -u ONEDNN_MAX_CPU_ISA python scripts/check-public-jobs-vllm.py
       - name: Inference through vLLM with the plugin (OpenAI SDK, proxy, gateway, provider, proofs, no content in logs)
         env:
           AC_E2E: "1"
