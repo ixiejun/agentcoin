@@ -22,6 +22,8 @@ endpoint. The gateway:
   to one provider (`ChatTo`, the proxy's `X-AgentCoin-Provider` header; open to every user and
   used by auditors) goes to that provider only if it is serviceable for the model and not
   paused, else `no_provider` with nothing billed; it never fails over to another provider;
+- refuses requests that ask for several choices (`n > 1`) with `bad_request`, so every
+  answer can be proved;
 - checks every provider receipt (parties, request, token counts equal to the usage and within the
   request's bounds, fee equal to the on-chain price) and its TOPLOC proofs (an all-zero
   commitment comes without proofs; otherwise the market parameters, one proof per chunk of the

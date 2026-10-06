@@ -52,13 +52,18 @@ the gateway with the receipt and are stored with the co-signed receipt. The plug
 its prove mode (the default; plugin protocol version 2): a plugin in the verify mode, which is
 for auditors' re-checks, is turned away.
 
-Without the socket, for requests asking for several choices (`n > 1`), when the plugin sends no
-end marker in time, or when the candidates do not fit (for example a request the engine
-preempted and recomputed), the receipt carries an all-zero commitment and no proofs, and a
-`toploc_missing` line is logged with the request ID prefix and the reason. Receipts without
-proofs stay valid for users, but an auditor's re-check fails a request without proofs
-(spec `market/auditor-agent`), and providers cannot tell audit requests from others: run the
-plugin.
+A request the engine preempts and recomputes is proved too (m6-public-jobs, I-008): the plugin
+sends the recomputation as a prefill of the prompt followed by one decode segment per generated
+row, and a prefill segment that arrives after decode segments starts the request's candidates
+over, so the proofs are those of a request that was never preempted. Requests asking for several
+choices (`n > 1`) never reach the provider: the gateway refuses them.
+
+Without the socket, when the plugin sends no end marker in time, or when the candidates do not
+fit, the receipt carries an all-zero commitment and no proofs, and a `toploc_missing` line is
+logged with the request ID prefix and the reason. Receipts without proofs stay valid for users,
+but they earn no market work (the gateway reports their dollars as unproven), an auditor's
+re-check fails a request without proofs (spec `market/auditor-agent`), and providers cannot tell
+audit requests from others: run the plugin.
 
 ## Operation
 

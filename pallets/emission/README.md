@@ -40,7 +40,10 @@ grants and the holder treasury, the top-up to 5% × S to the vesting floor. The 
 minted to `Config::MarketPayout` (`pallet-work` from M5): its pot, from which providers claim
 `market × their work ÷ the epoch's verified work`; the verified market work of epoch `e` is the
 work of the reports that matured in `e` (`Config::WorkSource`), so work still in its challenge
-period does not count. Public work is not verified before M6. During PoA the security budget is
+period does not count. The public share is minted to `Config::PublicPayout`
+(`pallet-public-jobs` from M6), whose workers claim `public × their work ÷ the epoch's verified
+public work`; public work of epoch `e` is that of the units that passed and whose challenge
+period ended in `e`. During PoA the security budget is
 not paid (`Config::SecurityBudget = PoaPhase`); without work an epoch mints only the 5% floor and
 the rest accumulates in the reserve. Anything the currency refuses to mint (for example a share
 below the existential deposit of a new account, or of the empty pot) also returns to the

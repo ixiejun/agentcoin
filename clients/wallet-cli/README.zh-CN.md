@@ -140,6 +140,30 @@ ac-wallet audit pot && ac-wallet audit params
 | `audit endpoint --set URL --kem-key KEY` / `--clear` | 登记（或删除）审计员向复核人交付证据的地址；`ac-auditor run` 会自动登记 |
 | `audit status`、`audit pot`、`audit params` | 审计员记录、计数与证据地址；资金池；参数 |
 
+## 公共任务
+
+工作者（m6-public-jobs；`pallet-public-jobs`）无需质押即可登记，并运行 `ac-worker`；发布由管理权限完成。`public publish` 与 `public cancel` 只打印调用（及其长度上限），供管理权限提出动议；`publish` 先检查清单文件恰好列出 `--units` 个分片、模型已登记、价格不超过当前上限。
+
+```bash
+ac-wallet public worker register --wallet w.json --model 0x<model id>   # 不填：只做数据清洗
+ac-wallet public worker status --address atc1…                          # 记录与未结算单元
+ac-wallet public publish --kind eval --model 0x… --manifest m.json \
+  --manifest-url https://data.example/m.json --results-url https://collect.example \
+  --units 100 --price 0.05 --canary-root 0x…                             # 打印 `call: 0x…`
+ac-wallet public jobs && ac-wallet public unit --job 0 --unit 3
+ac-wallet public canary --wallet any.json --file canaries.json --unit 3
+ac-wallet public claim --wallet w.json && ac-wallet public withdraw --wallet w.json
+ac-wallet public rewards --address atc1… && ac-wallet public params
+```
+
+| 命令 | 作用 |
+|---|---|
+| `public worker register --model…`、`models`、`deregister`、`ready`、`status` | 工作者登记、模型、本轮就绪（`ac-worker run` 会自动完成）、记录与未结算单元 |
+| `public publish …`、`public cancel --job` | 本地检查通过后打印发布或取消调用，供管理权限提出动议 |
+| `public jobs`、`public unit --job --unit`、`public params` | 进行中的任务与进度；单元的工作者、揭示与状态；参数、当前轮次与领取账户余额 |
+| `public canary --file --unit` | 用 `ac-worker canary` 的文件公开某单元的金丝雀 |
+| `public claim [--epoch…]`、`public withdraw`、`public rewards` | 领取已结算纪元（默认全部）、取出到期报酬、查询待领取工作量与锁定中的报酬及解锁区块 |
+
 ## 本地推理代理
 
 `ac-wallet market serve` 在本机提供 OpenAI 兼容接口（`GET /v1/models`、`POST /v1/chat/completions`，流式与非流式），用你的额度通道向网关付费，使未修改的 OpenAI SDK 可以直接使用推理市场。命令与 Python 示例见英文版 [README.md](README.md)：先托管额度，再运行 `market serve --gateway <网关地址> --max-usd 5`，然后把 OpenAI SDK 的 `base_url` 指向 `http://127.0.0.1:8411/v1`（模型可写名称或 `0x…` ID）。

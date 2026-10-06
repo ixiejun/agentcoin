@@ -15,7 +15,7 @@ exiting):
 | Part | Rule |
 |---|---|
 | `root`, `receipt_count` | Merkle root of the receipts (`ac_primitives::market::receipt_tree`); at least one receipt per entry. |
-| `entries` (1–128) | `(job kind, provider, model, dollars, input tokens, output tokens)`; inference only; no (provider, model) twice; the provider is registered, not jailed and lists the model. |
+| `entries` (1–128) | `(job kind, provider, model, dollars, unproven dollars, input tokens, output tokens)`; inference only; no (provider, model) twice; the provider is registered, not jailed and lists the model; the unproven dollars (receipts without TOPLOC proofs) are at most the dollars. |
 | `vouchers` (1–16) | Redeemed through the `Credit` interface (D20) into the **gateway's account**; one per channel. |
 
 The entries' dollars must **equal** the dollars the vouchers redeem: a gateway allocates the
@@ -34,7 +34,11 @@ fee      = G × gateway fee        (at most 5%)
 pool     = G − burn − fee
 share_i  = pool × usd_i / Σ usd   (rounding remainder burned too)
 work_i   = (G × usd_i / Σ usd) × k   (k = 0.5; k − b ≤ 0.5, research 03 §1.5)
+           × (usd_i − unproven_i) / usd_i
 ```
+
+Requests served without proofs are paid like the others but earn no market work
+(m6-public-jobs, I-008): only proven dollars count toward emission.
 
 Shares and fee stay **held on the gateway's account** (hold reason `Pending`) until the challenge
 period ends; they are recorded per (recipient, maturity epoch, gateway).

@@ -51,9 +51,11 @@ Licence: `MIT OR Apache-2.0` (permissive zone, D47).
 | Speculative decoding | off |
 | Parallelism | tensor parallelism is fine (rank 0 sends); pipeline parallelism is refused |
 
-Requests that ask for several choices (`n > 1`) and requests the engine preempts and recomputes
-get no proof; the provider then signs a receipt with an all-zero commitment (issues I-008 to
-I-011 in `docs/issues.md` track what is left for later).
+A request the engine preempts and recomputes is proved (m6-public-jobs, I-008): in the step
+that recomputes it, the rows inside the prompt form one prefill segment and every row after the
+prompt is a decode segment of its own, so the provider can rebuild the candidates of a request
+that was never preempted. Requests that ask for several choices (`n > 1`) are refused by the
+gateway (issues I-009 to I-011 in `docs/issues.md` track what is left for later).
 
 ## Install and run
 

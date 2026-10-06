@@ -164,6 +164,34 @@ ac-wallet audit pot && ac-wallet audit params
 | `audit endpoint --set URL --kem-key KEY` / `--clear` | publishes (or removes) where the auditor serves evidence to reviewers; `ac-auditor run` does it by itself |
 | `audit status`, `audit pot`, `audit params` | an auditor's record, counts and evidence endpoint; the pot; the parameters |
 
+## Public jobs
+
+Workers (m6-public-jobs; `pallet-public-jobs`) register with no stake and run `ac-worker`;
+publishing goes through the administration. `public publish` and `public cancel` only print the
+call (and its length bound) for the administration's motion; `publish` first checks that the
+manifest file lists exactly `--units` shards, that the model is registered and that the price is
+within the current cap.
+
+```bash
+ac-wallet public worker register --wallet w.json --model 0x<model id>   # none: cleaning only
+ac-wallet public worker status --address atc1…                          # record, unsettled units
+ac-wallet public publish --kind eval --model 0x… --manifest m.json \
+  --manifest-url https://data.example/m.json --results-url https://collect.example \
+  --units 100 --price 0.05 --canary-root 0x…                             # prints `call: 0x…`
+ac-wallet public jobs && ac-wallet public unit --job 0 --unit 3
+ac-wallet public canary --wallet any.json --file canaries.json --unit 3
+ac-wallet public claim --wallet w.json && ac-wallet public withdraw --wallet w.json
+ac-wallet public rewards --address atc1… && ac-wallet public params
+```
+
+| Command | What it does |
+|---|---|
+| `public worker register --model…`, `models`, `deregister`, `ready`, `status` | worker registration, its models, readiness for the round (`ac-worker run` does it), its record and unsettled units |
+| `public publish …`, `public cancel --job` | print the publish or cancel call for the administration's motion after the local checks |
+| `public jobs`, `public unit --job --unit`, `public params` | jobs in progress and their progress; a unit's workers, reveals and state; the parameters, the round and the payout balance |
+| `public canary --file --unit` | reveals a unit's canary from an `ac-worker canary` file |
+| `public claim [--epoch…]`, `public withdraw`, `public rewards` | claims settled epochs (default: all), withdraws unlocked rewards, shows pending work and locked rewards with their unlock blocks |
+
 ## Local inference proxy
 
 `ac-wallet market serve` runs an OpenAI-compatible endpoint on this machine (`GET /v1/models`,
