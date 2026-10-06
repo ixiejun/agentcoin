@@ -22,7 +22,7 @@ AgentCoin（代币 **ATC**）是一个**抗量子、天生隐私、无许可**�
 - 链框架：Polkadot SDK（Substrate）独立链；EVM 用 `pallet-revive`
 - 主要语言：**Rust**（D31）；Python 仅限推理/训练引擎内部的薄插件
 - 开发方式：**规格驱动开发（SDD）+ OpenSpec**（D32）
-- 当前阶段：MVP；M0（工程底座 + PQ 密码库）、M1（PQ 链）、M2（AC-BFT 终局性）、M3（排放、国库、PoA 多签、提名式 PoS 与 PoA→PoS 切换）、M4（EVM：`pallet-revive`、PQ 预编译、eth-RPC 适配器、经钱包使用 Foundry）和 M5（推理市场：登记、工作结算、网关、提供者、本地代理、vLLM TOPLOC 插件）已完成
+- 当前阶段：MVP；M0（工程底座 + PQ 密码库）、M1（PQ 链）、M2（AC-BFT 终局性）、M3（排放、国库、PoA 多签、提名式 PoS 与 PoA→PoS 切换）、M4（EVM：`pallet-revive`、PQ 预编译、eth-RPC 适配器、经钱包使用 Foundry）、M5（推理市场：登记、工作结算、网关、提供者、本地代理、vLLM TOPLOC 插件）和 M6（审计：TOPLOC 复核、链上审计、审计员代理；公共任务：`pallet-public-jobs`、`ac-worker`、金丝雀、被抢占请求的证明）已完成
 
 ### 1.1 权威文档地图
 
@@ -321,7 +321,7 @@ scripts/benchmark-pallet.sh <pallet> <weights.rs> # 重新生成基准权重
 scripts/gen-toploc-vectors.sh                     # 由参考实现重新生成 TOPLOC 向量（Python）
 
 # 节点与端到端
-cargo build -p ac-node -p ac-wallet -p ac-provider -p ac-gateway -p ac-mock-engine -p ac-auditor
+cargo build -p ac-node -p ac-wallet -p ac-provider -p ac-gateway -p ac-mock-engine -p ac-auditor -p ac-worker
 scripts/run-local-testnet.sh [--check]            # 四节点本地测试网（检查最佳与已最终确定高度）
 AC_E2E=1 cargo test -p ac-e2e -- --test-threads 1  # 多节点验收测试
 AC_E2E=1 cargo test -p ac-e2e --test market -- --test-threads 1  # 经钱包的市场登记流程
@@ -340,6 +340,11 @@ AC_E2E=1 cargo test -p ac-e2e --test audit -- --test-threads 1  # 链上审计�
 ac-auditor run --config auditor.json            # 审计员代理：神秘顾客审计、证据服务、复核
 AC_E2E=1 cargo test -p ac-e2e --test auditor_agent -- --test-threads 1  # 六个代理找出中途开始作弊的提供者
 scripts/sim-audit-latency.py                      # 审计检出延迟的蒙特卡洛模拟
+ac-wallet public worker register --model 0x…      # 公共任务工作者（另有 publish / jobs / unit / canary / claim / rewards）
+ac-worker run --config worker.json                # 工作者服务；另有 collect、canary、exec、compare
+AC_E2E=1 cargo test -p ac-e2e --test public_jobs -- --test-threads 1  # 公共任务：金丝雀抓住串通者、报酬发放
+python scripts/probe-public-jobs-vllm.py          # 工作者需要的 vLLM 接口（prompt 对数概率、嵌入）
+cargo build -p ac-worker -p ac-auditor && python scripts/check-public-jobs-vllm.py  # 真实 vLLM 上的摘要；抢占下的证明
 scripts/measure-finality.sh [seconds]             # 终局性延迟，4/7/10 节点（release）
 scripts/wallet-smoke.sh                           # 针对开发节点运行钱包命令行
 

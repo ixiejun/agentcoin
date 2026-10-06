@@ -22,7 +22,7 @@ AgentCoin (token **ATC**) is a **post-quantum, privacy-native, permissionless** 
 - Chain framework: standalone Polkadot SDK (Substrate) chain; EVM via `pallet-revive`
 - Primary language: **Rust** (D31); Python only for thin plugins inside inference/training engines
 - Development method: **spec-driven development (SDD) + OpenSpec** (D32)
-- Current stage: MVP; M0 (engineering foundation + PQ crypto library), M1 (PQ chain), M2 (AC-BFT finality), M3 (emission, treasury, PoA multisig, nominated PoS and the PoA → PoS switch) M4 (EVM: `pallet-revive`, PQ precompiles, eth-RPC adapter, Foundry via the wallet) and M5 (inference market: registry, work settlement, gateway, provider, local proxy, the vLLM TOPLOC plugin) complete
+- Current stage: MVP; M0 (engineering foundation + PQ crypto library), M1 (PQ chain), M2 (AC-BFT finality), M3 (emission, treasury, PoA multisig, nominated PoS and the PoA → PoS switch) M4 (EVM: `pallet-revive`, PQ precompiles, eth-RPC adapter, Foundry via the wallet) M5 (inference market: registry, work settlement, gateway, provider, local proxy, the vLLM TOPLOC plugin) and M6 (audits: TOPLOC re-check, on-chain audits, the auditor agent; public jobs: `pallet-public-jobs`, `ac-worker`, canaries, proofs for preempted requests) complete
 
 ### 1.1 Authoritative document map
 
@@ -321,7 +321,7 @@ scripts/benchmark-pallet.sh <pallet> <weights.rs> # regenerate benchmarked weigh
 scripts/gen-toploc-vectors.sh                     # regenerate TOPLOC vectors from the reference (Python)
 
 # Node and end-to-end
-cargo build -p ac-node -p ac-wallet -p ac-provider -p ac-gateway -p ac-mock-engine -p ac-auditor
+cargo build -p ac-node -p ac-wallet -p ac-provider -p ac-gateway -p ac-mock-engine -p ac-auditor -p ac-worker
 scripts/run-local-testnet.sh [--check]            # four-node local testnet (best + finalized)
 AC_E2E=1 cargo test -p ac-e2e -- --test-threads 1  # multi-node acceptance tests
 AC_E2E=1 cargo test -p ac-e2e --test market -- --test-threads 1  # market registration via the wallet
@@ -340,6 +340,11 @@ AC_E2E=1 cargo test -p ac-e2e --test audit -- --test-threads 1  # audits on chai
 ac-auditor run --config auditor.json            # the auditor agent: mystery-shopper audits, evidence service, reviews
 AC_E2E=1 cargo test -p ac-e2e --test auditor_agent -- --test-threads 1  # six agents find a provider that starts cheating
 scripts/sim-audit-latency.py                      # Monte Carlo of the audit detection latency
+ac-wallet public worker register --model 0x…      # a public job worker (also: publish / jobs / unit / canary / claim / rewards)
+ac-worker run --config worker.json                # the worker service; also: collect, canary, exec, compare
+AC_E2E=1 cargo test -p ac-e2e --test public_jobs -- --test-threads 1  # public jobs: colluders caught by canaries, rewards paid
+python scripts/probe-public-jobs-vllm.py          # the vLLM interfaces the worker needs (prompt log probabilities, embeddings)
+cargo build -p ac-worker -p ac-auditor && python scripts/check-public-jobs-vllm.py  # summaries on a real vLLM; proofs under preemption
 scripts/measure-finality.sh [seconds]             # finality latency, 4/7/10 nodes (release)
 scripts/wallet-smoke.sh                           # wallet CLI against a dev node
 
