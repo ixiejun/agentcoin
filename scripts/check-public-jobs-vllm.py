@@ -11,10 +11,15 @@ With `ac-worker exec` (the worker's own executors) and `ac-worker compare` (comp
 3. likewise for an embedding unit on the pinned embedding model, and on another model (the
    generation model served with the pooling runner);
 4. a data cleaning unit run twice gives the same summary;
-5. nothing of the data reaches the worker's output.
+5. nothing of the data reaches the worker's output;
+6. inference with a KV cache too small for its batch (the scheduler preempts and recomputes
+   requests): at least one request is recomputed, each answer's segments, kept as the provider
+   keeps them (a prefill after decode segments starts over), make a re-check case, and
+   `ac-auditor recheck` passes every case (`scripts/calibrate-toploc.py`'s generation and
+   re-check, variant `preempt`).
 
 Usage: scripts/check-public-jobs-vllm.py   (after scripts/setup-vllm-cpu.sh and
-`cargo build -p ac-worker`; env AC_VLLM_MODEL, AC_VLLM_REVISION, AC_CHEAT_MODEL,
+`cargo build -p ac-worker -p ac-auditor`; env AC_VLLM_MODEL, AC_VLLM_REVISION, AC_CHEAT_MODEL,
 AC_CHEAT_REVISION, AC_EMBED_MODEL, AC_EMBED_REVISION)
 """
 
@@ -143,6 +148,43 @@ def text_shard(path: Path, n: int) -> None:
     path.write_text("\n".join(lines) + "\n")
 
 
+def preempt(workdir: Path) -> None:
+    import importlib.util
+
+    script = REPO / "scripts" / "calibrate-toploc.py"
+    spec = importlib.util.spec_from_file_location("calibrate", script)
+    calibrate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(calibrate)
+    cases = workdir / "preempt-cases"
+    cases.mkdir()
+    with open(workdir / "generate-preempt.log", "w") as log:
+        run = subprocess.run(
+            [sys.executable, str(script), "--generate", "preempt", "--count", "24", "--seed", "3",
+             "--out", str(cases)],
+            stdout=log, stderr=subprocess.STDOUT,
+        )
+    lines = (workdir / "generate-preempt.log").read_text(errors="replace").splitlines()
+    check(run.returncode == 0, "inference with a small KV cache ran")
+    if run.returncode != 0:
+        print(*lines[-60:], sep="\n")
+        return
+    print(*[l for l in lines if l.startswith("preempt: ")], sep="\n")
+    recomputed = next(
+        (int(l.split()[1]) for l in lines if l.startswith("preempt: ") and "recomputed" in l), 0
+    )
+    check(recomputed > 0, f"requests were preempted and recomputed ({recomputed})")
+    results = calibrate.recheck(cases, workdir)
+    outcomes = [r.get("outcome") for r in results]
+    print(f"     re-check outcomes: { {o: outcomes.count(o) for o in set(outcomes)} }")
+    # As in the calibration regression: an answer that does not re-tokenize is inconclusive, and
+    # at most one is tolerated; a failure never is.
+    check(len(results) > 0 and "fail" not in outcomes and outcomes.count("inconclusive") <= 1,
+          "every answer, recomputed or not, passes the re-check")
+    for f in workdir.iterdir():
+        if f.is_file() and f.suffix == ".log" and calibrate.MARKER in f.read_text(errors="replace"):
+            failures.append(f"{f.name} holds request content")
+
+
 def main() -> int:
     env = os.environ
     workdir = Path(tempfile.mkdtemp(prefix="ac-public-jobs-vllm-"))
@@ -196,6 +238,9 @@ def main() -> int:
                 stop(proc)
             check(not agree("embed", e_alone, e_other),
                   "another model's embedding summary does not agree")
+
+    # Inference under preemption: proofs that re-check.
+    preempt(workdir)
 
     # Data cleaning: no engine; two runs give the same summary.
     c1, c2 = execute("clean", embed_file, None), execute("clean", embed_file, None)

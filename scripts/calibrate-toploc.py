@@ -208,13 +208,17 @@ def generate(variant: str, count: int, seed: int, out: Path) -> None:
     extra = {}
     if variant == "swap":
         extra = {"tokenizer": os.environ["AC_VLLM_MODEL"], "tokenizer_revision": os.environ["AC_VLLM_REVISION"]}
+    if variant == "preempt":
+        # A KV cache of 48 blocks of 16 tokens for a batch that needs several times that: the
+        # scheduler preempts requests and recomputes them (m6-public-jobs 6.4).
+        extra = {"num_gpu_blocks_override": 48, "block_size": 16}
     llm = LLM(
         model=model,
         revision=revision,
         **extra,
         dtype="bfloat16",
         enable_prefix_caching=False,
-        max_model_len=1024,
+        max_model_len=512 if variant == "preempt" else 1024,
         max_num_batched_tokens=256,  # long prompts take several prefill steps
         seed=seed,
         gpu_memory_utilization=MEMORY,
@@ -226,6 +230,10 @@ def generate(variant: str, count: int, seed: int, out: Path) -> None:
         sys.exit("the plugin did not connect")
 
     prompts = prompt_set(variant, count, seed)
+    if variant == "preempt":
+        # Short prompts and long answers, all at once.
+        prompts = [([m for m in msgs if m["role"] == "user"][-1:], 200) for msgs, _ in prompts]
+        prompts = [([{"role": "user", "content": m[0]["content"][-300:]}], t) for m, t in prompts]
     served = []
     for messages, _ in prompts:
         if variant == "prompt":
@@ -265,6 +273,7 @@ def generate(variant: str, count: int, seed: int, out: Path) -> None:
         diag["special_in_output"] += any(i in tok.all_special_ids for i in ids)
     print(f"{variant}: re-tokenizing {diag} of {len(outputs)}", flush=True)
     written = 0
+    preempted = 0
     for i, (o, (messages, _)) in enumerate(zip(outputs, prompts)):
         keys = [k for k in provider.segments if k == o.request_id or k.startswith(o.request_id + "-")]
         # The last requests of a batch get no end marker: the plugin sends it with the next step,
@@ -274,6 +283,19 @@ def generate(variant: str, count: int, seed: int, out: Path) -> None:
             continue
         c = o.outputs[0]
         prompt_tokens = reported[i] if variant == "prompt" else len(o.prompt_token_ids)
+        segments = provider.segments[keys[0]]
+        if variant == "preempt":
+            # As the provider does: a prefill after decode segments is a recomputation, which
+            # starts the request's segments over (spec market/provider-agent "抢占后重算").
+            kept, decoded, restarts = [], False, 0
+            for seg in segments:
+                if seg["phase"] == "prefill" and decoded:
+                    kept, decoded, restarts = [], False, restarts + 1
+                decoded |= seg["phase"] == "decode"
+                kept.append(seg)
+            segments = kept
+            if restarts:
+                preempted += 1
         sample = {
             "model": MODEL_ID,
             "engine_model": ENGINE_NAME,
@@ -281,7 +303,7 @@ def generate(variant: str, count: int, seed: int, out: Path) -> None:
             "output": c.text,
             "finish_reason": c.finish_reason,
             "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": len(c.token_ids)},
-            "segments": provider.segments[keys[0]],
+            "segments": segments,
         }
         made = subprocess.run(
             [str(AUDITOR), "calibration-case"], input=json.dumps(sample).encode(), capture_output=True, check=True
@@ -289,6 +311,8 @@ def generate(variant: str, count: int, seed: int, out: Path) -> None:
         (out / f"{variant}-{i:05d}.json").write_bytes(made.stdout)
         written += 1
     print(f"{variant}: {written}/{count} cases", flush=True)
+    if variant == "preempt":
+        print(f"{variant}: {preempted} recomputed after preemption", flush=True)
 
 
 def recheck(cases: Path, logs: Path) -> list[dict]:
@@ -478,7 +502,7 @@ def main() -> int:
     ap.add_argument("--cheat", type=int)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--out", type=Path, default=Path("target/toploc-calibration"))
-    ap.add_argument("--generate", choices=VARIANTS, help=argparse.SUPPRESS)
+    ap.add_argument("--generate", choices=(*VARIANTS, "preempt"), help=argparse.SUPPRESS)
     ap.add_argument("--count", type=int, help=argparse.SUPPRESS)
     ap.add_argument("--merge", type=Path, nargs="+", metavar="JSON",
                     help="merge the calibration.json files of shards (different seeds) into --out")

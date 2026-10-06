@@ -219,15 +219,16 @@ jobs:
       # 6973P-C runner (run 36979003183), so they run without it.
       - name: The plugin in a real vLLM matches the activations and the reference proofs
         run: env -u ONEDNN_MAX_CPU_ISA python scripts/check-vllm-plugin.py
-      - run: cargo build -p ac-node -p ac-wallet -p ac-provider -p ac-gateway -p ac-mock-engine -p ac-worker
-      - name: Public job summaries on a real vLLM (batching, another model, cleaning)
-        run: env -u ONEDNN_MAX_CPU_ISA python scripts/check-public-jobs-vllm.py
+      - run: cargo build -p ac-node -p ac-wallet -p ac-provider -p ac-gateway -p ac-mock-engine -p ac-worker -p ac-auditor
+      # Its preemption part generates and re-checks like the calibration regression, so it runs
+      # with the same environment.
+      - name: Public job summaries on a real vLLM (batching, another model, cleaning) and proofs under preemption
+        run: python scripts/check-public-jobs-vllm.py
       - name: Inference through vLLM with the plugin (OpenAI SDK, proxy, gateway, provider, proofs, no content in logs)
         env:
           AC_E2E: "1"
           AC_VLLM_E2E: "1"
         run: env -u ONEDNN_MAX_CPU_ISA cargo test -p ac-e2e --test vllm -- --test-threads 1 --nocapture
-      - run: cargo build -p ac-auditor
       - name: Re-check regression (honest answers pass, another model, int8, int4 and a changed prompt fail)
         run: python scripts/calibrate-toploc.py --quick
       - name: Upload the re-check results
