@@ -115,23 +115,21 @@ def alone_and_batched(kind: str, shard: Path, engine: str, job: int = 0) -> tupl
 
 
 def eval_shard(path: Path) -> None:
-    facts = [
-        ("The capital of France is", [" Paris.", " Berlin.", " Madrid.", " Rome."]),
-        ("Water freezes at", [" zero degrees Celsius.", " fifty degrees Celsius.", " the moon."]),
-        ("Two plus two equals", [" four.", " five.", " twenty-two."]),
-        ("A cat is a kind of", [" animal.", " vegetable.", " mineral.", " planet."]),
-        ("The sun rises in the", [" east.", " west.", " north."]),
-        ("Bees make", [" honey.", " steel.", " glass."]),
-        ("The opposite of hot is", [" cold.", " loud.", " green."]),
-        ("A week has", [" seven days.", " three days.", " forty days."]),
-    ]
+    """Items whose answer is a matter of the model's own preferences (seeded random contexts and
+    word choices), so that another model's choices differ on many of them; easy facts would get
+    the same answers from any competent model."""
+    import random
+
+    rng = random.Random(41)
+    words = ["amber", "basalt", "cobalt", "dune", "ember", "fjord", "garnet", "harbor", "indigo",
+             "juniper", "kelp", "lantern", "meadow", "nectar", "obsidian", "pepper", "quartz",
+             "raven", "saffron", "thistle", "umber", "velvet", "willow", "yarrow", "zephyr"]
     lines = []
-    for i in range(48):
-        context, choices = facts[i % len(facts)]
-        lines.append(json.dumps({
-            "context": f"Question {i} ({MARKER}). {context}",
-            "choices": choices,
-        }))
+    for i in range(64):
+        context = (f"Item {i} ({MARKER}). " + " ".join(rng.choice(words) for _ in range(6))
+                   + ". The next word is")
+        choices = [" " + w for w in rng.sample(words, 4)]
+        lines.append(json.dumps({"context": context, "choices": choices}))
     path.write_text("\n".join(lines) + "\n")
 
 

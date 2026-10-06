@@ -209,9 +209,10 @@ def generate(variant: str, count: int, seed: int, out: Path) -> None:
     if variant == "swap":
         extra = {"tokenizer": os.environ["AC_VLLM_MODEL"], "tokenizer_revision": os.environ["AC_VLLM_REVISION"]}
     if variant == "preempt":
-        # A KV cache of 48 blocks of 16 tokens for a batch that needs several times that: the
-        # scheduler preempts requests and recomputes them (m6-public-jobs 6.4).
-        extra = {"num_gpu_blocks_override": 48, "block_size": 16}
+        # A KV cache of 6 blocks of 128 tokens (the CPU backend's block size; it refuses 16) for a
+        # batch that needs several times that: the scheduler preempts requests and recomputes
+        # them (m6-public-jobs 6.4).
+        extra = {"num_gpu_blocks_override": 6, "block_size": 128}
     llm = LLM(
         model=model,
         revision=revision,
