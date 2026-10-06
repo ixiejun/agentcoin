@@ -57,6 +57,18 @@ enum Command {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Compares two summaries with the comparison rules v1; prints `agree: true` or `false`.
+    Compare {
+        /// `eval`, `embed` or `clean`.
+        #[arg(long, value_parser = ["eval", "embed", "clean"])]
+        kind: String,
+        /// A summary (hex).
+        #[arg(long)]
+        a: String,
+        /// Another summary (hex).
+        #[arg(long)]
+        b: String,
+    },
     /// Runs one unit's shard and prints its summary and result hash (checks and debugging).
     Exec {
         /// `eval`, `embed` or `clean`.
@@ -106,6 +118,17 @@ async fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Run { config } => {
             ac_worker::agent::live::run(ac_worker::agent::config::Config::load(&config)?).await
+        }
+        Command::Compare { kind, a, b } => {
+            let kind = ac_wallet::public::parse_kind(&kind)?;
+            let a = hex::decode(a.trim_start_matches("0x"))?;
+            let b = hex::decode(b.trim_start_matches("0x"))?;
+            let rules = ac_primitives::market::public::RULES_V1;
+            println!(
+                "agree: {}",
+                ac_primitives::market::public::agree(kind, rules, &a, &b)
+            );
+            Ok(())
         }
         Command::Collect { config } => {
             ac_worker::collect::run(ac_worker::collect::CollectConfig::load(&config)?).await
