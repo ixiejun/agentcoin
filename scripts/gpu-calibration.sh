@@ -10,6 +10,8 @@
 #                    regression; nothing is generated unless both pass
 #   generate         a case bundle: 3,000 honest answers and 100 per cheating variant
 #   recheck <bundle> re-check a bundle (a directory or the .tar.gz of one) on this machine
+#   probe-stop       whether answers that end with stop get one decode segment too many, with the
+#                    default scheduling and with asynchronous scheduling off (a few minutes)
 #   experiment       the long-prompt experiment: 100 honest + 16 per cheat, prompts of at least
 #                    MIN_PROMPT_WORDS (100) words, generated and re-checked here; needs only the
 #                    plugin check to have passed
@@ -328,6 +330,17 @@ cmd_experiment() {
   cmd_recheck "$out"
 }
 
+# Whether the engine feeds an answer's end token back before it knows the answer ended
+# (scripts/probe-stop-boundary.py): with the default scheduling and with asynchronous scheduling
+# off. A measurement for the long-prompt experiment's stop-boundary finding; a few minutes.
+cmd_probe_stop() {
+  require verify
+  engine_env
+  local log="$WORK/probe-stop-$(gpu_slug).log"
+  (cd "$repo_root" && python scripts/probe-stop-boundary.py) 2>&1 | tee "$log"
+  echo "log: $log"
+}
+
 cmd_recheck() {
   require verify
   local bundle="${1:-}"
@@ -471,6 +484,7 @@ case "${1:-}" in
   generate) cmd_generate ;;
   recheck) shift; cmd_recheck "$@" ;;
   experiment) cmd_experiment ;;
+  probe-stop) cmd_probe_stop ;;
   pack) cmd_pack ;;
   --self-test) self_test ;;
   *) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;

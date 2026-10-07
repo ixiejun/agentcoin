@@ -158,6 +158,16 @@ for the first run). The merge reports the prefill error per cell and prompt leng
 from the int8 cheat on and across GPUs. Each machine runs about 30 minutes (`MIN_PROMPT_WORDS`,
 `HONEST`, `CHEAT` change the defaults).
 
+### Stop-boundary probe
+
+In the long-prompt experiment, honest answers that end with `stop` re-check with a last chunk
+one position longer than the auditor recomputes (`gpu-exp-long-2026-10-07`). The suspected
+cause is vLLM's asynchronous scheduling, on by default on GPUs, feeding the end token back
+before the engine knows the answer ended. `scripts/gpu-calibration.sh probe-stop` (a few
+minutes, after `setup`) answers the same prompts with the default scheduling and with
+asynchronous scheduling off and counts each answer's decode segments against its output tokens
+− 1; send its output (also in `probe-stop-<gpu>.log`).
+
 ## What the commands check
 
 | Command | Stops when |

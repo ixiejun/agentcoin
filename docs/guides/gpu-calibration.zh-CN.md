@@ -104,6 +104,10 @@ scripts/gpu-calibration.sh pack
 
 交回两台机器的 `recheck-exp-long-*.tar.gz`（Release 附件，或像第一次运行那样提交）。合并报告按格与 prompt 长度给出 prefill 误差（`by_prompt_length`），据此判断用长 prompt 审计能否在单台 GPU 上以及跨 GPU 时把诚实回答与 int8 作弊分开。每台机器约 30 分钟（`MIN_PROMPT_WORDS`、`HONEST`、`CHEAT` 可改默认值）。
 
+### 结束边界探测
+
+长 prompt 实验中，以 `stop` 结束的诚实回答复核时，最后一块比审计员复算的多一个位置（`gpu-exp-long-2026-10-07`）。怀疑的原因是 vLLM 在 GPU 上默认开启的异步调度：引擎在知道回答已经结束之前，就把结束符喂回了模型。`scripts/gpu-calibration.sh probe-stop`（几分钟，`setup` 之后即可运行）用同样的 prompt，分别在默认调度与关闭异步调度时生成，并统计每个回答的 decode 段数与“输出 token 数 − 1”是否相符；把输出发回即可（也保存在 `probe-stop-<gpu>.log`）。
+
 ## 各命令检查什么
 
 | 命令 | 何时停止 |
