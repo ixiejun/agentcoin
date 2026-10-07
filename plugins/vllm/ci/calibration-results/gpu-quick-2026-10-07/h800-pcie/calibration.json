@@ -1,0 +1,3187 @@
+{
+ "seed": 1,
+ "host": {
+  "model": "Intel(R) Xeon(R) Platinum 8458P",
+  "flags": [
+   "avx2",
+   "avx512f",
+   "avx512_bf16",
+   "amx_bf16",
+   "amx_tile",
+   "amx_int8"
+  ],
+  "cpus": 176,
+  "onednn_max_cpu_isa": ""
+ },
+ "prover": {
+  "cpu": {
+   "model": "Intel(R) Xeon(R) Platinum 8458P",
+   "flags": [
+    "avx2",
+    "avx512f",
+    "avx512_bf16",
+    "amx_bf16",
+    "amx_tile",
+    "amx_int8"
+   ],
+   "cpus": 176,
+   "onednn_max_cpu_isa": ""
+  },
+  "gpu": {
+   "name": "NVIDIA H800 PCIe",
+   "capability": [
+    9,
+    0
+   ],
+   "memory_gib": 79.2,
+   "count": 1,
+   "driver": "580.82.07",
+   "cuda": "13.0",
+   "cudnn": 92000
+  },
+  "torch": "2.13.0",
+  "vllm": "0.30.0",
+  "plugin": "0.1.0",
+  "model": "Qwen/Qwen2.5-0.5B-Instruct@7ae557604adf67be50417f59c2c2f167def9a775",
+  "cheat_model": "Qwen/Qwen2.5-0.5B@060db6499f32faf8b98477b0a26969ef7d8b9987"
+ },
+ "auditor": {
+  "cpu": {
+   "model": "Intel(R) Xeon(R) Platinum 8458P",
+   "flags": [
+    "avx2",
+    "avx512f",
+    "avx512_bf16",
+    "amx_bf16",
+    "amx_tile",
+    "amx_int8"
+   ],
+   "cpus": 176,
+   "onednn_max_cpu_isa": ""
+  },
+  "gpu": {
+   "name": "NVIDIA H800 PCIe",
+   "capability": [
+    9,
+    0
+   ],
+   "memory_gib": 79.2,
+   "count": 1,
+   "driver": "580.82.07",
+   "cuda": "13.0",
+   "cudnn": 92000
+  },
+  "torch": "2.13.0",
+  "vllm": "0.30.0",
+  "plugin": "0.1.0",
+  "model": "Qwen/Qwen2.5-0.5B-Instruct@7ae557604adf67be50417f59c2c2f167def9a775",
+  "cheat_model": "Qwen/Qwen2.5-0.5B@060db6499f32faf8b98477b0a26969ef7d8b9987"
+ },
+ "shard": "0/1",
+ "honest": 48,
+ "cheat": 8,
+ "thresholds_versions": [
+  2
+ ],
+ "manifest": {
+  "mismatch": [],
+  "unlisted": []
+ },
+ "summary": {
+  "honest": {
+   "aggregate": {
+    "mean": {
+     "min": 0.6015625,
+     "p01": 0.6015625,
+     "p50": 0.9035433070866141,
+     "p99": 1.2369477911646587,
+     "max": 1.2914438502673797
+    },
+    "exp_rate": {
+     "min": 0.0,
+     "p01": 0.0,
+     "p50": 0.013671875,
+     "p99": 0.026041666666666668,
+     "max": 0.02734375
+    },
+    "inexact": {
+     "min": 1.0,
+     "p01": 1.0,
+     "p50": 1.0,
+     "p99": 1.0,
+     "max": 1.0
+    },
+    "prefill_mean": {
+     "min": 0.328125,
+     "p01": 0.328125,
+     "p50": 0.6953125,
+     "p99": 1.352,
+     "max": 1.3577235772357723
+    }
+   },
+   "worst_chunks": [
+    {
+     "mean": 1.7459016393442623,
+     "exp": 6,
+     "chunk": 2,
+     "chunks": 3,
+     "mant_count": 122
+    },
+    {
+     "mean": 1.5158730158730158,
+     "exp": 2,
+     "chunk": 1,
+     "chunks": 3,
+     "mant_count": 126
+    },
+    {
+     "mean": 1.4251968503937007,
+     "exp": 1,
+     "chunk": 2,
+     "chunks": 4,
+     "mant_count": 127
+    },
+    {
+     "mean": 1.4206349206349207,
+     "exp": 2,
+     "chunk": 3,
+     "chunks": 4,
+     "mant_count": 126
+    },
+    {
+     "mean": 1.3790322580645162,
+     "exp": 4,
+     "chunk": 3,
+     "chunks": 4,
+     "mant_count": 124
+    }
+   ],
+   "samples": 48,
+   "outcomes": {
+    "pass": 8,
+    "fail": 39,
+    "inconclusive": 1
+   },
+   "inconclusive_reasons": [
+    "tokens cannot be re-created"
+   ],
+   "worst_chunk": {
+    "exp": {
+     "min": 0,
+     "p01": 0,
+     "p50": 3,
+     "p99": 6,
+     "max": 6
+    },
+    "mean": {
+     "min": 0.8125,
+     "p01": 0.8125,
+     "p50": 1.125984251968504,
+     "p99": 1.5158730158730158,
+     "max": 1.7459016393442623
+    },
+    "median": {
+     "min": 1,
+     "p01": 1,
+     "p50": 1,
+     "p99": 1,
+     "max": 1
+    }
+   }
+  },
+  "swap": {
+   "aggregate": {
+    "mean": {
+     "min": 12.219330855018587,
+     "p01": 12.219330855018587,
+     "p50": 21.35757575757576,
+     "p99": 23.18045112781955,
+     "max": 27.246861924686193
+    },
+    "exp_rate": {
+     "min": 0.296875,
+     "p01": 0.296875,
+     "p50": 0.35546875,
+     "p99": 0.48046875,
+     "max": 0.6265625
+    },
+    "inexact": {
+     "min": 1.0,
+     "p01": 1.0,
+     "p50": 1.0,
+     "p99": 1.0,
+     "max": 1.0
+    },
+    "prefill_mean": {
+     "min": 7.989795918367347,
+     "p01": 7.989795918367347,
+     "p50": 19.56756756756757,
+     "p99": 24.53968253968254,
+     "max": 24.943661971830984
+    }
+   },
+   "worst_chunks": [
+    {
+     "mean": 35.1875,
+     "exp": 96,
+     "chunk": 4,
+     "chunks": 5,
+     "mant_count": 32
+    },
+    {
+     "mean": 30.084745762711865,
+     "exp": 69,
+     "chunk": 2,
+     "chunks": 5,
+     "mant_count": 59
+    },
+    {
+     "mean": 26.428571428571427,
+     "exp": 58,
+     "chunk": 1,
+     "chunks": 2,
+     "mant_count": 70
+    },
+    {
+     "mean": 25.228915662650603,
+     "exp": 45,
+     "chunk": 2,
+     "chunks": 3,
+     "mant_count": 83
+    },
+    {
+     "mean": 24.943661971830984,
+     "exp": 57,
+     "chunk": 0,
+     "chunks": 3,
+     "mant_count": 71
+    }
+   ],
+   "samples": 8,
+   "outcomes": {
+    "pass": 0,
+    "fail": 8,
+    "inconclusive": 0
+   },
+   "inconclusive_reasons": [],
+   "worst_chunk": {
+    "exp": {
+     "min": 43,
+     "p01": 43,
+     "p50": 58,
+     "p99": 68,
+     "max": 98
+    },
+    "mean": {
+     "min": 17.305882352941175,
+     "p01": 17.305882352941175,
+     "p50": 24.022727272727273,
+     "p99": 26.428571428571427,
+     "max": 35.1875
+    },
+    "median": {
+     "min": 12,
+     "p01": 12,
+     "p50": 19,
+     "p99": 21,
+     "max": 26
+    }
+   }
+  },
+  "int8": {
+   "aggregate": {
+    "mean": {
+     "min": 1.917989417989418,
+     "p01": 1.917989417989418,
+     "p50": 2.5024311183144246,
+     "p99": 2.725806451612903,
+     "max": 2.7399193548387095
+    },
+    "exp_rate": {
+     "min": 0.015625,
+     "p01": 0.015625,
+     "p50": 0.03125,
+     "p99": 0.03515625,
+     "max": 0.0359375
+    },
+    "inexact": {
+     "min": 1.0,
+     "p01": 1.0,
+     "p50": 1.0,
+     "p99": 1.0,
+     "max": 1.0
+    },
+    "prefill_mean": {
+     "min": 1.1496062992125984,
+     "p01": 1.1496062992125984,
+     "p50": 2.8852459016393444,
+     "p99": 3.322314049586777,
+     "max": 3.336
+    }
+   },
+   "worst_chunks": [
+    {
+     "mean": 3.336,
+     "exp": 3,
+     "chunk": 0,
+     "chunks": 4,
+     "mant_count": 125
+    },
+    {
+     "mean": 3.322314049586777,
+     "exp": 7,
+     "chunk": 0,
+     "chunks": 5,
+     "mant_count": 121
+    },
+    {
+     "mean": 3.2295081967213113,
+     "exp": 6,
+     "chunk": 0,
+     "chunks": 4,
+     "mant_count": 122
+    },
+    {
+     "mean": 3.04,
+     "exp": 3,
+     "chunk": 1,
+     "chunks": 4,
+     "mant_count": 125
+    },
+    {
+     "mean": 2.984126984126984,
+     "exp": 2,
+     "chunk": 1,
+     "chunks": 3,
+     "mant_count": 126
+    }
+   ],
+   "samples": 8,
+   "outcomes": {
+    "pass": 0,
+    "fail": 7,
+    "inconclusive": 1
+   },
+   "inconclusive_reasons": [
+    "tokens cannot be re-created"
+   ],
+   "worst_chunk": {
+    "exp": {
+     "min": 4,
+     "p01": 4,
+     "p50": 6,
+     "p99": 6,
+     "max": 7
+    },
+    "mean": {
+     "min": 2.7007874015748032,
+     "p01": 2.7007874015748032,
+     "p50": 3.04,
+     "p99": 3.322314049586777,
+     "max": 3.336
+    },
+    "median": {
+     "min": 2,
+     "p01": 2,
+     "p50": 2,
+     "p99": 2,
+     "max": 2
+    }
+   }
+  },
+  "int4": {
+   "aggregate": {
+    "mean": {
+     "min": 15.254681647940075,
+     "p01": 15.254681647940075,
+     "p50": 18.078534031413614,
+     "p99": 18.91699604743083,
+     "max": 20.753036437246962
+    },
+    "exp_rate": {
+     "min": 0.240625,
+     "p01": 0.240625,
+     "p50": 0.29296875,
+     "p99": 0.3567708333333333,
+     "max": 0.40625
+    },
+    "inexact": {
+     "min": 1.0,
+     "p01": 1.0,
+     "p50": 1.0,
+     "p99": 1.0,
+     "max": 1.0
+    },
+    "prefill_mean": {
+     "min": 9.359550561797754,
+     "p01": 9.359550561797754,
+     "p50": 17.560439560439562,
+     "p99": 20.822222222222223,
+     "max": 22.87142857142857
+    }
+   },
+   "worst_chunks": [
+    {
+     "mean": 26.594594594594593,
+     "exp": 91,
+     "chunk": 4,
+     "chunks": 5,
+     "mant_count": 37
+    },
+    {
+     "mean": 23.549295774647888,
+     "exp": 57,
+     "chunk": 2,
+     "chunks": 3,
+     "mant_count": 71
+    },
+    {
+     "mean": 22.87142857142857,
+     "exp": 58,
+     "chunk": 0,
+     "chunks": 5,
+     "mant_count": 70
+    },
+    {
+     "mean": 22.0,
+     "exp": 39,
+     "chunk": 1,
+     "chunks": 2,
+     "mant_count": 89
+    },
+    {
+     "mean": 21.0,
+     "exp": 50,
+     "chunk": 1,
+     "chunks": 2,
+     "mant_count": 78
+    }
+   ],
+   "samples": 8,
+   "outcomes": {
+    "pass": 0,
+    "fail": 8,
+    "inconclusive": 0
+   },
+   "inconclusive_reasons": [],
+   "worst_chunk": {
+    "exp": {
+     "min": 38,
+     "p01": 38,
+     "p50": 39,
+     "p99": 58,
+     "max": 91
+    },
+    "mean": {
+     "min": 17.8,
+     "p01": 17.8,
+     "p50": 19.771428571428572,
+     "p99": 23.549295774647888,
+     "max": 26.594594594594593
+    },
+    "median": {
+     "min": 14,
+     "p01": 14,
+     "p50": 15,
+     "p99": 19,
+     "max": 19
+    }
+   }
+  },
+  "prompt": {
+   "aggregate": {
+    "mean": {
+     "min": 9.173160173160174,
+     "p01": 9.173160173160174,
+     "p50": 9.868131868131869,
+     "p99": 11.811363636363636,
+     "max": 12.75
+    },
+    "exp_rate": {
+     "min": 0.278125,
+     "p01": 0.278125,
+     "p50": 0.30078125,
+     "p99": 0.3541666666666667,
+     "max": 0.5
+    },
+    "inexact": {
+     "min": 1.0,
+     "p01": 1.0,
+     "p50": 1.0,
+     "p99": 1.0,
+     "max": 1.0
+    },
+    "prefill_mean": {
+     "min": 12.255813953488373,
+     "p01": 12.255813953488373,
+     "p50": 18.71875,
+     "p99": 24.25,
+     "max": 30.703703703703702
+    }
+   },
+   "worst_chunks": [
+    {
+     "mean": 30.703703703703702,
+     "exp": 101,
+     "chunk": 0,
+     "chunks": 4,
+     "mant_count": 27
+    },
+    {
+     "mean": 24.25,
+     "exp": 108,
+     "chunk": 0,
+     "chunks": 5,
+     "mant_count": 20
+    },
+    {
+     "mean": 22.454545454545453,
+     "exp": 106,
+     "chunk": 0,
+     "chunks": 5,
+     "mant_count": 22
+    },
+    {
+     "mean": 21.86904761904762,
+     "exp": 44,
+     "chunk": 1,
+     "chunks": 5,
+     "mant_count": 84
+    },
+    {
+     "mean": 20.847826086956523,
+     "exp": 82,
+     "chunk": 0,
+     "chunks": 3,
+     "mant_count": 46
+    }
+   ],
+   "samples": 8,
+   "outcomes": {
+    "pass": 0,
+    "fail": 8,
+    "inconclusive": 0
+   },
+   "inconclusive_reasons": [],
+   "worst_chunk": {
+    "exp": {
+     "min": 82,
+     "p01": 82,
+     "p50": 101,
+     "p99": 106,
+     "max": 108
+    },
+    "mean": {
+     "min": 12.255813953488373,
+     "p01": 12.255813953488373,
+     "p50": 18.71875,
+     "p99": 24.25,
+     "max": 30.703703703703702
+    },
+    "median": {
+     "min": 10,
+     "p01": 10,
+     "p50": 11,
+     "p99": 19,
+     "max": 27
+    }
+   }
+  }
+ },
+ "samples": [
+  {
+   "case": "honest-00000.json",
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 61,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 130,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 108,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 160,
+     "median": 1
+    }
+   ],
+   "onchain": "00",
+   "outcome": "pass",
+   "reason": "",
+   "request": "11dd907fb462eaec3d7e9e6c47a1b10ace541a63e4b71697df5d308d338733f2",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00001.json",
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 87,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 123,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 132,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 116,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "6533590e9c0a71b8c10f66da9079f1daddb79dab9f00a2209f7b46e6b46f0807",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00002.json",
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 65,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 95,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 107,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 157,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "3c5ecca08520dedeb11e41598bf238a1e9c44dac3dc17c8d2f8b9aa91e3e6517",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00003.json",
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 60,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 109,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 136,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 129,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 137,
+     "median": 1
+    }
+   ],
+   "onchain": "00",
+   "outcome": "pass",
+   "reason": "",
+   "request": "c13284e79ee2a34251977399dda2d7d1e2b168f7eb49dcba6949383ba33fd5e5",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00004.json",
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 69,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 115,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 128,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 107,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 97,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "adccec6b53009a45d344d80bedf8ce95f5a3e931b8fe57e8a253629419dac978",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00005.json",
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 94,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 113,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 143,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 97,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 102,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "d2f0c27bd33e5ad465fa8d78c77d26a8dd1bd76ebdc6e9662312123623a54089",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00006.json",
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 142,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 139,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "54c42a4f0c78203e1c430c2cd9c936e585ca6ba04cf375abc5e2ee7f093bf016",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00007.json",
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 50,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 134,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 137,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 125,
+     "median": 1
+    }
+   ],
+   "onchain": "00",
+   "outcome": "pass",
+   "reason": "",
+   "request": "73e1f4d02cd753a9b1bce6eb6a7c5be59f271bca56da3faca29985b4af2fca40",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00008.json",
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 82,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 139,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 116,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 96,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 129,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "b4ab8d4e96905321aacc4e662e3953eedbdacc9c4ad08cf6a5090d91c5030864",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00009.json",
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 76,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 91,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 88,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 105,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 132,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "bfade12b16903a981a8ccd743e70497e4b5067fcddf6d7f88b004c8617623cfb",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00010.json",
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 145,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 134,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 98,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 148,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "21d46c3829e2cdcb4f675dcf773b6fea1fbc9ceb22fd951196a6f411359ebe89",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00011.json",
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 87,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 133,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 181,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 110,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "da22e141441b223b6df651a8c274667aeb85172af83151361abf75fd02328b58",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00012.json",
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 164,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 108,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 84,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 99,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 131,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "d17ebaadc8dc3d8a4d959c3e55ae8cc651678a1b14ddad6b0a1bade206687e37",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00013.json",
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 169,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 143,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 144,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 123,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 154,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "26e7f5394914f5bfebefe348e829ec21c837de32c1901d310e0fff1bcf3b3a35",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00014.json",
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 81,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 115,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 111,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 122,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "da4b3be7df433b47735269e9b9eac778ab57774800b0a6000892e36a945420ad",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00015.json",
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 101,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 105,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 126,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "a831bed8a623fba7bb08e54ec0315542a7a5f4499b666e8431825b71aa11849e",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00016.json",
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 144,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 191,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 148,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "66c803a5aed97eaabbc000a955c9f97af382c3196afe27f911166f37a6745cd2",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00017.json",
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 96,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 105,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 102,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "3862d5a48daff8a0785ee7075c03458051ab209941c3aa7dc363bc920053fa7e",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00018.json",
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 96,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 102,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 94,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 123,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "ad47296dd2fb66cff4a2bfdbfa211f943f6eff2360ce19e0c3d482be8a0d6b4f",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00019.json",
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 161,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 110,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "6c563d3b6b4a4b73522296a321672f1fdd25e69c213bf7e467f2e7d03179736e",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00020.json",
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 145,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 131,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "ed448f87690b6d60ea9840b1e7e2957c36078f800fe68c19c907fa01df87bf4d",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00021.json",
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 167,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 164,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 123,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 137,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 128,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "574da8b37ff3616203ff01ec34255f378053b3fb89cb3110349266b6258cf1f4",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00022.json",
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 70,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 146,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 122,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 179,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "bfff0ec5ef76a1ad4582a8e62e134be48b8dd7af47b98aa29c874f4c3a0fcc3b",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00023.json",
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 42,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 134,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 134,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 120,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 133,
+     "median": 1
+    }
+   ],
+   "onchain": "00",
+   "outcome": "pass",
+   "reason": "",
+   "request": "e45d6352ef211d7333903088d87f2cc9a1c10b85a9ed16d786e55d90ecefb620",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00024.json",
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 46,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 137,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 213,
+     "median": 1
+    }
+   ],
+   "onchain": "00",
+   "outcome": "pass",
+   "reason": "",
+   "request": "0c22fe1d054d88c94dc668b74cba65580157434b2c2be78ce1fd2b75b804771d",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00025.json",
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 86,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 106,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 129,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 81,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "bf41945377b0e59ad9723d0b05f6367b676aa34d9dfe0d82131907c8576edd64",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00026.json",
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 81,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 125,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 153,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 153,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 133,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "c5181da9e16370bcdf7308ae635a823557043987bdc2805aaabbd7f7e7d30a31",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00027.json",
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 108,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 108,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "7d00e8015e6567c0b7df6f71f772e253f44b4d87576ad117bbdde396dda14f85",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00028.json",
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 108,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 121,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 119,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 112,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 110,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "f92ffca7e2bc59ccbdad5e801ad59f6f7b614e5223661ebc8cca3405f2ce9643",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00029.json",
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 83,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 136,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 132,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 100,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "9b9f8862c590ad96d71d3893bd73ced09804f0ad0952e9bfb41d7d5bf39f8d89",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00030.json",
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 82,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 117,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 115,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 147,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "d5c43035d19a89685396b093617cb14d9947562b5019bb7fc87318ec5a1fd71e",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00031.json",
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 64,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 135,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 103,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 171,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "4d54fe31b767a8e4f99dc166b7bd45be7740853d5f8b75ff08d23e924491ae33",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00032.json",
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 62,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 99,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 102,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 104,
+     "median": 1
+    }
+   ],
+   "onchain": "00",
+   "outcome": "pass",
+   "reason": "",
+   "request": "265eb53065bf166f8eae17ce54b286a60f41d1c7b672c055e575f9e7cbc52a52",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00033.json",
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 81,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 176,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "0713dce62bd6f707afe2e35b6417057059bb731f541ef9bc16b7b0c2069fe376",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00034.json",
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 102,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 77,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 96,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 128,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "231c84622c823dc2298654126249a8134abcfd7dbbaf59e457bd29fb3e5431c8",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00035.json",
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 47,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 110,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 140,
+     "median": 1
+    }
+   ],
+   "onchain": "00",
+   "outcome": "pass",
+   "reason": "",
+   "request": "1e3148e2ce235e2198c1b6bcb61effe542bf9afb2367818e6a08b1f014ca59f9",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00036.json",
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 149,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 117,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 132,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "d619b9dfd4de4a41a7f8d0bb07adf933296da7c7d15710df8b40ab0b3e87d8b0",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00037.json",
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 94,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 115,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 125,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 89,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 131,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "625fcc601b666d1631895f453e937054d049ce7bc4d72336aa6ce1c49153f300",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00038.json",
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 90,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 123,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 120,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "c5779fff2aa2e82e027052cc1443e0c2cb348e358f88e48d02fc37799a574812",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00039.json",
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 154,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 130,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 165,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "8b0df05db1450421be9b4d56f9784ed183cb67f3f4d7217b4245af46e72f4384",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00040.json",
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 50,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 104,
+     "median": 1
+    }
+   ],
+   "onchain": "00",
+   "outcome": "pass",
+   "reason": "",
+   "request": "f29372cc0add6b45e68c1a8f56f378b0a616256e62ff159d7cad9de845dbb66e",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00041.json",
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 96,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 117,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 85,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "e0483937dff7fcbc590d1f308f2631670c7fcdeca1cfd2063973cdc07a61d657",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00042.json",
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 142,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 108,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 122,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 127,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "f5d449d149522e2a2589bd65870176c9b881d80f94a9594829a1f485dba0b035",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00043.json",
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 75,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 160,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 146,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 148,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 130,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "9e69faff9984336242d1214fcb80d9102dcf1a7843af5549020779474caa6600",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00044.json",
+   "chunks": [],
+   "onchain": "0202",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "request": "ba6b850a94a65a78fbb705fb4724586dd27e87e1e231ea77cdcd8932b5eb44d8",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00045.json",
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 89,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 124,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 149,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 122,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "57e847e705f274ad831d6c9bab0679924ee3b7bd87680c37e94d25ca46855643",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00046.json",
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 162,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 146,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "6e6565a17f05a5a31df0134c6fd333d0e3e41ad2d44daefe4da43a92cced1bd7",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "honest-00047.json",
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 88,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 118,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 96,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 134,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "6b96fe001573d3191d65d81505b24b6be30e676468469e261d6b4bd022f50968",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "int4-00000.json",
+   "chunks": [
+    {
+     "exp_mismatches": 39,
+     "mant_count": 89,
+     "mant_err_sum": 833,
+     "median": 7
+    },
+    {
+     "exp_mismatches": 39,
+     "mant_count": 89,
+     "mant_err_sum": 1659,
+     "median": 15
+    },
+    {
+     "exp_mismatches": 39,
+     "mant_count": 89,
+     "mant_err_sum": 1581,
+     "median": 12
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "5378294a37e2693bc3ed28b82f2eada69a250fc6af57a257c2f018bd4801979d",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "int4-00001.json",
+   "chunks": [
+    {
+     "exp_mismatches": 38,
+     "mant_count": 90,
+     "mant_err_sum": 1874,
+     "median": 17
+    },
+    {
+     "exp_mismatches": 42,
+     "mant_count": 86,
+     "mant_err_sum": 1580,
+     "median": 17
+    },
+    {
+     "exp_mismatches": 57,
+     "mant_count": 71,
+     "mant_err_sum": 1672,
+     "median": 19
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "08df6949d92ac84eef982a9ab07db8287d60954f97cd180c4d8b21f58f818c9e",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "int4-00002.json",
+   "chunks": [
+    {
+     "exp_mismatches": 58,
+     "mant_count": 70,
+     "mant_err_sum": 1601,
+     "median": 13
+    },
+    {
+     "exp_mismatches": 38,
+     "mant_count": 90,
+     "mant_err_sum": 1334,
+     "median": 11
+    },
+    {
+     "exp_mismatches": 43,
+     "mant_count": 85,
+     "mant_err_sum": 1260,
+     "median": 12
+    },
+    {
+     "exp_mismatches": 30,
+     "mant_count": 98,
+     "mant_err_sum": 1938,
+     "median": 17
+    },
+    {
+     "exp_mismatches": 91,
+     "mant_count": 37,
+     "mant_err_sum": 984,
+     "median": 19
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "9a947edf5f768542949b211afcb7b4a8876966a13a822e04f8a78d931ef10684",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "int4-00003.json",
+   "chunks": [
+    {
+     "exp_mismatches": 33,
+     "mant_count": 95,
+     "mant_err_sum": 1799,
+     "median": 14
+    },
+    {
+     "exp_mismatches": 40,
+     "mant_count": 88,
+     "mant_err_sum": 1603,
+     "median": 15
+    },
+    {
+     "exp_mismatches": 58,
+     "mant_count": 70,
+     "mant_err_sum": 1384,
+     "median": 17
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "7e2b1a8a62789f6fd38555bc2f95650a2975d81a7af35e4a9acb51fb65be3ba8",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "int4-00004.json",
+   "chunks": [
+    {
+     "exp_mismatches": 26,
+     "mant_count": 102,
+     "mant_err_sum": 1495,
+     "median": 11
+    },
+    {
+     "exp_mismatches": 39,
+     "mant_count": 89,
+     "mant_err_sum": 1958,
+     "median": 17
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "28adfcf0e0ef1fffeb7e62a03e89e2be64249429723c37a401fa0e1a63506d61",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "int4-00005.json",
+   "chunks": [
+    {
+     "exp_mismatches": 37,
+     "mant_count": 91,
+     "mant_err_sum": 1598,
+     "median": 13
+    },
+    {
+     "exp_mismatches": 38,
+     "mant_count": 90,
+     "mant_err_sum": 1602,
+     "median": 15
+    },
+    {
+     "exp_mismatches": 29,
+     "mant_count": 99,
+     "mant_err_sum": 1613,
+     "median": 14
+    },
+    {
+     "exp_mismatches": 28,
+     "mant_count": 100,
+     "mant_err_sum": 1556,
+     "median": 12
+    },
+    {
+     "exp_mismatches": 22,
+     "mant_count": 106,
+     "mant_err_sum": 1582,
+     "median": 10
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "7e5afd0144ea81863da298a137bdf3542d6a29912b3607aa8f6affc18600d3e4",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "int4-00006.json",
+   "chunks": [
+    {
+     "exp_mismatches": 38,
+     "mant_count": 90,
+     "mant_err_sum": 1614,
+     "median": 14
+    },
+    {
+     "exp_mismatches": 34,
+     "mant_count": 94,
+     "mant_err_sum": 1846,
+     "median": 14
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "d79b1e977f8b3ec73b96c3baa5cfcc8c073fda251f37e645d38593c660f106f6",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "int4-00007.json",
+   "chunks": [
+    {
+     "exp_mismatches": 25,
+     "mant_count": 103,
+     "mant_err_sum": 1233,
+     "median": 9
+    },
+    {
+     "exp_mismatches": 50,
+     "mant_count": 78,
+     "mant_err_sum": 1638,
+     "median": 15
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "1fcae05e0627006222729500e9ac914c2ffdd065b72e2999a14b091f00e26710",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "int8-00000.json",
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 178,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 204,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 343,
+     "median": 2
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "23bcc1611b5ddc40c4194259729fe1902ac596a0037bf86bed82ca8d09c0a4e1",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "int8-00001.json",
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 146,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 347,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 314,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 330,
+     "median": 2
+    }
+   ],
+   "onchain": "01030000000002",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "request": "d8e046d424bfefdfd08d3e90347375e41f8931e4a827c16eccdd79defaedd93f",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "int8-00002.json",
+   "chunks": [
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 352,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 376,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 286,
+     "median": 2
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "5078c45ccb044bbc7385cde6dfef980aa2dcbef3d38ce19d61c968f928bd4a62",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "int8-00003.json",
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 417,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 296,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 339,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 206,
+     "median": 1
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "943ba5dd2684209a09a3ad3962f5bb8d64873c63a3d73e3c967ec8c31f8e802e",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "int8-00004.json",
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 348,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 380,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 325,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 306,
+     "median": 2
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "ab231a0db21de172a1fbed325a64e1e3605aa805f4d0d22d1bda93b1f7af3121",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "int8-00005.json",
+   "chunks": [],
+   "onchain": "0202",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "request": "83e95e83a62685d6fcffce0063f1abddda7e2e5d53bb4f0cc5567cbf4104fb99",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "int8-00006.json",
+   "chunks": [
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 394,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 290,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 254,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 283,
+     "median": 2
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "91812ad68acb6d91dedf679d8efba3ad52b75755952b418fece1424d812230de",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "int8-00007.json",
+   "chunks": [
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 402,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 296,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 258,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 264,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 324,
+     "median": 2
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "a5dbbca79a3379894af7c8a822723c5735887e573e91156d103b4e3e00ddd5b6",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "prompt-00000.json",
+   "chunks": [
+    {
+     "exp_mismatches": 96,
+     "mant_count": 32,
+     "mant_err_sum": 599,
+     "median": 10
+    },
+    {
+     "exp_mismatches": 32,
+     "mant_count": 96,
+     "mant_err_sum": 1276,
+     "median": 9
+    },
+    {
+     "exp_mismatches": 17,
+     "mant_count": 111,
+     "mant_err_sum": 853,
+     "median": 6
+    },
+    {
+     "exp_mismatches": 21,
+     "mant_count": 107,
+     "mant_err_sum": 680,
+     "median": 6
+    },
+    {
+     "exp_mismatches": 12,
+     "mant_count": 116,
+     "mant_err_sum": 830,
+     "median": 6
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "6dcef1c229d5f389a865786cc3fc15f08a1cf8d281fd23a5d89166693a1b0f14",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "prompt-00001.json",
+   "chunks": [
+    {
+     "exp_mismatches": 85,
+     "mant_count": 43,
+     "mant_err_sum": 527,
+     "median": 12
+    },
+    {
+     "exp_mismatches": 26,
+     "mant_count": 102,
+     "mant_err_sum": 977,
+     "median": 5
+    },
+    {
+     "exp_mismatches": 25,
+     "mant_count": 103,
+     "mant_err_sum": 902,
+     "median": 7
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "5a6f4737fab11e962ae51a16bcc4e9b83f2efb1e0a2cc2e9121b8fc8d8e90ef7",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "prompt-00002.json",
+   "chunks": [
+    {
+     "exp_mismatches": 101,
+     "mant_count": 27,
+     "mant_err_sum": 829,
+     "median": 27
+    },
+    {
+     "exp_mismatches": 25,
+     "mant_count": 103,
+     "mant_err_sum": 1268,
+     "median": 10
+    },
+    {
+     "exp_mismatches": 18,
+     "mant_count": 110,
+     "mant_err_sum": 937,
+     "median": 6
+    },
+    {
+     "exp_mismatches": 9,
+     "mant_count": 119,
+     "mant_err_sum": 1015,
+     "median": 6
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "31c541adfedff703b4e50fdc54488d202e6d10764c7823738ed263609bd519e6",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "prompt-00003.json",
+   "chunks": [
+    {
+     "exp_mismatches": 82,
+     "mant_count": 46,
+     "mant_err_sum": 959,
+     "median": 17
+    },
+    {
+     "exp_mismatches": 20,
+     "mant_count": 108,
+     "mant_err_sum": 1078,
+     "median": 8
+    },
+    {
+     "exp_mismatches": 9,
+     "mant_count": 119,
+     "mant_err_sum": 657,
+     "median": 5
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "478b086b5ba6450c5b5c90668a68f63e0f60630544b019047b04cafe1a2282ce",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "prompt-00004.json",
+   "chunks": [
+    {
+     "exp_mismatches": 106,
+     "mant_count": 22,
+     "mant_err_sum": 494,
+     "median": 13
+    },
+    {
+     "exp_mismatches": 44,
+     "mant_count": 84,
+     "mant_err_sum": 1837,
+     "median": 19
+    },
+    {
+     "exp_mismatches": 20,
+     "mant_count": 108,
+     "mant_err_sum": 1103,
+     "median": 8
+    },
+    {
+     "exp_mismatches": 15,
+     "mant_count": 113,
+     "mant_err_sum": 690,
+     "median": 5
+    },
+    {
+     "exp_mismatches": 15,
+     "mant_count": 113,
+     "mant_err_sum": 1073,
+     "median": 7
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "152d679ddc6f6eb7191f6c3a7307643a9c034776bcf90e07f3d2c530e5541191",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "prompt-00005.json",
+   "chunks": [
+    {
+     "exp_mismatches": 102,
+     "mant_count": 26,
+     "mant_err_sum": 464,
+     "median": 6
+    },
+    {
+     "exp_mismatches": 28,
+     "mant_count": 100,
+     "mant_err_sum": 1396,
+     "median": 10
+    },
+    {
+     "exp_mismatches": 11,
+     "mant_count": 117,
+     "mant_err_sum": 731,
+     "median": 4
+    },
+    {
+     "exp_mismatches": 13,
+     "mant_count": 115,
+     "mant_err_sum": 886,
+     "median": 5
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "d2fb34ec8c2236813a194bff794d2b6022efdb886a90cc2a0d2ee3bd15a070b9",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "prompt-00006.json",
+   "chunks": [
+    {
+     "exp_mismatches": 104,
+     "mant_count": 24,
+     "mant_err_sum": 443,
+     "median": 11
+    },
+    {
+     "exp_mismatches": 24,
+     "mant_count": 104,
+     "mant_err_sum": 1189,
+     "median": 10
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "7723afa057d1c457aa859e78d60ac22fb8b6aa20971832de56c38f0bae60b12c",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "prompt-00007.json",
+   "chunks": [
+    {
+     "exp_mismatches": 108,
+     "mant_count": 20,
+     "mant_err_sum": 485,
+     "median": 11
+    },
+    {
+     "exp_mismatches": 29,
+     "mant_count": 99,
+     "mant_err_sum": 1465,
+     "median": 11
+    },
+    {
+     "exp_mismatches": 24,
+     "mant_count": 104,
+     "mant_err_sum": 1054,
+     "median": 8
+    },
+    {
+     "exp_mismatches": 21,
+     "mant_count": 107,
+     "mant_err_sum": 813,
+     "median": 5
+    },
+    {
+     "exp_mismatches": 19,
+     "mant_count": 109,
+     "mant_err_sum": 944,
+     "median": 5
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "1a16cf7eb7b44550730d6ea1efb76e9d8801d549e6a659d72a17965c9d5ad5b2",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "swap-00000.json",
+   "chunks": [
+    {
+     "exp_mismatches": 57,
+     "mant_count": 71,
+     "mant_err_sum": 1771,
+     "median": 19
+    },
+    {
+     "exp_mismatches": 58,
+     "mant_count": 70,
+     "mant_err_sum": 1672,
+     "median": 19
+    },
+    {
+     "exp_mismatches": 34,
+     "mant_count": 94,
+     "mant_err_sum": 1616,
+     "median": 16
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "8f826c197ada77d1d7659c26cf990101535f339da8d05b6e6ed57f2112353607",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "swap-00001.json",
+   "chunks": [
+    {
+     "exp_mismatches": 32,
+     "mant_count": 96,
+     "mant_err_sum": 864,
+     "median": 8
+    },
+    {
+     "exp_mismatches": 50,
+     "mant_count": 78,
+     "mant_err_sum": 1830,
+     "median": 18
+    },
+    {
+     "exp_mismatches": 37,
+     "mant_count": 91,
+     "mant_err_sum": 1496,
+     "median": 12
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "d513bafaeaa3a5b3793f014013f571ef4e23d61a66c8112d858a3c6a20dd3fb2",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "swap-00002.json",
+   "chunks": [
+    {
+     "exp_mismatches": 54,
+     "mant_count": 74,
+     "mant_err_sum": 1448,
+     "median": 19
+    },
+    {
+     "exp_mismatches": 22,
+     "mant_count": 106,
+     "mant_err_sum": 1525,
+     "median": 11
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "8dd1f917455f4b98152842e7211ab28abcdf046ece70dc66e13da7251a16fa9d",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "swap-00003.json",
+   "chunks": [
+    {
+     "exp_mismatches": 65,
+     "mant_count": 63,
+     "mant_err_sum": 1546,
+     "median": 20
+    },
+    {
+     "exp_mismatches": 73,
+     "mant_count": 55,
+     "mant_err_sum": 1367,
+     "median": 24
+    },
+    {
+     "exp_mismatches": 69,
+     "mant_count": 59,
+     "mant_err_sum": 1775,
+     "median": 25
+    },
+    {
+     "exp_mismatches": 98,
+     "mant_count": 30,
+     "mant_err_sum": 698,
+     "median": 22
+    },
+    {
+     "exp_mismatches": 96,
+     "mant_count": 32,
+     "mant_err_sum": 1126,
+     "median": 26
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "0c04dce568d85f6dc034fade4aca8f129a724a0d5c2a2068abeba14bbf412d1b",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "swap-00004.json",
+   "chunks": [
+    {
+     "exp_mismatches": 65,
+     "mant_count": 63,
+     "mant_err_sum": 1233,
+     "median": 17
+    },
+    {
+     "exp_mismatches": 58,
+     "mant_count": 70,
+     "mant_err_sum": 1850,
+     "median": 21
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "4f980068e3e4cf09dd8037cce46bff1f6a83e33d7815217fc2e26b60501e59b2",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "swap-00005.json",
+   "chunks": [
+    {
+     "exp_mismatches": 30,
+     "mant_count": 98,
+     "mant_err_sum": 783,
+     "median": 9
+    },
+    {
+     "exp_mismatches": 42,
+     "mant_count": 86,
+     "mant_err_sum": 1033,
+     "median": 8
+    },
+    {
+     "exp_mismatches": 43,
+     "mant_count": 85,
+     "mant_err_sum": 1471,
+     "median": 12
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "d53e8a159390ef3f9718a052631c94d799e551729055f18fcb76397828be1c9e",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "swap-00006.json",
+   "chunks": [
+    {
+     "exp_mismatches": 68,
+     "mant_count": 60,
+     "mant_err_sum": 1162,
+     "median": 15
+    },
+    {
+     "exp_mismatches": 56,
+     "mant_count": 72,
+     "mant_err_sum": 1721,
+     "median": 18
+    },
+    {
+     "exp_mismatches": 45,
+     "mant_count": 83,
+     "mant_err_sum": 2094,
+     "median": 21
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "b1c154141fb9c8c4dbb5712aedfbcd2aa2cbe631ea9ab0265c49f31650d10c3c",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  },
+  {
+   "case": "swap-00007.json",
+   "chunks": [
+    {
+     "exp_mismatches": 59,
+     "mant_count": 69,
+     "mant_err_sum": 1639,
+     "median": 21
+    },
+    {
+     "exp_mismatches": 42,
+     "mant_count": 86,
+     "mant_err_sum": 1395,
+     "median": 12
+    },
+    {
+     "exp_mismatches": 41,
+     "mant_count": 87,
+     "mant_err_sum": 1900,
+     "median": 17
+    },
+    {
+     "exp_mismatches": 40,
+     "mant_count": 88,
+     "mant_err_sum": 2114,
+     "median": 17
+    }
+   ],
+   "onchain": "01030000000000",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "request": "69175d33e852293be29a51a762b803787aad26ba9de22bbbbcce4c01805c052d",
+   "thresholds_version": 2,
+   "manifest": "ok"
+  }
+ ]
+}
