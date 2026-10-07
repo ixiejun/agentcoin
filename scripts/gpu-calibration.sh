@@ -210,7 +210,7 @@ cmd_generate() {
   slug="$(gpu_slug)"
   case "$slug" in
     *3090*) seed=11 ;;
-    *a100*) seed=12 ;;
+    *a100* | *h800* | *h100*) seed=12 ;;
     *) seed=13 ;;
   esac
   seed="${SEED:-$seed}"

@@ -17,7 +17,7 @@ fails its check on the GPU.
 
 | | Consumer | Data center |
 |---|---|---|
-| GPU | RTX 3090 (24 GB), one card | A100 (40 or 80 GB), one card |
+| GPU | RTX 3090 (24 GB), one card | A100 (40 or 80 GB) or H800 (80 GB), one card |
 | Host | "最高 CUDA 版本" (highest CUDA) **13.0 or later** — the pinned PyTorch 2.13.0 is built for CUDA 13.0, so the host driver must be 580 or newer | same |
 | Image | any base image with Python 3.10–3.13 on Ubuntu 22.04 (the image's own CUDA and PyTorch are not used: the script installs its own in a virtual environment) | same |
 | Disk | the data disk `/root/autodl-tmp` (the script works there); about 25 GB | same |
@@ -62,7 +62,7 @@ scripts/gpu-calibration.sh recheck /root/autodl-tmp/agentcoin-gpu/bundle-rtx-309
 scripts/gpu-calibration.sh pack       # archives and their SHA-256 in /root/autodl-tmp/agentcoin-gpu/out
 ```
 
-(On the A100 the bundle is `bundle-a100-…-seed12`; `ls /root/autodl-tmp/agentcoin-gpu` shows it.)
+(On the A100 or H800 the bundle is `bundle-a100-…-seed12` or `bundle-h800-…-seed12`; `ls /root/autodl-tmp/agentcoin-gpu` shows it.)
 If `check` stops, nothing is generated on that GPU: send the log it names.
 
 Then give each machine the other's bundle and re-check it:

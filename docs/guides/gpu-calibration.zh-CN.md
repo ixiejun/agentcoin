@@ -10,7 +10,7 @@
 
 | | 消费级 | 数据中心 |
 |---|---|---|
-| GPU | RTX 3090（24 GB），单卡 | A100（40 或 80 GB），单卡 |
+| GPU | RTX 3090（24 GB），单卡 | A100（40 或 80 GB）或 H800（80 GB），单卡 |
 | 主机 | “最高 CUDA 版本” **13.0 或以上**——固定的 PyTorch 2.13.0 为 CUDA 13.0 构建，主机驱动须为 580 或更新 | 同左 |
 | 镜像 | 任一 Ubuntu 22.04、Python 3.10–3.13 的基础镜像（镜像自带的 CUDA 与 PyTorch 不会被使用：脚本在虚拟环境中安装自己的） | 同左 |
 | 磁盘 | 数据盘 `/root/autodl-tmp`（脚本在这里工作），约 25 GB | 同左 |
@@ -46,7 +46,7 @@ scripts/gpu-calibration.sh recheck /root/autodl-tmp/agentcoin-gpu/bundle-rtx-309
 scripts/gpu-calibration.sh pack       # 打包并打印 SHA-256，在 /root/autodl-tmp/agentcoin-gpu/out
 ```
 
-（A100 上案例包名为 `bundle-a100-…-seed12`，`ls /root/autodl-tmp/agentcoin-gpu` 可见。）`check` 停止时，这台 GPU 上不会生成任何东西：把它指出的日志发给我。
+（A100 或 H800 上案例包名为 `bundle-a100-…-seed12` 或 `bundle-h800-…-seed12`，`ls /root/autodl-tmp/agentcoin-gpu` 可见。）`check` 停止时，这台 GPU 上不会生成任何东西：把它指出的日志发给我。
 
 然后把各自的案例包交给另一台机器复核：
 
