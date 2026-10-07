@@ -333,6 +333,8 @@ python scripts/check-vllm-plugin.py               # the plugin in a real vLLM ag
 AC_E2E=1 AC_VLLM_E2E=1 cargo test -p ac-e2e --test vllm -- --test-threads 1  # inference through vLLM with TOPLOC proofs
 python scripts/probe-vllm-recheck.py             # the vLLM interfaces the auditor's re-check needs
 cargo build -p ac-auditor && python scripts/calibrate-toploc.py --quick  # re-check regression (honest pass, cheats fail); without --quick: the full calibration
+python scripts/calibrate-toploc.py --generate-only --out B | --recheck-only B --out R | --merge R/calibration.json...  # cross-hardware calibration, by cell
+scripts/gpu-calibration.sh setup|verify|check|generate|recheck <bundle>|pack|--self-test  # the calibration on a rented GPU (docs/guides/gpu-calibration.md)
 ac-auditor recheck --engine <url> --socket <path> --quant bf16 --cases <dir>  # re-check inferences against their TOPLOC proofs
 ac-auditor evidence --case <file> --out <evidence.bin>  # a failing verdict's evidence and its commitment
 ac-wallet audit verdict --report <line.json> --case <file>  # submit a verdict (also: audit register / vote / disputes)

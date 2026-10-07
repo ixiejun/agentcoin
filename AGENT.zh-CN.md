@@ -333,6 +333,8 @@ python scripts/check-vllm-plugin.py               # 在真实 vLLM 中把插件�
 AC_E2E=1 AC_VLLM_E2E=1 cargo test -p ac-e2e --test vllm -- --test-threads 1  # 经 vLLM 推理，带 TOPLOC 证明
 python scripts/probe-vllm-recheck.py             # 审计员复核所依赖的 vLLM 接口
 cargo build -p ac-auditor && python scripts/calibrate-toploc.py --quick  # 复核回归（诚实样本通过、作弊样本不通过）；不加 --quick 为完整校准
+python scripts/calibrate-toploc.py --generate-only --out B | --recheck-only B --out R | --merge R/calibration.json...  # 跨硬件校准，按格统计
+scripts/gpu-calibration.sh setup|verify|check|generate|recheck <bundle>|pack|--self-test  # 在租用的 GPU 上校准（docs/guides/gpu-calibration.zh-CN.md）
 ac-auditor recheck --engine <url> --socket <path> --quant bf16 --cases <dir>  # 按 TOPLOC 证明复核推理
 ac-auditor evidence --case <file> --out <evidence.bin>  # 不通过裁决的证据及其承诺
 ac-wallet audit verdict --report <line.json> --case <file>  # 提交裁决（另有 audit register / vote / disputes）

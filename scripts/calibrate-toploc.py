@@ -58,7 +58,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 AUDITOR = REPO / "target" / "debug" / "ac-auditor"
 TOPK = 128
-MEMORY = 0.3  # share of RAM vLLM's CPU backend reserves; runners have about 16 GB
+MEMORY = 0.3  # share of RAM vLLM's CPU backend reserves (runners have about 16 GB), or of a GPU's memory
 MODEL_ID = "0x" + "71" * 32  # stands for the registered model; the re-check takes --quant bf16
 ENGINE_NAME = "calibration-model"
 MARKER = "narwhal-marker-5e8a"

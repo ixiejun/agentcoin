@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""The vLLM TOPLOC plugin against a real (CPU) vLLM (m5-engine-toploc 7.2, CI job vllm-plugin).
+"""The vLLM TOPLOC plugin against a real vLLM (m5-engine-toploc 7.2, CI job vllm-plugin on CPU;
+on a GPU, `scripts/gpu-calibration.sh check`, m6-toploc-gpu-calibration 3.4).
 
 Runs the pinned model in-process with the plugin enabled and a fake provider socket, and a
 reference hook on the model's final norm (the activations the TOPLOC reference reads). Checks:
@@ -13,8 +14,8 @@ reference hook on the model's final norm (the activations the TOPLOC reference r
 4. a float16 model or prefix caching makes the engine fail to start;
 5. nothing of the prompt reaches the logs, and the plugin writes no file.
 
-Usage: scripts/check-vllm-plugin.py   (after scripts/setup-vllm-cpu.sh; env AC_VLLM_MODEL,
-AC_VLLM_REVISION)
+Usage: scripts/check-vllm-plugin.py   (after scripts/setup-vllm-cpu.sh or
+scripts/gpu-calibration.sh setup, and with cargo; env AC_VLLM_MODEL, AC_VLLM_REVISION)
 """
 
 import json
@@ -33,7 +34,9 @@ REPO = Path(__file__).resolve().parent.parent
 MODEL = os.environ["AC_VLLM_MODEL"]
 REVISION = os.environ["AC_VLLM_REVISION"]
 TOPK, BATCH = 128, 32
-# On the CPU backend this is the share of RAM vLLM reserves; runners have about 16 GB.
+# On the CPU backend this is the share of RAM vLLM reserves (runners have about 16 GB); on a GPU
+# the share of its memory (7 GB of a 24 GB card is plenty for the 0.5B model). The activations
+# are copied to the CPU in the hook, whatever the device.
 MEMORY = 0.3
 MARKER = "quokka-marker-7b1e"
 PROMPT = (
