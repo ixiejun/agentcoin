@@ -80,6 +80,30 @@ scripts/gpu-calibration.sh pack
 1. 两个案例包由校准工作流在 CPU 上复核（`plugins/vllm/ci/calibration.env` 中的 `CALIBRATION_BUNDLE_*`）：即“GPU → CPU AMX off”各格；
 2. 所有报告按格合并；精简报告提交到 `plugins/vllm/ci/calibration-results/`，结论写入校准报告。
 
+## 长 prompt 实验
+
+第一次运行停在了 `check`（见 [gpu-quick-2026-10-07](../../plugins/vllm/ci/calibration-results/gpu-quick-2026-10-07/README.zh-CN.md)）：两台 GPU 上诚实回答都过不了 prefill 上限，大多是短 prompt；而 prompt 不少于 64 个词时，诚实样本的 prefill 误差都不超过 0.65，int8 作弊都不低于 1.15。在决定复核怎么改之前，先做一个小实验：只用长 prompt，在每台 GPU 上以及两台之间测量这一点。它只要求插件检查通过（不要求快速回归通过），其案例包（`exp-long-…`）永远不计入校准。
+
+```bash
+cd /root/autodl-tmp/agentcoin && git pull     # 实验需要最新的脚本
+# 在此版本之前已通过插件检查的机器上：现在会保留插件检查的结果；可以重新运行 `check`
+# （它仍会如预期停在快速回归），或者，由于 check-<gpu>/check-vllm-plugin.log 以
+# "all checks passed" 结尾，手动标记：
+touch /root/autodl-tmp/agentcoin-gpu/state/plugin.ok
+scripts/gpu-calibration.sh experiment   # 100 个诚实 + 每类作弊 16 个，prompt 不少于 100 个词，本机复核
+scripts/gpu-calibration.sh pack         # out/exp-long-<gpu>-seed2x.tar.gz 及其复核
+```
+
+RTX 5090 上的案例包为 `exp-long-rtx-5090-seed21`，H800 上为 `exp-long-h800-…-seed22`。然后把各自的案例包交给另一台机器复核（拷贝方法同第 3 节），再打包一次：
+
+```bash
+scripts/gpu-calibration.sh recheck /root/autodl-tmp/exp-long-h800-…-seed22.tar.gz   # 在 5090 上
+scripts/gpu-calibration.sh recheck /root/autodl-tmp/exp-long-rtx-5090-seed21.tar.gz # 在 H800 上
+scripts/gpu-calibration.sh pack
+```
+
+交回两台机器的 `recheck-exp-long-*.tar.gz`（Release 附件，或像第一次运行那样提交）。合并报告按格与 prompt 长度给出 prefill 误差（`by_prompt_length`），据此判断用长 prompt 审计能否在单台 GPU 上以及跨 GPU 时把诚实回答与 int8 作弊分开。每台机器约 30 分钟（`MIN_PROMPT_WORDS`、`HONEST`、`CHEAT` 可改默认值）。
+
 ## 各命令检查什么
 
 | 命令 | 何时停止 |
@@ -88,5 +112,6 @@ scripts/gpu-calibration.sh pack
 | `verify` | `setup` 未通过；vLLM 或 PyTorch 不是固定版本；没有支持 bfloat16 的 CUDA 设备；模型快照不符；虚拟环境中的 CUDA 编译器不是 CUDA 13.0；没有 `ac-auditor` |
 | `check` | `verify` 未通过；插件检查不通过（候选不是激活值的前 k 个，由候选构造的证明与由完整激活值构造的或与参考实现不同）；快速回归不通过（在该 GPU 上诚实回答复核不通过或作弊通过） |
 | `generate`、`recheck` | 这台机器上 `verify` 或 `check` 未通过 |
+| `experiment`、复核 `exp-…` 案例包 | 这台机器上 `verify` 或 `check` 中的插件检查未通过 |
 
 `scripts/gpu-calibration.sh --self-test` 在没有 GPU 的机器上检验这些停止条件（CI 运行它）。

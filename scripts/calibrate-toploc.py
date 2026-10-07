@@ -92,8 +92,10 @@ CONTEXT = [
 ]
 
 
-def prompt_set(variant: str, count: int, seed: int) -> list[tuple[list[dict], int]]:
-    """`count` (messages, max_tokens) pairs; deterministic per variant and seed."""
+def prompt_set(variant: str, count: int, seed: int, min_words: int = 0) -> list[tuple[list[dict], int]]:
+    """`count` (messages, max_tokens) pairs; deterministic per variant and seed. With `min_words`,
+    every user message is lengthened with background sentences to at least that many words (from
+    a separate random stream, so that the other prompts stay those of the seed)."""
     rng = random.Random(f"{seed}-{variant}")
     out = []
     for i in range(count):
@@ -108,6 +110,10 @@ def prompt_set(variant: str, count: int, seed: int) -> list[tuple[list[dict], in
                 for k in range(rng.randint(5, 40))
             ) + " "
         content = f"{preamble}{task} {extra} (ref {MARKER}-{i})".strip()
+        if min_words:
+            pad = random.Random(f"{seed}-{variant}-pad-{i}")
+            while len(content.split()) < min_words:
+                content = f"Background: {pad.choice(TOPICS)} relates to {pad.choice(TOPICS)}. {content}"
         messages = [{"role": "user", "content": content}]
         if rng.random() < 0.3:
             messages.insert(0, {"role": "system", "content": "You are a helpful assistant."})
@@ -198,7 +204,7 @@ def quantized_checkpoint(bits: int, group: int | None, workdir: str) -> str:
     return str(dst)
 
 
-def generate(variant: str, count: int, seed: int, out: Path) -> None:
+def generate(variant: str, count: int, seed: int, out: Path, min_words: int = 0) -> None:
     """Child process: answer the variant's prompts in prove mode and write re-check cases."""
     workdir = tempfile.mkdtemp(prefix="ac-calibrate-gen-")
     sock = os.path.join(workdir, "toploc.sock")
@@ -242,7 +248,7 @@ def generate(variant: str, count: int, seed: int, out: Path) -> None:
     if not provider.connected:
         sys.exit("the plugin did not connect")
 
-    prompts = prompt_set(variant, count, seed)
+    prompts = prompt_set(variant, count, seed, min_words)
     if variant == "preempt":
         # Short prompts and long answers, all at once.
         prompts = [([m for m in msgs if m["role"] == "user"][-1:], 200) for msgs, _ in prompts]
@@ -287,6 +293,7 @@ def generate(variant: str, count: int, seed: int, out: Path) -> None:
     print(f"{variant}: re-tokenizing {diag} of {len(outputs)}", flush=True)
     written = 0
     preempted = 0
+    lengths = {}
     for i, (o, (messages, _)) in enumerate(zip(outputs, prompts)):
         keys = [k for k in provider.segments if k == o.request_id or k.startswith(o.request_id + "-")]
         # The last requests of a batch get no end marker: the plugin sends it with the next step,
@@ -322,7 +329,10 @@ def generate(variant: str, count: int, seed: int, out: Path) -> None:
             [str(AUDITOR), "calibration-case"], input=json.dumps(sample).encode(), capture_output=True, check=True
         )
         (out / f"{variant}-{i:05d}.json").write_bytes(made.stdout)
+        lengths[f"{variant}-{i:05d}.json"] = prompt_tokens
         written += 1
+    # The prompt token count of every case (numbers only), for the statistics by prompt length.
+    (out.parent / f"prompt-tokens-{variant}.json").write_text(json.dumps(lengths))
     print(f"{variant}: {written}/{count} cases", flush=True)
     if variant == "preempt":
         print(f"{variant}: {preempted} recomputed after preemption", flush=True)
@@ -650,6 +660,39 @@ def minimal_thresholds(samples: list[dict]) -> dict | None:
     return {"version": None, "prefill": tuple(worst["prefill"]), "decode": tuple(worst["decode"])}
 
 
+LENGTH_BUCKETS = (0, 64, 128, 256)
+
+
+def by_prompt_length(samples: list[dict]) -> dict:
+    """Per cell and prompt length bucket (prompt tokens; samples without a count are left out):
+    each variant's prefill chunk mean mantissa error (min, median, max) and exponent mismatches
+    (max). On GPUs the honest prefill error depends on the prompt's length
+    (calibration-results/gpu-quick-2026-10-07)."""
+    groups: dict = {}
+    for x in samples:
+        n = x.get("prompt_tokens")
+        if n is None or not x["chunks"]:
+            continue
+        low = max(b for b in LENGTH_BUCKETS if n >= b)
+        bucket = f">={low}" if low == LENGTH_BUCKETS[-1] else f"{low}-{LENGTH_BUCKETS[LENGTH_BUCKETS.index(low) + 1] - 1}"
+        c = x["chunks"][0]
+        g = groups.setdefault(f'{x["prover"]} → {x["auditor"]}', {}).setdefault(bucket, {}).setdefault(
+            variant_of(x["case"]), {"means": [], "exp": []})
+        g["means"].append(mean(c))
+        g["exp"].append(c["exp_mismatches"])
+    out: dict = {}
+    for cell, buckets in sorted(groups.items()):
+        for bucket, variants in buckets.items():
+            for v, g in variants.items():
+                xs = sorted(g["means"])
+                out.setdefault(cell, {}).setdefault(bucket, {})[v] = {
+                    "samples": len(xs), "prefill_mean_min": round(xs[0], 3),
+                    "prefill_mean_median": round(xs[len(xs) // 2], 3), "prefill_mean_max": round(xs[-1], 3),
+                    "prefill_exp_max": max(g["exp"]),
+                }
+    return out
+
+
 def under(samples: list[dict], t: dict) -> dict:
     """Per cell, honest fails and cheating passes when every sample is judged by `t`."""
     out: dict = {}
@@ -738,6 +781,7 @@ def merge(files: list[Path], out: Path, thresholds: list[str] | None = None,
         "summary": s,
         "honest_by_host": by_host(samples),
         "minimal_thresholds": minimal_thresholds(samples),
+        "by_prompt_length": by_prompt_length(samples),
         "conclusion": conclusion(samples),
         "samples": samples,
     }
@@ -763,11 +807,11 @@ def condensed(report: dict) -> dict:
     should (an honest one not passing, a cheating one not failing). Samples hold case names,
     outcomes and numbers only, never prompts or answers."""
     unexpected = [
-        {k: x[k] for k in ("case", "seed", "prover", "auditor", "outcome", "reason", "chunks")}
+        {k: x[k] for k in ("case", "seed", "prover", "auditor", "outcome", "reason", "prompt_tokens", "chunks") if k in x}
         for x in report["samples"]
         if (variant_of(x["case"]) == "honest") != (x["outcome"] == "pass")
     ]
-    keep = ("seeds", "honest", "cheat", "thresholds_versions", "fingerprints", "cells", "summary",
+    keep = ("seeds", "honest", "cheat", "thresholds_versions", "fingerprints", "cells", "summary", "by_prompt_length",
             "minimal_thresholds", "conclusion", "under_thresholds")
     return {**{k: report[k] for k in keep if k in report}, "unexpected": unexpected}
 
@@ -810,7 +854,7 @@ def shard_of(names: list[str], shard: str | None) -> list[str]:
     return [x for i, x in enumerate(names) if i % n == k]
 
 
-def generate_bundle(out: Path, honest: int, cheat: int, seed: int) -> int:
+def generate_bundle(out: Path, honest: int, cheat: int, seed: int, min_words: int = 0) -> int:
     """Generates every variant into the bundle `out` (`cases/`, `prover.json`,
     `MANIFEST.sha256`; logs in `out/logs`)."""
     cases = out / "cases"
@@ -831,7 +875,7 @@ def generate_bundle(out: Path, honest: int, cheat: int, seed: int) -> int:
         with open(logs / f"generate-{v}.log", "w") as log:
             run = subprocess.run(
                 [sys.executable, __file__, "--generate", v, "--count", str(n), "--seed", str(seed),
-                 "--out", str(cases), "--fingerprint", str(fp)],
+                 "--out", str(cases), "--fingerprint", str(fp), "--min-prompt-words", str(min_words)],
                 stdout=log, stderr=subprocess.STDOUT, env=env,
             )
         lines = (logs / f"generate-{v}.log").read_text(errors="replace").strip().splitlines()
@@ -844,8 +888,14 @@ def generate_bundle(out: Path, honest: int, cheat: int, seed: int) -> int:
     if any(p != prints[0] for p in prints):
         print("the variants ran on different hardware or software:", *map(json.dumps, prints), sep="\n")
         return 1
+    lengths = {}
+    for f in sorted(out.glob("prompt-tokens-*.json")):
+        lengths.update(json.loads(f.read_text()))
+        f.unlink()
+    (out / "prompt_tokens.json").write_text(json.dumps(lengths, sort_keys=True) + "\n")
     (out / "prover.json").write_text(json.dumps(
-        {"seed": seed, "honest": honest, "cheat": cheat, "fingerprint": prints[0]}, indent=1) + "\n")
+        {"seed": seed, "honest": honest, "cheat": cheat, "min_prompt_words": min_words,
+         "fingerprint": prints[0]}, indent=1) + "\n")
     write_manifest(out)
     print("prover:", json.dumps(prints[0]), flush=True)
     return 0
@@ -876,10 +926,16 @@ def recheck_bundle(bundle: Path, out: Path, shard: str | None = None) -> dict | 
     if missing:
         print(f"the auditor reported no result for {missing[:3]}")
         return None
+    lengths = {}
+    if (bundle / "prompt_tokens.json").exists():
+        lengths = json.loads((bundle / "prompt_tokens.json").read_text())
     for r in results:
         r["manifest"] = next((k for k in ("mismatch", "unlisted") if r["case"] in found[k]), "ok")
+        if r["case"] in lengths:
+            r["prompt_tokens"] = lengths[r["case"]]
     return {
         "seed": prover["seed"], "host": auditor["cpu"], "prover": prover["fingerprint"], "auditor": auditor,
+        "min_prompt_words": prover.get("min_prompt_words", 0),
         "shard": shard or "0/1",
         "honest": sum(variant_of(n) == "honest" for n in names),
         "cheat": max([sum(variant_of(n) == v for n in names) for v in CHEATS] or [0]),
@@ -912,6 +968,8 @@ def main() -> int:
     ap.add_argument("--generate", choices=(*VARIANTS, "preempt"), help=argparse.SUPPRESS)
     ap.add_argument("--count", type=int, help=argparse.SUPPRESS)
     ap.add_argument("--fingerprint", type=Path, help=argparse.SUPPRESS)
+    ap.add_argument("--min-prompt-words", type=int, default=0,
+                    help="lengthen every prompt to at least this many words (the prefill bound depends on it on GPUs)")
     ap.add_argument("--generate-only", action="store_true",
                     help="only generate: write a case bundle (cases, prover.json, MANIFEST.sha256) to --out")
     ap.add_argument("--recheck-only", type=Path, metavar="BUNDLE",
@@ -935,7 +993,7 @@ def main() -> int:
         if args.fingerprint:
             # Before the engine starts: a GPU driver failure should not cost the fingerprint.
             args.fingerprint.write_text(json.dumps(fingerprint()))
-        generate(args.generate, args.count, args.seed, args.out)
+        generate(args.generate, args.count, args.seed, args.out, args.min_prompt_words)
         return 0
     if args.merge:
         return merge(args.merge, args.out.resolve(), args.thresholds, args.summary_out)
@@ -954,7 +1012,7 @@ def main() -> int:
         return 1 if failures else 0
 
     print("host:", json.dumps(host()), flush=True)
-    if generate_bundle(out, honest, cheat, args.seed):
+    if generate_bundle(out, honest, cheat, args.seed, args.min_prompt_words):
         return 1
     if args.generate_only:
         failures = leaked(out / "logs")

@@ -10,6 +10,9 @@
 #                    regression; nothing is generated unless both pass
 #   generate         a case bundle: 3,000 honest answers and 100 per cheating variant
 #   recheck <bundle> re-check a bundle (a directory or the .tar.gz of one) on this machine
+#   experiment       the long-prompt experiment: 100 honest + 16 per cheat, prompts of at least
+#                    MIN_PROMPT_WORDS (100) words, generated and re-checked here; needs only the
+#                    plugin check to have passed
 #   pack             archive the bundles and re-check reports for the way back, with SHA-256s
 #   --self-test      the stop conditions, without a GPU or network
 #
@@ -58,8 +61,9 @@ check_sha() {
   [ -n "$want" ] && [ "$got" = "$want" ] || die "$(basename "$file") has SHA-256 $got; pinned: '$want'"
 }
 
+# require <state> [<command>]: the state's command (or the one named) has passed on this machine.
 require() {
-  [ -f "$state/$1.ok" ] || die "run '$self $1' first (it has not passed on this machine)"
+  [ -f "$state/$1.ok" ] || die "run '$self ${2:-$1}' first (${2:+its $1 step }it has not passed on this machine)"
 }
 
 gpu_query() {
@@ -257,7 +261,7 @@ PY
 cmd_check() {
   require verify
   engine_env
-  rm -f "$state/check.ok"
+  rm -f "$state/check.ok" "$state/plugin.ok"
   local logs="$WORK/check-$(gpu_slug)"
   mkdir -p "$logs"
   echo "plugin check (log: $logs/check-vllm-plugin.log)"
@@ -266,6 +270,8 @@ cmd_check() {
     die "the plugin check failed on this GPU: no calibration here (send $logs/check-vllm-plugin.log)"
   }
   tail -n 3 "$logs/check-vllm-plugin.log"
+  # The plugin itself is right on this GPU: enough for `experiment`, not for `generate`.
+  touch "$state/plugin.ok"
   # The plugin check runs the engine eagerly; generation and re-check run it as a provider and an
   # auditor would (CUDA graphs): the quick regression covers that before any large run.
   echo "quick re-check regression (log: $logs/quick.log)"
@@ -301,10 +307,29 @@ cmd_generate() {
     --cheat "${CHEAT:-100}" --seed "$seed" --out "$out")
 }
 
+# The long-prompt experiment (calibration-results/gpu-quick-2026-10-07: on GPUs the honest
+# prefill error falls with the prompt's length): a small bundle whose prompts all have at least
+# MIN_PROMPT_WORDS words, generated and re-checked here. It needs the plugin check only, not the
+# quick regression (which fails on GPUs with the current thresholds); its bundles are marked as
+# an experiment and are never part of the calibration.
+cmd_experiment() {
+  require verify
+  require plugin check
+  engine_env
+  local slug seed words out
+  slug="$(gpu_slug)"
+  seed="${SEED:-$(($(seed_for "$slug") + 10))}"
+  words="${MIN_PROMPT_WORDS:-100}"
+  out="$WORK/exp-long-$slug-seed$seed"
+  echo "experiment: generating $out (seed $seed, prompts of at least $words words)"
+  (cd "$repo_root" && python scripts/calibrate-toploc.py --generate-only --honest "${HONEST:-100}" \
+    --cheat "${CHEAT:-16}" --seed "$seed" --min-prompt-words "$words" --out "$out")
+  touch "$out/EXPERIMENT"
+  cmd_recheck "$out"
+}
+
 cmd_recheck() {
   require verify
-  require check
-  engine_env
   local bundle="${1:-}"
   [ -n "$bundle" ] || die "usage: $self recheck <bundle directory or .tar.gz>"
   if [ -f "$bundle" ]; then
@@ -314,6 +339,9 @@ cmd_recheck() {
     bundle="$(dirname "$(find "$into" -name prover.json | head -n1)")"
   fi
   [ -f "$bundle/prover.json" ] || die "$bundle is not a case bundle (no prover.json)"
+  # An experiment's bundle needs the plugin check; a calibration bundle the whole check.
+  if [ -f "$bundle/EXPERIMENT" ]; then require plugin check; else require check; fi
+  engine_env
   local out="$WORK/recheck-$(basename "$bundle")-on-$(gpu_slug)"
   echo "re-checking $bundle into $out"
   (cd "$repo_root" && python scripts/calibrate-toploc.py --recheck-only "$bundle" --out "$out")
@@ -322,7 +350,7 @@ cmd_recheck() {
 cmd_pack() {
   mkdir -p "$WORK/out"
   local d name made=0
-  for d in "$WORK"/bundle-* "$WORK"/recheck-* "$WORK"/check-*; do
+  for d in "$WORK"/bundle-* "$WORK"/exp-* "$WORK"/recheck-* "$WORK"/check-*; do
     [ -d "$d" ] || continue
     name="${d##*/}"
     case "$name" in
@@ -375,7 +403,13 @@ EOF
   expect "check before verify" "run '$self verify' first" "${env[@]}" "$self" check
   mkdir -p "$t/work/state" && touch "$t/work/state/setup.ok" "$t/work/state/verify.ok"
   expect "generate without a passed plugin check" "run '$self check' first" "${env[@]}" "$self" generate
-  expect "recheck without a passed plugin check" "run '$self check' first" "${env[@]}" "$self" recheck x
+  expect "experiment without a passed plugin check" "its plugin step" "${env[@]}" "$self" experiment
+  mkdir -p "$t/exp" && echo '{}' >"$t/exp/prover.json" && touch "$t/exp/EXPERIMENT"
+  expect "experiment re-check without a passed plugin check" "its plugin step" "${env[@]}" "$self" recheck "$t/exp"
+  mkdir -p "$t/cal" && echo '{}' >"$t/cal/prover.json"
+  touch "$t/work/state/plugin.ok"
+  expect "calibration re-check with only the plugin check" "run '$self check' first" "${env[@]}" "$self" recheck "$t/cal"
+  rm "$t/work/state/plugin.ok"
   # The guide's GPUs, an H800 (compute capability 9.0) and an RTX 5090 (12.0, which a plain
   # string comparison would put below 8.0), pass the GPU check with a CUDA 13.0 driver.
   local gpu
@@ -436,6 +470,7 @@ case "${1:-}" in
   check) cmd_check ;;
   generate) cmd_generate ;;
   recheck) shift; cmd_recheck "$@" ;;
+  experiment) cmd_experiment ;;
   pack) cmd_pack ;;
   --self-test) self_test ;;
   *) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;

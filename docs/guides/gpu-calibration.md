@@ -122,6 +122,42 @@ Send the release name and the `sha256sum` lines `pack` printed. From there:
 2. all reports are merged by cell; the condensed report goes to
    `plugins/vllm/ci/calibration-results/` and the conclusion to the calibration report.
 
+## Long-prompt experiment
+
+The first run stopped at `check` (see
+[gpu-quick-2026-10-07](../../plugins/vllm/ci/calibration-results/gpu-quick-2026-10-07/README.md)):
+on both GPUs honest answers fail the prefill bound, most of them with short prompts, while with
+prompts of 64 words or more the honest prefill error stayed at or below 0.65 and the int8
+cheat's at or above 1.15. Before deciding how the re-check changes, a small experiment measures
+that on long prompts only, on each GPU and across them. It needs only the plugin check to have
+passed (not the quick regression), and its bundles (`exp-long-…`) are never part of the
+calibration.
+
+```bash
+cd /root/autodl-tmp/agentcoin && git pull     # the experiment needs the latest scripts
+# On a machine whose plugin check passed before this version: the plugin check's result is
+# kept now; rerun `check` (it stops again at the quick regression, as expected), or, since
+# check-<gpu>/check-vllm-plugin.log ends with "all checks passed", mark it by hand:
+touch /root/autodl-tmp/agentcoin-gpu/state/plugin.ok
+scripts/gpu-calibration.sh experiment   # 100 honest + 16 per cheat, prompts of >= 100 words, re-checked here
+scripts/gpu-calibration.sh pack         # out/exp-long-<gpu>-seed2x.tar.gz and the re-check
+```
+
+On the RTX 5090 the bundle is `exp-long-rtx-5090-seed21`, on the H800 `exp-long-h800-…-seed22`.
+Then re-check each machine's bundle on the other (copy as in section 3) and pack again:
+
+```bash
+scripts/gpu-calibration.sh recheck /root/autodl-tmp/exp-long-h800-…-seed22.tar.gz   # on the 5090
+scripts/gpu-calibration.sh recheck /root/autodl-tmp/exp-long-rtx-5090-seed21.tar.gz # on the H800
+scripts/gpu-calibration.sh pack
+```
+
+Hand back the `recheck-exp-long-*.tar.gz` archives of both machines (a release, or a commit as
+for the first run). The merge reports the prefill error per cell and prompt length
+(`by_prompt_length`), which decides whether audits with long prompts separate honest answers
+from the int8 cheat on and across GPUs. Each machine runs about 30 minutes (`MIN_PROMPT_WORDS`,
+`HONEST`, `CHEAT` change the defaults).
+
 ## What the commands check
 
 | Command | Stops when |
@@ -130,5 +166,6 @@ Send the release name and the `sha256sum` lines `pack` printed. From there:
 | `verify` | `setup` has not passed; vLLM or PyTorch is not the pinned version; no CUDA device with bfloat16; a model snapshot differs; the environment's CUDA compiler is not CUDA 13.0; no `ac-auditor` |
 | `check` | `verify` has not passed; the plugin check fails (candidates are not the activations' top k, proofs from candidates differ from the whole activations' or from the reference); the quick regression fails (an honest answer does not pass or a cheat passes its re-check, on this GPU) |
 | `generate`, `recheck` | `verify` or `check` has not passed on this machine |
+| `experiment`, `recheck` of an `exp-…` bundle | `verify` or the plugin check of `check` has not passed on this machine |
 
 `scripts/gpu-calibration.sh --self-test` exercises these stops without a GPU (CI runs it).

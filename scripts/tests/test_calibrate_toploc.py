@@ -278,6 +278,33 @@ class ConclusionTests(unittest.TestCase):
         self.assertEqual(c["decision"], "no uniform thresholds")
 
 
+class PromptLengthTests(unittest.TestCase):
+    """The long-prompt experiment: prompts lengthened to a minimum, statistics by prompt length."""
+
+    def test_min_words_keeps_the_seed_otherwise(self):
+        plain = cal.prompt_set("honest", 48, 1)
+        self.assertEqual(plain, cal.prompt_set("honest", 48, 1, 0))
+        long = cal.prompt_set("honest", 48, 1, 100)
+        self.assertGreaterEqual(min(len(m[-1]["content"].split()) for m, _ in long), 100)
+        # The same tasks and answer lengths, only lengthened.
+        self.assertEqual([t for _, t in long], [t for _, t in plain])
+        for (lm, _), (pm, _) in zip(long, plain):
+            self.assertTrue(lm[-1]["content"].endswith(pm[-1]["content"]))
+        self.assertEqual(long, cal.prompt_set("honest", 48, 1, 100))
+
+    def test_buckets(self):
+        samples = [dict(sample("honest-0.json", [chunk(total=128)]), prompt_tokens=20, prover="A", auditor="B"),
+                   dict(sample("honest-1.json", [chunk(total=64)]), prompt_tokens=300, prover="A", auditor="B"),
+                   dict(sample("int8-0.json", [chunk(exp=3, total=200)]), prompt_tokens=150, prover="A", auditor="B"),
+                   dict(sample("honest-2.json", [EXACT]), prover="A", auditor="B")]
+        got = cal.by_prompt_length(samples)["A → B"]
+        self.assertEqual(sorted(got), ["0-63", "128-255", ">=256"])
+        self.assertEqual(got["0-63"]["honest"]["prefill_mean_max"], 1.0)
+        self.assertEqual(got[">=256"]["honest"]["prefill_mean_max"], 0.5)
+        self.assertEqual(got["128-255"]["int8"], {"samples": 1, "prefill_mean_min": 1.562, "prefill_mean_median": 1.562,
+                                                  "prefill_mean_max": 1.562, "prefill_exp_max": 3})
+
+
 class WorkflowTests(unittest.TestCase):
     """2.1: the calibration workflow and plugins/vllm/ci/calibration.env agree."""
 
