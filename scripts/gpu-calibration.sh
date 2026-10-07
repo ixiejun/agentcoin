@@ -66,7 +66,7 @@ check_gpu() {
   name="$(gpu_query name)"
   cap="$(gpu_query compute_cap)"
   [ -n "$cap" ] || die "nvidia-smi does not report the compute capability (driver too old)"
-  version_ge "$cap" 8.0 || die "$name has compute capability $cap; bfloat16 needs 8.0 or newer (e.g. RTX 3090, H800, A100)"
+  version_ge "$cap" 8.0 || die "$name has compute capability $cap; bfloat16 needs 8.0 or newer (e.g. RTX 5090, RTX 3090, H800, A100)"
   cuda="$(nvidia-smi | grep -o 'CUDA Version: *[0-9.]*' | grep -o '[0-9.]*$' || true)"
   [ -n "$cuda" ] || die "nvidia-smi does not report the driver's CUDA version"
   version_ge "$cuda" "$CUDA_MIN_VERSION" ||
@@ -83,7 +83,7 @@ engine_env() {
   export PATH="$HOME/.cargo/bin:$PATH"
 }
 
-# A short name of this GPU for file names: "NVIDIA GeForce RTX 3090" -> "rtx-3090".
+# A short name of this GPU for file names: "NVIDIA GeForce RTX 5090" -> "rtx-5090".
 gpu_slug() {
   gpu_query name | tr '[:upper:]' '[:lower:]' | sed 's/nvidia//; s/geforce//; s/[^a-z0-9]\+/-/g; s/^-*//; s/-*$//'
 }
@@ -202,11 +202,11 @@ cmd_check() {
   echo "check: ok"
 }
 
-# The seed of a GPU's bundle: the consumer GPU 11, the data-center GPU (H800, H100 or A100) 12,
+# The seed of a GPU's bundle: the consumer GPU (RTX 5090, 4090 or 3090) 11, the data-center GPU (H800, H100 or A100) 12,
 # any other 13 (set SEED to tell two others apart). Bundles of one seed hold the same prompts.
 seed_for() {
   case "$1" in
-    *3090*) echo 11 ;;
+    *5090* | *4090* | *3090*) echo 11 ;;
     *h800* | *h100* | *a100*) echo 12 ;;
     *) echo 13 ;;
   esac
@@ -273,7 +273,7 @@ self_test() {
 #!/usr/bin/env bash
 case "$*" in
   *compute_cap*) echo "${FAKE_CAP}" ;;
-  *name*) echo "${FAKE_NAME:-NVIDIA GeForce RTX 3090}" ;;
+  *name*) echo "${FAKE_NAME:-NVIDIA GeForce RTX 5090}" ;;
   *) echo "| NVIDIA-SMI 580.65  Driver Version: 580.65  CUDA Version: ${FAKE_CUDA} |" ;;
 esac
 EOF
@@ -300,17 +300,21 @@ EOF
   mkdir -p "$t/work/state" && touch "$t/work/state/setup.ok" "$t/work/state/verify.ok"
   expect "generate without a passed plugin check" "run '$self check' first" "${env[@]}" "$self" generate
   expect "recheck without a passed plugin check" "run '$self check' first" "${env[@]}" "$self" recheck x
-  # An H800 (compute capability 9.0) with a CUDA 13.0 driver passes the GPU check.
-  if env PATH="$t/bin:$PATH" FAKE_NAME="NVIDIA H800" FAKE_CAP=9.0 FAKE_CUDA=13.0 \
-    bash -c "source '$self' --source-only; check_gpu" >/dev/null 2>&1; then
-    echo "ok   an H800 passes the GPU check"
-  else
-    echo "FAIL an H800 does not pass the GPU check"
-    fails=1
-  fi
+  # The guide's GPUs, an H800 (compute capability 9.0) and an RTX 5090 (12.0, which a plain
+  # string comparison would put below 8.0), pass the GPU check with a CUDA 13.0 driver.
+  local gpu
+  for gpu in "NVIDIA H800=9.0" "NVIDIA GeForce RTX 5090=12.0"; do
+    if env PATH="$t/bin:$PATH" FAKE_NAME="${gpu%=*}" FAKE_CAP="${gpu#*=}" FAKE_CUDA=13.0 \
+      bash -c "source '$self' --source-only; check_gpu" >/dev/null 2>&1; then
+      echo "ok   ${gpu%=*} passes the GPU check"
+    else
+      echo "FAIL ${gpu%=*} does not pass the GPU check"
+      fails=1
+    fi
+  done
   # Bundle names and seeds of the GPUs of the guide.
   local name want got
-  for pair in "NVIDIA GeForce RTX 3090=rtx-3090 11" "NVIDIA H800 PCIe=h800-pcie 12" "NVIDIA H800=h800 12" \
+  for pair in "NVIDIA GeForce RTX 5090=rtx-5090 11" "NVIDIA GeForce RTX 3090=rtx-3090 11" "NVIDIA H800 PCIe=h800-pcie 12" "NVIDIA H800=h800 12" \
     "NVIDIA A100-SXM4-80GB=a100-sxm4-80gb 12" "NVIDIA L40S=l40s 13"; do
     name="${pair%%=*}" want="${pair#*=}"
     got="$(env PATH="$t/bin:$PATH" FAKE_NAME="$name" bash -c "source '$self' --source-only; s=\$(gpu_slug); echo \"\$s \$(seed_for \$s)\"")"
