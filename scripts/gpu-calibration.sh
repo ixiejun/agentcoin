@@ -66,7 +66,7 @@ check_gpu() {
   name="$(gpu_query name)"
   cap="$(gpu_query compute_cap)"
   [ -n "$cap" ] || die "nvidia-smi does not report the compute capability (driver too old)"
-  version_ge "$cap" 8.0 || die "$name has compute capability $cap; bfloat16 needs 8.0 or newer (e.g. RTX 3090, A100)"
+  version_ge "$cap" 8.0 || die "$name has compute capability $cap; bfloat16 needs 8.0 or newer (e.g. RTX 3090, H800, A100)"
   cuda="$(nvidia-smi | grep -o 'CUDA Version: *[0-9.]*' | grep -o '[0-9.]*$' || true)"
   [ -n "$cuda" ] || die "nvidia-smi does not report the driver's CUDA version"
   version_ge "$cuda" "$CUDA_MIN_VERSION" ||
@@ -202,18 +202,23 @@ cmd_check() {
   echo "check: ok"
 }
 
+# The seed of a GPU's bundle: the consumer GPU 11, the data-center GPU (H800, H100 or A100) 12,
+# any other 13 (set SEED to tell two others apart). Bundles of one seed hold the same prompts.
+seed_for() {
+  case "$1" in
+    *3090*) echo 11 ;;
+    *h800* | *h100* | *a100*) echo 12 ;;
+    *) echo 13 ;;
+  esac
+}
+
 cmd_generate() {
   require verify
   require check
   engine_env
   local slug seed
   slug="$(gpu_slug)"
-  case "$slug" in
-    *3090*) seed=11 ;;
-    *a100* | *h800* | *h100*) seed=12 ;;
-    *) seed=13 ;;
-  esac
-  seed="${SEED:-$seed}"
+  seed="${SEED:-$(seed_for "$slug")}"
   local out="$WORK/bundle-$slug-seed$seed"
   echo "generating $out (seed $seed)"
   (cd "$repo_root" && python scripts/calibrate-toploc.py --generate-only --honest "${HONEST:-3000}" \
@@ -268,7 +273,7 @@ self_test() {
 #!/usr/bin/env bash
 case "$*" in
   *compute_cap*) echo "${FAKE_CAP}" ;;
-  *name*) echo "NVIDIA GeForce RTX 3090" ;;
+  *name*) echo "${FAKE_NAME:-NVIDIA GeForce RTX 3090}" ;;
   *) echo "| NVIDIA-SMI 580.65  Driver Version: 580.65  CUDA Version: ${FAKE_CUDA} |" ;;
 esac
 EOF
@@ -295,6 +300,22 @@ EOF
   mkdir -p "$t/work/state" && touch "$t/work/state/setup.ok" "$t/work/state/verify.ok"
   expect "generate without a passed plugin check" "run '$self check' first" "${env[@]}" "$self" generate
   expect "recheck without a passed plugin check" "run '$self check' first" "${env[@]}" "$self" recheck x
+  # An H800 (compute capability 9.0) with a CUDA 13.0 driver passes the GPU check.
+  if env PATH="$t/bin:$PATH" FAKE_NAME="NVIDIA H800" FAKE_CAP=9.0 FAKE_CUDA=13.0 \
+    bash -c "source '$self' --source-only; check_gpu" >/dev/null 2>&1; then
+    echo "ok   an H800 passes the GPU check"
+  else
+    echo "FAIL an H800 does not pass the GPU check"
+    fails=1
+  fi
+  # Bundle names and seeds of the GPUs of the guide.
+  local name want got
+  for pair in "NVIDIA GeForce RTX 3090=rtx-3090 11" "NVIDIA H800 PCIe=h800-pcie 12" "NVIDIA H800=h800 12" \
+    "NVIDIA A100-SXM4-80GB=a100-sxm4-80gb 12" "NVIDIA L40S=l40s 13"; do
+    name="${pair%%=*}" want="${pair#*=}"
+    got="$(env PATH="$t/bin:$PATH" FAKE_NAME="$name" bash -c "source '$self' --source-only; s=\$(gpu_slug); echo \"\$s \$(seed_for \$s)\"")"
+    if [ "$got" = "$want" ]; then echo "ok   $name: $got"; else echo "FAIL $name: '$got', want '$want'"; fails=1; fi
+  done
   # A download whose digest is not the pinned one.
   echo "not the wheel" >"$t/wheel.whl"
   expect "wheel digest" "has SHA-256" bash -c "source '$self' --source-only; check_sha '$t/wheel.whl' '$VLLM_CUDA_WHEEL_SHA256'"

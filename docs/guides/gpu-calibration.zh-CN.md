@@ -2,7 +2,7 @@
 
 # GPU 校准
 
-如何在租用的 GPU 上运行 TOPLOC 复核校准（OpenSpec 变更 `m6-toploc-gpu-calibration`，问题 I-012）：一款消费级 GPU（RTX 3090）与一款数据中心 GPU（A100），各自证明并复核自己的回答与对方的回答。结果交回仓库；CPU 的格子在校准工作流中运行，合并后判定阈值是否成立（[TOPLOC 复核校准](toploc-calibration.zh-CN.md#跨硬件校准)）。
+如何在租用的 GPU 上运行 TOPLOC 复核校准（OpenSpec 变更 `m6-toploc-gpu-calibration`，问题 I-012）：一款消费级 GPU（RTX 3090，Ampere 架构）与一款数据中心 GPU（H800，Hopper 架构；A100 也可以），各自证明并复核自己的回答与对方的回答。结果交回仓库；CPU 的格子在校准工作流中运行，合并后判定阈值是否成立（[TOPLOC 复核校准](toploc-calibration.zh-CN.md#跨硬件校准)）。
 
 机器上的一切都由 `scripts/gpu-calibration.sh` 完成，与固定版本不符的任何情况都会让它停止：GPU 不原生支持 bfloat16、驱动不支持 CUDA 13.0、vLLM 或 PyTorch 版本不同、wheel、模型或 TOPLOC 参考实现的摘要不符，或插件在该 GPU 上检查不通过。
 
@@ -10,12 +10,14 @@
 
 | | 消费级 | 数据中心 |
 |---|---|---|
-| GPU | RTX 3090（24 GB），单卡 | A100（40 或 80 GB）或 H800（80 GB），单卡 |
+| GPU | RTX 3090（24 GB），单卡 | H800（80 GB），单卡；或 A100（40 或 80 GB） |
 | 主机 | “最高 CUDA 版本” **13.0 或以上**——固定的 PyTorch 2.13.0 为 CUDA 13.0 构建，主机驱动须为 580 或更新 | 同左 |
 | 镜像 | 任一 Ubuntu 22.04、Python 3.10–3.13 的基础镜像（镜像自带的 CUDA 与 PyTorch 不会被使用：脚本在虚拟环境中安装自己的） | 同左 |
 | 磁盘 | 数据盘 `/root/autodl-tmp`（脚本在这里工作），约 25 GB | 同左 |
 
-想在两台机器之间直接拷贝文件，就租在同一地区。每台机器预计 1.5–2 小时，大部分是安装；按约 ¥1.7/小时（3090）与 ¥6/小时（A100），整个运行花费几十元。中途暂停就关机：关机后 GPU 不计费，数据盘保留。
+RTX 3090 与 H800 相隔两代架构（Ampere 与 Hopper），vLLM 在两者上使用不同的计算核与注意力实现：在它们之间成立的阈值，对很大范围的提供者都成立。单卡即可（模型只有 0.5B 参数；脚本只用第一张卡）。
+
+想在两台机器之间直接拷贝文件，就租在同一地区。每台机器预计 1.5–2 小时，大部分是安装。H800 的价格是 3090 的好几倍（约 ¥10–15/小时对 ¥1.7/小时，以控制台当前价格为准），所以先在 3090 上完成安装与检查，等 3090 通过 `check` 再开 H800。中途暂停就关机：关机后 GPU 不计费，数据盘保留。
 
 ## 2. 安装每台机器
 
@@ -33,7 +35,7 @@ export RUSTUP_DIST_SERVER=https://rsproxy.cn RUSTUP_UPDATE_ROOT=https://rsproxy.
 scripts/gpu-calibration.sh setup           # 30–60 分钟；最后输出 "verify: ok"
 ```
 
-`setup` 通过机器的 PyPI 镜像下载 vLLM 0.30.0 的 CUDA wheel（连同 PyTorch 2.13.0），通过 `https://hf-mirror.com` 下载模型（设置 `HF_ENDPOINT` 可换），从 GitHub 下载 TOPLOC 参考实现，并用 Rust 构建 `ac-auditor`。想省去第二台机器的 Rust 构建，可把第一台的 `target/debug/ac-auditor` 拷过去并运行 `AC_AUDITOR=/path/to/ac-auditor scripts/gpu-calibration.sh setup`。命令停止时打印 `STOP:` 与原因；解决后（或把信息发给我）再运行即可：每个命令都可以重复运行。
+`setup` 通过机器的 PyPI 镜像下载 vLLM 0.30.0 的 CUDA wheel（连同 PyTorch 2.13.0），通过 `https://hf-mirror.com` 下载模型（设置 `HF_ENDPOINT` 可换），从 GitHub 下载 TOPLOC 参考实现，并用 Rust 构建 `ac-auditor`。为节省 H800 的时间，可把 3090 上先构建好的 `target/debug/ac-auditor` 拷过去，在 H800 上运行 `AC_AUDITOR=/path/to/ac-auditor scripts/gpu-calibration.sh setup`（插件检查仍会在那里构建一个小的 Rust 示例）。命令停止时打印 `STOP:` 与原因；解决后（或把信息发给我）再运行即可：每个命令都可以重复运行。
 
 ## 3. 检查、生成、复核
 
@@ -42,20 +44,23 @@ scripts/gpu-calibration.sh setup           # 30–60 分钟；最后输出 "veri
 ```bash
 scripts/gpu-calibration.sh check      # 约 10 分钟：插件在该 GPU 上的检查，然后是快速回归
 scripts/gpu-calibration.sh generate   # 3,000 个诚实 + 每类作弊 100 个；案例包在 /root/autodl-tmp/agentcoin-gpu
-scripts/gpu-calibration.sh recheck /root/autodl-tmp/agentcoin-gpu/bundle-rtx-3090-seed11   # 复核自己的案例包
+ls /root/autodl-tmp/agentcoin-gpu     # 案例包名：bundle-rtx-3090-seed11，H800 上为 bundle-h800…-seed12
+scripts/gpu-calibration.sh recheck /root/autodl-tmp/agentcoin-gpu/<自己的案例包>   # 复核自己的案例包
 scripts/gpu-calibration.sh pack       # 打包并打印 SHA-256，在 /root/autodl-tmp/agentcoin-gpu/out
 ```
 
-（A100 或 H800 上案例包名为 `bundle-a100-…-seed12` 或 `bundle-h800-…-seed12`，`ls /root/autodl-tmp/agentcoin-gpu` 可见。）`check` 停止时，这台 GPU 上不会生成任何东西：把它指出的日志发给我。
+（案例包名取自 GPU 型号，例如 `bundle-h800-pcie-seed12` 或 `bundle-h800-sxm-seed12`；A100 同样用种子 12。）`check` 停止时，这台 GPU 上不会生成任何东西：把它指出的日志发给我。
 
 然后把各自的案例包交给另一台机器复核：
 
 ```bash
-# 在 3090 上，先把 A100 的打包文件拷过来（scp、JupyterLab 文件浏览器，或同一地区共享的
+# 在 3090 上，先把 H800 的打包文件拷过来（scp、JupyterLab 文件浏览器，或同一地区共享的
 # AutoDL 文件存储 /root/autodl-fs）：
-scripts/gpu-calibration.sh recheck /root/autodl-tmp/bundle-a100-…-seed12.tar.gz
+scripts/gpu-calibration.sh recheck /root/autodl-tmp/bundle-h800-…-seed12.tar.gz
 scripts/gpu-calibration.sh pack
-# A100 上反过来做一遍
+# 在 H800 上，拷入 3090 的打包文件：
+scripts/gpu-calibration.sh recheck /root/autodl-tmp/bundle-rtx-3090-seed11.tar.gz
+scripts/gpu-calibration.sh pack
 ```
 
 两台 AutoDL 机器之间拷贝：在源机器上运行
