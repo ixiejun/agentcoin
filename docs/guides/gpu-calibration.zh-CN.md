@@ -32,10 +32,14 @@ git checkout claude/determined-johnson-f8thb8   # 或给你的那个提交
 # 可选的国内镜像（脚本校验每个摘要，镜像不在信任链内）：
 export CARGO_MIRROR=sparse+https://rsproxy.cn/index/
 export RUSTUP_DIST_SERVER=https://rsproxy.cn RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup
+export PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple   # PyTorch，以及按 PyPI 路径下载的 vLLM wheel
+export MODELSCOPE=1                       # 模型权重从 ModelScope 下载
+# 学术加速只用于 GitHub：其他资源走它会慢到几十 KB/s。
+export no_proxy="$no_proxy,pypi.tuna.tsinghua.edu.cn,hf-mirror.com,rsproxy.cn,modelscope.cn"
 scripts/gpu-calibration.sh setup           # 30–60 分钟；最后输出 "verify: ok"
 ```
 
-`setup` 通过机器的 PyPI 镜像下载 vLLM 0.30.0 的 CUDA wheel（连同 PyTorch 2.13.0），通过 `https://hf-mirror.com` 下载模型（设置 `HF_ENDPOINT` 可换），从 GitHub 下载 TOPLOC 参考实现，并用 Rust 构建 `ac-auditor`。为节省 H800 的时间，可把 5090 上先构建好的 `target/debug/ac-auditor` 拷过去，在 H800 上运行 `AC_AUDITOR=/path/to/ac-auditor scripts/gpu-calibration.sh setup`（插件检查仍会在那里构建一个小的 Rust 示例）。命令停止时打印 `STOP:` 与原因；解决后（或把信息发给我）再运行即可：每个命令都可以重复运行。
+`setup` 通过机器的 PyPI 镜像下载 vLLM 0.30.0 的 CUDA wheel（连同 PyTorch 2.13.0），通过 `https://hf-mirror.com` 下载模型（设置 `HF_ENDPOINT` 可换），从 GitHub 下载 TOPLOC 参考实现，并用 Rust 构建 `ac-auditor`。Hub 镜像可能把大的权重文件重定向到 Hugging Face 自己的存储，在部分地区很慢或无法访问：设置 `MODELSCOPE=1` 后改从 ModelScope 下载，按 Hub 列出的 SHA-256 校验，快照摘要照常校验。它还会在虚拟环境中安装 CUDA 13.0 编译器，供 FlashInfer 运行时编译计算核（镜像自带的 CUDA，AutoDL 镜像上是 12.8，无法为 RTX 5090 编译）。为节省 H800 的时间，可把 5090 上先构建好的 `target/debug/ac-auditor` 拷过去，在 H800 上运行 `AC_AUDITOR=/path/to/ac-auditor scripts/gpu-calibration.sh setup`（插件检查仍会在那里构建一个小的 Rust 示例）。命令停止时打印 `STOP:` 与原因；解决后（或把信息发给我）再运行即可：每个命令都可以重复运行。
 
 ## 3. 检查、生成、复核
 
@@ -81,7 +85,7 @@ scripts/gpu-calibration.sh pack
 | 命令 | 何时停止 |
 |---|---|
 | `setup` | 计算能力低于 8.0；驱动支持的 CUDA 低于 13.0；Python 低于 3.10；vLLM wheel 的 SHA-256 不是固定值；TOPLOC 参考实现归档的 SHA-256 不符；模型 revision 解析到其他提交或快照摘要不符 |
-| `verify` | `setup` 未通过；vLLM 或 PyTorch 不是固定版本；没有支持 bfloat16 的 CUDA 设备；模型快照不符；没有 `ac-auditor` |
+| `verify` | `setup` 未通过；vLLM 或 PyTorch 不是固定版本；没有支持 bfloat16 的 CUDA 设备；模型快照不符；虚拟环境中的 CUDA 编译器不是 CUDA 13.0；没有 `ac-auditor` |
 | `check` | `verify` 未通过；插件检查不通过（候选不是激活值的前 k 个，由候选构造的证明与由完整激活值构造的或与参考实现不同）；快速回归不通过（在该 GPU 上诚实回答复核不通过或作弊通过） |
 | `generate`、`recheck` | 这台机器上 `verify` 或 `check` 未通过 |
 

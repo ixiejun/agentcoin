@@ -51,12 +51,21 @@ git checkout claude/determined-johnson-f8thb8   # or the commit you were given
 # Optional mirrors in China (the script checks every digest, so mirrors are not trusted):
 export CARGO_MIRROR=sparse+https://rsproxy.cn/index/
 export RUSTUP_DIST_SERVER=https://rsproxy.cn RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup
+export PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple   # PyTorch, and the vLLM wheel by its PyPI path
+export MODELSCOPE=1                       # the models' weights from ModelScope
+# The academic proxy for GitHub only: it slows everything else down to tens of KB/s.
+export no_proxy="$no_proxy,pypi.tuna.tsinghua.edu.cn,hf-mirror.com,rsproxy.cn,modelscope.cn"
 scripts/gpu-calibration.sh setup           # 30–60 minutes; ends with "verify: ok"
 ```
 
 `setup` downloads the CUDA wheel of vLLM 0.30.0 through the machine's PyPI mirror (PyTorch 2.13.0
 comes with it), the models through `https://hf-mirror.com` (set `HF_ENDPOINT` for another), the
-TOPLOC reference from GitHub, and builds `ac-auditor` with Rust. To save the H800's time, copy
+TOPLOC reference from GitHub, and builds `ac-auditor` with Rust. A mirror of the hub can redirect
+the large weight files to Hugging Face's own storage, which is slow or unreachable from some
+regions: with `MODELSCOPE=1` they come from ModelScope instead, checked against the SHA-256 the
+hub lists, and the snapshot digest is checked as before. It also installs the CUDA 13.0 compiler
+into the environment, for the kernels FlashInfer compiles at run time (the image's own CUDA, 12.8
+on AutoDL's images, cannot build for an RTX 5090). To save the H800's time, copy
 `target/debug/ac-auditor` from the 5090 (built there first) and run
 `AC_AUDITOR=/path/to/ac-auditor scripts/gpu-calibration.sh setup` on the H800 (the plugin check
 still builds a small Rust example there). A command that stops prints `STOP:` and the reason; fix
@@ -118,7 +127,7 @@ Send the release name and the `sha256sum` lines `pack` printed. From there:
 | Command | Stops when |
 |---|---|
 | `setup` | compute capability below 8.0; the driver's CUDA below 13.0; Python below 3.10; the vLLM wheel's SHA-256 is not the pinned one; the TOPLOC reference archive's SHA-256 differs; a model revision resolves to another commit or its snapshot digest differs |
-| `verify` | `setup` has not passed; vLLM or PyTorch is not the pinned version; no CUDA device with bfloat16; a model snapshot differs; no `ac-auditor` |
+| `verify` | `setup` has not passed; vLLM or PyTorch is not the pinned version; no CUDA device with bfloat16; a model snapshot differs; the environment's CUDA compiler is not CUDA 13.0; no `ac-auditor` |
 | `check` | `verify` has not passed; the plugin check fails (candidates are not the activations' top k, proofs from candidates differ from the whole activations' or from the reference); the quick regression fails (an honest answer does not pass or a cheat passes its re-check, on this GPU) |
 | `generate`, `recheck` | `verify` or `check` has not passed on this machine |
 

@@ -15,10 +15,11 @@
 #
 # Environment: WORK (default /root/autodl-tmp/agentcoin-gpu, else ~/agentcoin-gpu), PYTHON
 # (python3, >= 3.10), HF_ENDPOINT (default https://hf-mirror.com), PIP_INDEX_URL (the machine's
-# default), AC_AUDITOR (an ac-auditor binary built elsewhere), CARGO_MIRROR (e.g.
-# sparse+https://rsproxy.cn/index/), RUSTUP_DIST_SERVER / RUSTUP_UPDATE_ROOT (rustup mirror),
-# SEED, HONEST, CHEAT (generate). Every download that matters is checked against a digest in
-# plugins/vllm/ci/pins.env or scripts/gen-toploc-vectors.sh; mirrors are not trusted.
+# default; a mirror with PyPI's file layout also serves the vLLM wheel), MODELSCOPE (1: the
+# models' weights from ModelScope), AC_AUDITOR (an ac-auditor binary built elsewhere),
+# CARGO_MIRROR (e.g. sparse+https://rsproxy.cn/index/), RUSTUP_DIST_SERVER / RUSTUP_UPDATE_ROOT
+# (rustup mirror), SEED, HONEST, CHEAT (generate). Every download that matters is checked against
+# a digest in plugins/vllm/ci/pins.env or scripts/gen-toploc-vectors.sh; mirrors are not trusted.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -32,6 +33,13 @@ state="$WORK/state"
 venv="$WORK/venv"
 export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 export HF_HOME="${HF_HOME:-$WORK/hf}"
+# A mirror serves files over plain HTTP; Xet transfers go to Hugging Face's own storage servers,
+# which refuse a mirror's requests (401).
+export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
+# The CUDA compiler FlashInfer builds its run-time (JIT) kernels with, at the CUDA version torch is
+# built for: the vLLM wheel's dependencies bring a newer one, whose PTX the pinned runtime's ptxas
+# and headers reject.
+CUDA_JIT_PACKAGES=(nvidia-cuda-nvcc==13.0.88 nvidia-cuda-crt==13.0.88 nvidia-cuda-cccl==13.0.85 nvidia-nvvm==13.0.88)
 
 die() {
   echo "STOP: $*" >&2
@@ -74,6 +82,15 @@ check_gpu() {
   echo "GPU: $name, compute capability $cap, driver CUDA $cuda"
 }
 
+# The CUDA toolkit pip installs into the environment (nvidia/cu13), if any.
+cuda_home() {
+  local d
+  for d in "$venv"/lib/python3*/site-packages/nvidia/cu"${CUDA_MIN_VERSION%%.*}"; do
+    [ -x "$d/bin/nvcc" ] && echo "$d" && return 0
+  done
+  return 0
+}
+
 engine_env() {
   [ -x "$venv/bin/python" ] || die "no environment in $venv: run '$self setup'"
   # shellcheck disable=SC1091
@@ -81,6 +98,48 @@ engine_env() {
   export AC_VLLM_MODEL="$MODEL" AC_VLLM_REVISION="$MODEL_REVISION"
   export AC_CHEAT_MODEL="$CHEAT_MODEL" AC_CHEAT_REVISION="$CHEAT_MODEL_REVISION"
   export PATH="$HOME/.cargo/bin:$PATH"
+  # vLLM 0.30 runs its V2 model runner on GPUs by default; the plugin supports V1 only
+  # (plugins/vllm/README.md).
+  export VLLM_USE_V2_MODEL_RUNNER=0
+  # FlashInfer's JIT takes the toolkit of CUDA_HOME, else the nvcc on PATH: the image's own CUDA
+  # (12.8 on AutoDL's images) is not the pinned one and cannot build for an RTX 5090 (sm_120).
+  local cuda
+  cuda="$(cuda_home)"
+  if [ -n "$cuda" ]; then
+    export CUDA_HOME="$cuda" PATH="$cuda/bin:$PATH"
+  fi
+}
+
+# The URL of a PyPI file on a mirror that keeps PyPI's layout (e.g.
+# https://pypi.tuna.tsinghua.edu.cn/simple -> https://pypi.tuna.tsinghua.edu.cn/packages/...).
+mirror_url() {
+  local index="${1%/}"
+  echo "${index%/simple}/packages/${2#*/packages/}"
+}
+
+# Fetches URL into FILE through a partial file, so that an interrupted download leaves nothing.
+fetch() {
+  curl -fL --retry 3 -o "$2.part" "$1" && mv "$2.part" "$2" || { rm -f "$2.part"; return 1; }
+}
+
+# MODELSCOPE=1: puts a model's weights, from ModelScope, into the Hugging Face cache at the pinned
+# revision, checked against the SHA-256 the HF endpoint lists for them. A mirror of the hub can
+# redirect large files to Hugging Face's own storage, slow or unreachable from some regions;
+# verify-model.py then fetches the small files and checks the whole snapshot.
+prefetch_weights() {
+  local repo="$1" rev="$2" sha dir
+  sha="$(curl -fsSI "$HF_ENDPOINT/$repo/resolve/$rev/model.safetensors" | tr -d '"\r' |
+    awk 'tolower($1) == "x-linked-etag:" { print $2 }')"
+  [ "${#sha}" = 64 ] || die "$HF_ENDPOINT lists no SHA-256 for $repo@$rev model.safetensors"
+  dir="$HF_HOME/hub/models--${repo//\//--}"
+  mkdir -p "$dir/blobs" "$dir/snapshots/$rev"
+  if ! echo "$sha  $dir/blobs/$sha" | sha256sum -c --quiet 2>/dev/null; then
+    fetch "https://modelscope.cn/models/$repo/resolve/master/model.safetensors" "$dir/blobs/$sha" ||
+      die "could not download $repo model.safetensors from ModelScope"
+    check_sha "$dir/blobs/$sha" "$sha"
+  fi
+  ln -sfn "../../blobs/$sha" "$dir/snapshots/$rev/model.safetensors"
+  echo "$repo@$rev model.safetensors from ModelScope (SHA-256 $sha)"
 }
 
 # A short name of this GPU for file names: "NVIDIA GeForce RTX 5090" -> "rtx-5090".
@@ -99,17 +158,28 @@ cmd_setup() {
   source "$venv/bin/activate"
   python -m pip install -q --upgrade pip
 
-  # 1. The CUDA wheel of the pinned vLLM, through the configured index, checked against the digest
-  # PyPI lists; its dependencies (torch for CUDA 13) from the same index, checked by version.
+  # 1. The CUDA wheel of the pinned vLLM, through the configured index (or its file path on that
+  # index's mirror, or PyPI), checked against the digest PyPI lists; its dependencies (torch for
+  # CUDA 13) from the same index, checked by version.
   local wheel
   wheel="$WORK/wheels/$(basename "$VLLM_CUDA_WHEEL_URL")"
   [ -f "$wheel" ] || python -m pip download -q --no-deps --only-binary :all: --platform manylinux_2_28_x86_64 \
-    --python-version 3.12 --implementation cp --abi abi3 -d "$WORK/wheels" "vllm==$VLLM_VERSION" ||
-    curl -fL --retry 3 -o "$wheel" "$VLLM_CUDA_WHEEL_URL"
-  [ -f "$wheel" ] || die "could not download $(basename "$wheel")"
+    --python-version 3.12 --implementation cp --abi abi3 -d "$WORK/wheels" "vllm==$VLLM_VERSION" || true
+  if [ ! -f "$wheel" ] && [ -n "${PIP_INDEX_URL:-}" ]; then
+    fetch "$(mirror_url "$PIP_INDEX_URL" "$VLLM_CUDA_WHEEL_URL")" "$wheel" || true
+  fi
+  [ -f "$wheel" ] || fetch "$VLLM_CUDA_WHEEL_URL" "$wheel" || die "could not download $(basename "$wheel")"
   check_sha "$wheel" "$VLLM_CUDA_WHEEL_SHA256"
   python -m pip install -q "$wheel"
   python -m pip install -q -e "$repo_root/plugins/vllm"
+  # The CUDA compiler for FlashInfer's JIT (see engine_env), and the unversioned libcudart.so its
+  # link step asks for, which the runtime package does not ship.
+  python -m pip install -q "${CUDA_JIT_PACKAGES[@]}"
+  local cuda major="${CUDA_MIN_VERSION%%.*}"
+  cuda="$(cuda_home)"
+  [ -n "$cuda" ] || die "no CUDA $major toolkit in $venv after installing ${CUDA_JIT_PACKAGES[*]}"
+  [ -e "$cuda/lib/libcudart.so" ] || ln -s "libcudart.so.$major" "$cuda/lib/libcudart.so"
+  [ -e "$cuda/lib64" ] || ln -s lib "$cuda/lib64"
 
   # 2. The TOPLOC reference at the commit the vectors come from (needs GitHub; on AutoDL
   # `source /etc/network_turbo` first).
@@ -123,6 +193,10 @@ cmd_setup() {
   (cd "$toploc" && python -m pip install -q --no-build-isolation --no-deps .)
 
   # 3. The models, through HF_ENDPOINT, checked against their snapshot digests.
+  if [ "${MODELSCOPE:-0}" = 1 ]; then
+    prefetch_weights "$MODEL" "$MODEL_REVISION"
+    prefetch_weights "$CHEAT_MODEL" "$CHEAT_MODEL_REVISION"
+  fi
   python "$repo_root/scripts/verify-model.py" "$MODEL" "$MODEL_REVISION" "$MODEL_SNAPSHOT_SHA256"
   python "$repo_root/scripts/verify-model.py" "$CHEAT_MODEL" "$CHEAT_MODEL_REVISION" "$CHEAT_MODEL_SNAPSHOT_SHA256"
 
@@ -173,6 +247,8 @@ sys.exit(0 if ok else 1)
 PY
   python "$repo_root/scripts/verify-model.py" "$MODEL" "$MODEL_REVISION" "$MODEL_SNAPSHOT_SHA256" >/dev/null
   python "$repo_root/scripts/verify-model.py" "$CHEAT_MODEL" "$CHEAT_MODEL_REVISION" "$CHEAT_MODEL_SNAPSHOT_SHA256" >/dev/null
+  [ -n "${CUDA_HOME:-}" ] && "$CUDA_HOME/bin/nvcc" --version | grep -q "release $CUDA_MIN_VERSION," ||
+    die "the environment's CUDA compiler is not CUDA $CUDA_MIN_VERSION (FlashInfer's JIT needs it): run '$self setup'"
   [ -x "$repo_root/target/debug/ac-auditor" ] || die "no target/debug/ac-auditor"
   touch "$state/verify.ok"
   echo "verify: ok"
@@ -320,6 +396,21 @@ EOF
     got="$(env PATH="$t/bin:$PATH" FAKE_NAME="$name" bash -c "source '$self' --source-only; s=\$(gpu_slug); echo \"\$s \$(seed_for \$s)\"")"
     if [ "$got" = "$want" ]; then echo "ok   $name: $got"; else echo "FAIL $name: '$got', want '$want'"; fails=1; fi
   done
+  # The wheel's path on a PyPI mirror.
+  local idx
+  for idx in https://pypi.tuna.tsinghua.edu.cn/simple https://pypi.tuna.tsinghua.edu.cn/simple/; do
+    want="https://pypi.tuna.tsinghua.edu.cn/packages/${VLLM_CUDA_WHEEL_URL#*/packages/}"
+    got="$(bash -c "source '$self' --source-only; mirror_url '$idx' '$VLLM_CUDA_WHEEL_URL'")"
+    if [ "$got" = "$want" ]; then echo "ok   mirror URL from $idx"; else echo "FAIL mirror URL: '$got', want '$want'"; fails=1; fi
+  done
+  # A failed download leaves no file behind (a partial wheel would only fail its digest later).
+  if bash -c "source '$self' --source-only; fetch 'file://$t/no-such-file' '$t/fetched'" 2>/dev/null ||
+    [ -e "$t/fetched" ] || [ -e "$t/fetched.part" ]; then
+    echo "FAIL a failed download left a file"
+    fails=1
+  else
+    echo "ok   a failed download leaves no file"
+  fi
   # A download whose digest is not the pinned one.
   echo "not the wheel" >"$t/wheel.whl"
   expect "wheel digest" "has SHA-256" bash -c "source '$self' --source-only; check_sha '$t/wheel.whl' '$VLLM_CUDA_WHEEL_SHA256'"
