@@ -61,6 +61,34 @@
 - AMD EPYC 7763 上约 4% 的预填充块不精确，原因尚未查明（I-012）。
 - 只用了一个小模型（0.5B）。更大的模型与其他架构需要各自校准。
 
+## 跨硬件校准
+
+证明方与审计员的硬件可以不同：提供者在 GPU 上，审计员在 CPU 或另一款 GPU 上（OpenSpec 变更 `m6-toploc-gpu-calibration`，I-012）。校准脚本拆成可在不同机器上运行的几步：
+
+```bash
+# 在证明方机器上：生成案例包（cases/、prover.json、MANIFEST.sha256）
+python scripts/calibrate-toploc.py --generate-only --honest 3000 --cheat 100 --seed 5 --out bundle-a
+# 在审计员机器上：复核它（也可只复核其中一个分片）
+python scripts/calibrate-toploc.py --recheck-only bundle-a --out recheck-a-on-b [--shard 0/10]
+# 任意机器：按格合并报告
+python scripts/calibrate-toploc.py --merge recheck-*/calibration.json --summary-out summary.json \
+    [--thresholds prefill=E,M,D decode=E,M,D]
+```
+
+- **指纹。**案例包的 `prover.json` 与每份复核报告都记录运行所在的硬件与软件：CPU 型号、决定计算核的标志与 `ONEDNN_MAX_CPU_ISA`；GPU 型号、计算能力、驱动、CUDA 与 cuDNN；PyTorch、vLLM 与插件版本；模型 revision。格子的一边是 GPU 型号，或 `CPU <型号> AMX on|off`（AMX on：CPU 有 AMX 且 oneDNN 可以使用）。
+- **格子。**合并报告把每个样本计入其“证明方 → 审计员”格：诚实样本的通过、不通过、无法判定与预填充非精确块数，以及每类作弊的样本数与漏检数。拆分之前的报告两边都计为其所在主机。
+- **完整性。**`MANIFEST.sha256` 发现传输损坏：清单中的案例缺失时复核停止，摘要不符的案例照常复核并标记。案例是否被改动由复核本身判定：改动的证明打不开收据的承诺，改动的提示或回答在某一块上不通过。
+- **重放阈值。**合并时按每块的指标把每个样本重新判定一遍，与审计员的规则相同；按版本 2 重放必须与审计员给出的结果逐样本相同，否则合并失败。报告给出让所有诚实样本通过的最小阈值、`--thresholds` 下各格的结果，以及结论：保持版本 2（每一格都成立）、新版本（把版本 2 放宽到诚实样本的最大值后仍抓住全部作弊），或没有统一阈值（交用户决定）。
+- **精简报告。**`--summary-out` 写出仓库保存的内容：指纹、格子、分布、阈值、结论，以及每个结果不符合预期的样本的块指标；只有案例名与数字，没有提示与回答。
+- **单机。**不带 `--generate-only` 或 `--recheck-only` 时，脚本在一台机器上依次完成两步，与以前相同。CI 检查把回归的案例包单独再复核一遍（分两个分片）得到相同的结果（`--compare`）。
+
+校准工作流可以做两种跨硬件运行，在 `plugins/vllm/ci/calibration.env` 中设置（修改并推送即运行工作流）：
+
+- `CALIBRATION_BUNDLE_RELEASE`、`CALIBRATION_BUNDLE_FILE`、`CALIBRATION_BUNDLE_SHA256`：各分片下载本仓库某个 Release 的这个附件（案例包的 `tar.gz`，即 `scripts/gpu-calibration.sh pack` 的产物），核对 SHA-256，各复核其中十分之一的案例，oneDNN 不使用 AMX：即“GPU → CPU AMX off”各格。上传附件：打开仓库的 Releases 页面，新建一个预发布（例如标签 `calibration-gpu-1`），拖入文件并发布。
+- `CALIBRATION_PROVER_ISA`：生成用引擎的 `ONEDNN_MAX_CPU_ISA`（例如 `ALL`），复核用引擎仍用 `ONEDNN_MAX_CPU_ISA`：在有 AMX 的运行器上即“CPU AMX on → CPU AMX off”格。运行器无法选择，因此该格要靠不同种子的多次运行累积。
+
+GPU 机器的安装与运行用 `scripts/gpu-calibration.sh`（见 [GPU 校准](gpu-calibration.zh-CN.md)）。
+
 ## 复现
 
 修改并推送 `plugins/vllm/ci/calibration.env`（样本数与种子）；或在运行 `scripts/setup-vllm-cpu.sh` 与 `cargo build -p ac-auditor` 之后在本地运行：

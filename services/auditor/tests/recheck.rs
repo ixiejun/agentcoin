@@ -300,6 +300,45 @@ async fn tokens_that_cannot_be_recreated() {
     std::fs::remove_dir_all(d).unwrap();
 }
 
+// m6-toploc-gpu-calibration 1.5, spec engineering/ci-quality-gates "案例包被改动": a case
+// changed after it left the prover (its prompt, its answer or its proofs) fails the re-check,
+// and says why.
+#[tokio::test]
+async fn a_changed_case_fails() {
+    let (v, d) = auditor("changed", 7).await;
+    let case = answered("changed", 7, WORDS, 40, true).await;
+    assert_eq!(
+        v.recheck(&case, QuantType::Bf16).await.verdict,
+        Outcome::Pass
+    );
+    // Another prompt word: the prefill chunk no longer matches.
+    let mut prompt = case.clone();
+    prompt.messages = json!([{"role": "user", "content": WORDS.replace("lazy", "sleepy")}]);
+    let report = v.recheck(&prompt, QuantType::Bf16).await;
+    assert_eq!(report.outcome, "fail", "{report:?}");
+    assert!(report.reason.starts_with("chunk 0"), "{report:?}");
+    // Another answer word (same count): a decode chunk no longer matches. (Not the last word:
+    // no activation is computed for the last token, the engine never feeds it back.)
+    let mut answer = case.clone();
+    let first = case.output.split_whitespace().next().unwrap();
+    answer.output = case.output.replacen(first, &format!("{first}x"), 1);
+    let report = v.recheck(&answer, QuantType::Bf16).await;
+    assert_eq!(report.outcome, "fail", "{report:?}");
+    assert!(report.reason.starts_with("chunk "), "{report:?}");
+    assert!(!report.reason.starts_with("chunk 0"), "{report:?}");
+    // One proof byte flipped: the proofs no longer open the receipt's commitment.
+    let mut proofs = case.clone();
+    let mut bytes = hex::decode(case.toploc.as_deref().unwrap()).unwrap();
+    let at = bytes.len() / 2;
+    bytes[at] ^= 1;
+    proofs.toploc = Some(hex::encode(bytes));
+    assert_eq!(
+        v.recheck(&proofs, QuantType::Bf16).await.verdict,
+        Outcome::Fail(FailReason::CommitmentMismatch)
+    );
+    std::fs::remove_dir_all(d).unwrap();
+}
+
 // A re-check engine whose rows never arrive (its plugin sends elsewhere) is inconclusive.
 #[tokio::test]
 async fn missing_rows_are_an_engine_error() {

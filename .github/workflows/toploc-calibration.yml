@@ -6,7 +6,10 @@ name: TOPLOC calibration
 # parallel (one runner would exceed GitHub's 6-hour limit), each with its own seed, and a last
 # job merges their reports. GitHub dispatches a workflow by hand only from
 # the default branch, so a push that changes plugins/vllm/ci/calibration.env (the sample counts
-# and seed) also runs it, on any branch.
+# and seed) also runs it, on any branch. calibration.env can also have the shards re-check a case
+# bundle generated on another machine (a GPU) and attached to a release of this repository, or
+# let the generating engines use another oneDNN ISA than the re-checking ones
+# (m6-toploc-gpu-calibration design D4; docs/guides/gpu-calibration.md).
 on:
   push:
     paths:
@@ -57,6 +60,7 @@ jobs:
       - run: cargo build -p ac-auditor
       - name: Calibrate
         env:
+          GH_TOKEN: ${{ github.token }}
           HONEST: ${{ inputs.honest }}
           CHEAT: ${{ inputs.cheat }}
           SEED: ${{ inputs.seed }}
@@ -69,10 +73,22 @@ jobs:
           source plugins/vllm/ci/calibration.env
           set +a
           shards=$CALIBRATION_SHARDS
-          honest=$(( ${HONEST:-$CALIBRATION_HONEST} / shards ))
-          cheat=$(( ${CHEAT:-$CALIBRATION_CHEAT} / shards ))
-          seed=$(( ${SEED:-$CALIBRATION_SEED} * 100 + ${{ matrix.shard }} ))
-          python scripts/calibrate-toploc.py --honest "$honest" --cheat "$cheat" --seed "$seed"
+          if [ -n "${CALIBRATION_BUNDLE_FILE:-}" ]; then
+            # Re-check a bundle generated elsewhere (a GPU, m6-toploc-gpu-calibration design D4):
+            # every shard takes every N-th case of it.
+            gh release download "$CALIBRATION_BUNDLE_RELEASE" --repo "$GITHUB_REPOSITORY" \
+              --pattern "$CALIBRATION_BUNDLE_FILE" --dir target/bundle-download
+            echo "$CALIBRATION_BUNDLE_SHA256  target/bundle-download/$CALIBRATION_BUNDLE_FILE" | sha256sum -c
+            mkdir -p target/bundle
+            tar -xzf "target/bundle-download/$CALIBRATION_BUNDLE_FILE" -C target/bundle
+            bundle="$(dirname "$(find target/bundle -name prover.json | head -n1)")"
+            python scripts/calibrate-toploc.py --recheck-only "$bundle" --shard "${{ matrix.shard }}/$shards"
+          else
+            honest=$(( ${HONEST:-$CALIBRATION_HONEST} / shards ))
+            cheat=$(( ${CHEAT:-$CALIBRATION_CHEAT} / shards ))
+            seed=$(( ${SEED:-$CALIBRATION_SEED} * 100 + ${{ matrix.shard }} ))
+            python scripts/calibrate-toploc.py --honest "$honest" --cheat "$cheat" --seed "$seed"
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -99,7 +115,8 @@ jobs:
         run: |
           source plugins/vllm/ci/calibration.env
           found=$(ls shards/*/calibration.json | wc -l)
-          python scripts/calibrate-toploc.py --merge shards/*/calibration.json
+          python scripts/calibrate-toploc.py --merge shards/*/calibration.json \
+            --summary-out target/toploc-calibration/summary.json
           # A missing shard fails the run after the merge, so the others still get reported.
           if [ "$found" -ne "$CALIBRATION_SHARDS" ]; then
             echo "only $found of $CALIBRATION_SHARDS shards reported"; exit 1
@@ -107,4 +124,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: toploc-calibration
-          path: target/toploc-calibration/calibration.json
+          path: |
+            target/toploc-calibration/calibration.json
+            target/toploc-calibration/summary.json

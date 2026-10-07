@@ -90,6 +90,63 @@ a wrong punishment is far rarer still.
 - The AMD EPYC 7763's inexact prefill chunks (about 4%) are not explained yet (I-012).
 - One small model (0.5B). Larger models and other architectures need their own runs.
 
+## Cross-hardware calibration
+
+The prover's and the auditor's hardware can differ: a provider on a GPU, an auditor on a CPU or
+another GPU (OpenSpec change `m6-toploc-gpu-calibration`, I-012). The calibration script splits
+into steps that run on different machines:
+
+```bash
+# On the prover's machine: generate a case bundle (cases/, prover.json, MANIFEST.sha256)
+python scripts/calibrate-toploc.py --generate-only --honest 3000 --cheat 100 --seed 5 --out bundle-a
+# On the auditor's machine: re-check it (optionally one shard of it)
+python scripts/calibrate-toploc.py --recheck-only bundle-a --out recheck-a-on-b [--shard 0/10]
+# Anywhere: merge reports, by cell
+python scripts/calibrate-toploc.py --merge recheck-*/calibration.json --summary-out summary.json \
+    [--thresholds prefill=E,M,D decode=E,M,D]
+```
+
+- **Fingerprints.** The bundle's `prover.json` and every re-check report record the hardware and
+  software they ran on: CPU model, kernel flags and `ONEDNN_MAX_CPU_ISA`; GPU model, compute
+  capability, driver, CUDA and cuDNN; PyTorch, vLLM and plugin versions; the models' revisions.
+  A side of a cell is the GPU model, or `CPU <model> AMX on|off` (AMX on: the CPU has AMX and
+  oneDNN may use it).
+- **Cells.** The merged report counts every sample in its "prover → auditor" cell: honest
+  passes, fails, inconclusive answers and inexact prefill chunks, and per cheating variant its
+  samples and misses. Reports from before the split count as their own host on both sides.
+- **Integrity.** `MANIFEST.sha256` catches transfer damage: a listed case that is missing stops
+  the re-check, a case whose digest differs is re-checked and flagged. Whether a case was
+  changed is decided by the re-check itself: changed proofs do not open the receipt's
+  commitment, a changed prompt or answer fails on a chunk.
+- **Thresholds replayed.** The merge judges every sample again from its chunk metrics, as the
+  auditor does; under version 2 this must give each sample the auditor's own outcome, or the
+  merge fails. It reports the smallest thresholds every honest sample passes, how each cell
+  fares under `--thresholds`, and a conclusion: keep version 2 (it holds in every cell), a new
+  version (version 2 widened to the honest maximum still fails every cheat), or no uniform
+  thresholds (for the user to decide).
+- **Condensed report.** `--summary-out` writes what the repository keeps: fingerprints, cells,
+  distributions, thresholds, conclusion and the chunk metrics of every sample that did not go
+  as it should; case names and numbers only, never prompts or answers.
+- **One machine.** Without `--generate-only` or `--recheck-only` the script runs both steps on
+  one machine, as before. CI checks that re-checking the regression's bundle again on its own,
+  in two shards, gives the same outcomes (`--compare`).
+
+The calibration workflow can do two cross-hardware runs, set in `plugins/vllm/ci/calibration.env`
+(a push that changes it runs the workflow):
+
+- `CALIBRATION_BUNDLE_RELEASE`, `CALIBRATION_BUNDLE_FILE`, `CALIBRATION_BUNDLE_SHA256`: the shards
+  download that asset of a release of this repository (a `tar.gz` of a bundle, as
+  `scripts/gpu-calibration.sh pack` makes it), check its SHA-256 and re-check one tenth of its
+  cases each, with oneDNN kept from AMX: the "GPU → CPU AMX off" cells. To attach a bundle, open
+  the repository's Releases page, draft a new pre-release (e.g. tag `calibration-gpu-1`), drop the
+  file in and publish it.
+- `CALIBRATION_PROVER_ISA`: the generating engines' `ONEDNN_MAX_CPU_ISA` (e.g. `ALL`), while the
+  re-checking ones keep `ONEDNN_MAX_CPU_ISA`: on runners with AMX this is the "CPU AMX on → CPU
+  AMX off" cell. Runners cannot be chosen, so the cell fills over runs with different seeds.
+
+GPU machines are set up and run with `scripts/gpu-calibration.sh` (see
+[GPU calibration](gpu-calibration.md)).
+
 ## Reproduce
 
 Push a change to `plugins/vllm/ci/calibration.env` (sample counts and seed), or run locally

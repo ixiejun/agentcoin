@@ -20,10 +20,22 @@ vllm-plugin with --quick, workflow toploc-calibration in full).
    metric distributions. With --quick, fail unless every honest sample passes and every cheating
    sample fails, and unless the prompts' marker stays out of the logs.
 
+Generation and re-check can run on different machines (m6-toploc-gpu-calibration design D1):
+--generate-only writes a case bundle (`cases/`, `prover.json` with the prover's hardware
+fingerprint, `MANIFEST.sha256`), --recheck-only re-checks a bundle and records the auditor's
+fingerprint, and --merge counts every sample in its "prover → auditor" cell, replays the
+thresholds on the chunk metrics and states the conclusion (keep version 2, a uniform new version,
+or none). Without either option both steps run on this machine, as before.
+
 Usage: scripts/calibrate-toploc.py [--quick] [--honest N] [--cheat N] [--seed N] [--out DIR]
-       scripts/calibrate-toploc.py --merge SHARD.json... [--out DIR]   (one report from shards)
-       (after scripts/setup-vllm-cpu.sh and `cargo build -p ac-auditor`; env AC_VLLM_MODEL,
-       AC_VLLM_REVISION, AC_CHEAT_MODEL, AC_CHEAT_REVISION)
+       scripts/calibrate-toploc.py --generate-only [--honest N] [--cheat N] [--seed N] --out BUNDLE
+       scripts/calibrate-toploc.py --recheck-only BUNDLE [--shard K/N] --out DIR
+       scripts/calibrate-toploc.py --compare A.json B.json   (same cases, same outcomes)
+       scripts/calibrate-toploc.py --merge SHARD.json... [--thresholds prefill=E,M,D decode=E,M,D]
+                                   [--summary-out FILE] [--out DIR]
+       (after scripts/setup-vllm-cpu.sh or scripts/gpu-calibration.sh setup, and
+       `cargo build -p ac-auditor`; env AC_VLLM_MODEL, AC_VLLM_REVISION, AC_CHEAT_MODEL,
+       AC_CHEAT_REVISION; CALIBRATION_PROVER_ISA sets the generating engines' ONEDNN_MAX_CPU_ISA)
 """
 
 from __future__ import annotations
@@ -451,6 +463,77 @@ def host() -> dict:
     return info
 
 
+def gpu() -> dict | None:
+    """The GPU the engine runs on, if any (m6-toploc-gpu-calibration design D2)."""
+    try:
+        import torch
+    except ImportError:
+        return None
+    if not torch.cuda.is_available():
+        return None
+    props = torch.cuda.get_device_properties(0)
+    driver = ""
+    try:
+        driver = subprocess.run(
+            ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=30,
+        ).stdout.strip().splitlines()[0]
+    except (OSError, subprocess.SubprocessError, IndexError):
+        pass
+    return {
+        "name": torch.cuda.get_device_name(0),
+        "capability": list(torch.cuda.get_device_capability(0)),
+        "memory_gib": round(props.total_memory / 2**30, 1),
+        "count": torch.cuda.device_count(),
+        "driver": driver,
+        "cuda": torch.version.cuda,
+        "cudnn": torch.backends.cudnn.version(),
+    }
+
+
+def version_of(package: str) -> str:
+    from importlib import metadata
+
+    try:
+        return metadata.version(package)
+    except metadata.PackageNotFoundError:
+        return ""
+
+
+def fingerprint() -> dict:
+    """The hardware and software a prover or an auditor ran on: the CPU (model, kernel flags,
+    oneDNN ISA), the GPU if any (model, compute capability, driver, CUDA, cuDNN), the engine,
+    PyTorch and plugin versions, and the models' revisions. Taken in the process that runs the
+    engine (or, for `vllm serve`, in the one that starts it with the same environment)."""
+    return {
+        "cpu": host(),
+        "gpu": gpu(),
+        "torch": version_of("torch"),
+        "vllm": version_of("vllm"),
+        "plugin": version_of("agentcoin-vllm"),
+        "model": f'{os.environ.get("AC_VLLM_MODEL", "")}@{os.environ.get("AC_VLLM_REVISION", "")}',
+        "cheat_model": f'{os.environ.get("AC_CHEAT_MODEL", "")}@{os.environ.get("AC_CHEAT_REVISION", "")}',
+    }
+
+
+def amx_in_use(cpu: dict) -> bool:
+    """Whether oneDNN may pick AMX kernels: the CPU has AMX and `ONEDNN_MAX_CPU_ISA` does not
+    keep oneDNN below it (as the plugin's own check reads it)."""
+    isa = cpu.get("onednn_max_cpu_isa") or ""
+    limited = bool(isa) and isa != "ALL" and "AMX" not in isa
+    return "amx_bf16" in (cpu.get("flags") or []) and not limited
+
+
+def cell_key(fp: dict | None) -> str:
+    """A prover's or an auditor's side of a cell: the GPU model, or the CPU model with AMX on or
+    off. The full fingerprint stays in the report."""
+    fp = fp or {}
+    if fp.get("gpu"):
+        return fp["gpu"]["name"]
+    cpu = fp.get("cpu") or {}
+    return f'CPU {cpu.get("model") or "?"} AMX {"on" if amx_in_use(cpu) else "off"}'
+
+
 def by_host(samples: list[dict]) -> dict:
     """Honest outcomes and prefill exactness per CPU model and flags."""
     out: dict = {}
@@ -470,30 +553,353 @@ def by_host(samples: list[dict]) -> dict:
     return out
 
 
-def merge(files: list[Path], out: Path) -> int:
-    """One report from the shards of a calibration: samples keep their shard's seed."""
+def variant_of(case: str) -> str:
+    return case.split("-", 1)[0]
+
+
+def cells(samples: list[dict]) -> dict:
+    """Per "prover → auditor" cell: honest outcomes and inexact prefill chunks, and per cheating
+    variant its samples and how many passed (missed) or were inconclusive."""
+    out: dict = {}
+    for x in samples:
+        key = f'{x["prover"]} → {x["auditor"]}'
+        c = out.setdefault(key, {"prover": x["prover"], "auditor": x["auditor"],
+                                 "honest": {"samples": 0, "pass": 0, "fail": 0, "inconclusive": 0, "inexact_prefill": 0},
+                                 "cheats": {}})
+        v = variant_of(x["case"])
+        if v == "honest":
+            h = c["honest"]
+            h["samples"] += 1
+            h[x["outcome"]] += 1
+            if x["chunks"] and (x["chunks"][0]["mant_err_sum"] or x["chunks"][0]["exp_mismatches"]):
+                h["inexact_prefill"] += 1
+        elif v in CHEATS:
+            o = c["cheats"].setdefault(v, {"samples": 0, "missed": 0, "inconclusive": 0})
+            o["samples"] += 1
+            o["missed"] += x["outcome"] == "pass"
+            o["inconclusive"] += x["outcome"] == "inconclusive"
+    return dict(sorted(out.items()))
+
+
+# Thresholds as (exponent mismatches, mean mantissa error in hundredths, median mantissa error)
+# per chunk kind, judged as `ac_market_proto::toploc::judge` does (the replay must reproduce the
+# auditor's outcomes; scripts/tests checks these numbers against AUDIT_THRESHOLDS).
+THRESHOLDS_V2 = {"version": 2, "prefill": (2, 50, 1), "decode": (20, 800, 8)}
+METRICS = {"exp": "exponent mismatches", "noexp": "no matching exponent",
+           "mean": "mean mantissa error", "median": "median mantissa error"}
+
+
+def judge_chunk(c: dict, bounds: tuple[int, int, int]) -> str | None:
+    """The bound a chunk exceeds, or None."""
+    exp, mean_centi, median = bounds
+    if c["exp_mismatches"] > exp:
+        return "exp"
+    if c["mant_count"] == 0:
+        return "noexp"
+    if c["mant_err_sum"] * 100 > mean_centi * c["mant_count"]:
+        return "mean"
+    if c["median"] is None or c["median"] > median:
+        return "median"
+    return None
+
+
+def judged(x: dict) -> bool:
+    """Whether a sample's outcome came from the thresholds (a pass, or a fail on a chunk);
+    other outcomes (no proof, commitment mismatch, inconclusive) do not depend on them."""
+    return bool(x["chunks"]) and (x["outcome"] == "pass" or x["reason"].startswith("chunk "))
+
+
+def replay(x: dict, t: dict) -> tuple[str, str]:
+    """A sample's (outcome, reason) under thresholds `t`."""
+    if not judged(x):
+        return x["outcome"], x["reason"]
+    for i, c in enumerate(x["chunks"]):
+        m = judge_chunk(c, t["prefill"] if i == 0 else t["decode"])
+        if m:
+            return "fail", f"chunk {i}: {METRICS[m]}"
+    return "pass", ""
+
+
+def parse_thresholds(specs: list[str]) -> dict:
+    """`prefill=E,M,D decode=E,M,D` (M in hundredths), the unnamed kinds from version 2."""
+    t = {"version": None, "prefill": THRESHOLDS_V2["prefill"], "decode": THRESHOLDS_V2["decode"]}
+    for s in specs:
+        kind, _, values = s.partition("=")
+        parts = [int(v) for v in values.split(",")]
+        if kind not in ("prefill", "decode") or len(parts) != 3 or min(parts) < 0:
+            raise ValueError(f"bad thresholds {s!r}: use prefill=E,M,D or decode=E,M,D")
+        t[kind] = tuple(parts)
+    return t
+
+
+def minimal_thresholds(samples: list[dict]) -> dict | None:
+    """The smallest thresholds under which every honest sample judged by thresholds passes:
+    per chunk kind the largest exponent mismatches, mean (hundredths, rounded up) and median of
+    any honest chunk. None when an honest chunk has no matching exponent (no bound passes it)."""
+    worst = {"prefill": [0, 0, 0], "decode": [0, 0, 0]}
+    for x in samples:
+        if variant_of(x["case"]) != "honest" or not judged(x):
+            continue
+        for i, c in enumerate(x["chunks"]):
+            if c["mant_count"] == 0 or c["median"] is None:
+                return None
+            w = worst["prefill" if i == 0 else "decode"]
+            w[0] = max(w[0], c["exp_mismatches"])
+            w[1] = max(w[1], -(-c["mant_err_sum"] * 100 // c["mant_count"]))
+            w[2] = max(w[2], c["median"])
+    return {"version": None, "prefill": tuple(worst["prefill"]), "decode": tuple(worst["decode"])}
+
+
+def under(samples: list[dict], t: dict) -> dict:
+    """Per cell, honest fails and cheating passes when every sample is judged by `t`."""
+    out: dict = {}
+    for x in samples:
+        o = out.setdefault(f'{x["prover"]} → {x["auditor"]}', {"honest_fail": 0, "missed": {}})
+        outcome, _ = replay(x, t)
+        v = variant_of(x["case"])
+        if v == "honest":
+            o["honest_fail"] += outcome == "fail"
+        elif v in CHEATS:
+            o["missed"][v] = o["missed"].get(v, 0) + (outcome == "pass")
+    return dict(sorted(out.items()))
+
+
+def clean(r: dict) -> bool:
+    return all(o["honest_fail"] == 0 and not any(o["missed"].values()) for o in r.values())
+
+
+def conclusion(samples: list[dict]) -> dict:
+    """The conclusion rules of spec engineering/ci-quality-gates "GPU 跨硬件校准": keep version 2
+    if it holds in every cell; else a uniform set of thresholds (version 2 widened to the honest
+    maximum) if it still fails every cheat; else no uniform thresholds, for the user to decide."""
+    current = under(samples, THRESHOLDS_V2)
+    if clean(current):
+        return {"decision": "keep", "thresholds": THRESHOLDS_V2, "cells": current}
+    low = minimal_thresholds(samples)
+    if low is None:
+        return {"decision": "no uniform thresholds", "reason": "an honest chunk has no matching exponent",
+                "cells": current}
+    wide = {"version": None,
+            **{k: tuple(max(a, b) for a, b in zip(THRESHOLDS_V2[k], low[k])) for k in ("prefill", "decode")}}
+    widened = under(samples, wide)
+    if clean(widened):
+        return {"decision": "new version", "thresholds": wide, "cells": widened, "current": current}
+    return {"decision": "no uniform thresholds", "thresholds": wide, "cells": widened, "current": current}
+
+
+class ReplayMismatch(Exception):
+    pass
+
+
+def check_replay(samples: list[dict]) -> None:
+    """The replay under version 2 must give each sample judged under version 2 the auditor's
+    own outcome and reason; anything else means the replay and `judge` disagree."""
+    bad = [x["case"] for x in samples
+           if x.get("thresholds_version") == 2 and replay(x, THRESHOLDS_V2) != (x["outcome"], x["reason"])]
+    if bad:
+        raise ReplayMismatch(f"the replay of version 2 disagrees with the auditor on {len(bad)} samples, e.g. {bad[:3]}")
+
+
+def merge(files: list[Path], out: Path, thresholds: list[str] | None = None,
+          summary_out: Path | None = None) -> int:
+    """One report from shards: samples keep their shard's seed and the cell of the prover and
+    the auditor (reports without fingerprints ran both on their `host`)."""
     shards = [json.loads(f.read_text()) for f in files]
-    seeds = [r["seed"] for r in shards]
-    if len(set(seeds)) != len(seeds):
-        print(f"shards share a seed: {seeds}")
+    samples, fingerprints, seen = [], {}, set()
+    for r in shards:
+        prover = r.get("prover") or {"cpu": r.get("host")}
+        auditor = r.get("auditor") or {"cpu": r.get("host")}
+        p, a = cell_key(prover), cell_key(auditor)
+        for key, fp in ((p, prover), (a, auditor)):
+            if fp not in fingerprints.setdefault(key, []):
+                fingerprints[key].append(fp)
+        for x in r["samples"]:
+            # The same case re-checked twice on the same kind of auditor counts once.
+            ident = (r["seed"], x["case"], p, a)
+            if ident in seen:
+                print(f"a sample appears twice in cell {p} → {a}: seed {r['seed']} {x['case']}")
+                return 1
+            seen.add(ident)
+            samples.append(dict(x, seed=r["seed"], host=auditor.get("cpu"), prover=p, auditor=a,
+                                thresholds_version=x.get("thresholds_version", 2)))
+    try:
+        check_replay(samples)
+    except ReplayMismatch as e:
+        print(e)
         return 1
-    samples = [dict(x, seed=r["seed"], host=r.get("host")) for r in shards for x in r["samples"]]
     s = summary(samples)
     report = {
-        "seeds": seeds,
-        "honest": sum(r["honest"] for r in shards),
-        "cheat": sum(r["cheat"] for r in shards),
+        "seeds": sorted({r["seed"] for r in shards}),
+        "honest": sum(variant_of(x["case"]) == "honest" for x in samples),
+        "cheat": max([sum(variant_of(x["case"]) == v for x in samples) for v in CHEATS] or [0]),
         "thresholds_versions": sorted({v for r in shards for v in r["thresholds_versions"]}),
+        "fingerprints": fingerprints,
+        "cells": cells(samples),
         "summary": s,
         "honest_by_host": by_host(samples),
+        "minimal_thresholds": minimal_thresholds(samples),
+        "conclusion": conclusion(samples),
         "samples": samples,
     }
+    if thresholds:
+        t = parse_thresholds(thresholds)
+        report["under_thresholds"] = {"thresholds": t, "cells": under(samples, t)}
     out.mkdir(parents=True, exist_ok=True)
     (out / "calibration.json").write_text(json.dumps(report, indent=1))
+    if summary_out:
+        summary_out.parent.mkdir(parents=True, exist_ok=True)
+        summary_out.write_text(json.dumps(condensed(report), indent=1) + "\n")
     print(json.dumps({k: report[k] for k in ("seeds", "honest", "cheat", "thresholds_versions")}))
-    print(json.dumps(report["honest_by_host"], indent=1))
-    print(json.dumps(s, indent=1))
+    print(json.dumps(report["cells"], indent=1, ensure_ascii=False))
+    print(json.dumps({k: v for k, v in report["conclusion"].items() if k != "cells"}, ensure_ascii=False))
+    if "under_thresholds" in report:
+        print(json.dumps(report["under_thresholds"], indent=1, ensure_ascii=False))
     return 0
+
+
+def condensed(report: dict) -> dict:
+    """The report kept in the repository (design D6): fingerprints, cells, distributions,
+    thresholds and conclusion, and the chunk metrics of every sample that did not go as it
+    should (an honest one not passing, a cheating one not failing). Samples hold case names,
+    outcomes and numbers only, never prompts or answers."""
+    unexpected = [
+        {k: x[k] for k in ("case", "seed", "prover", "auditor", "outcome", "reason", "chunks")}
+        for x in report["samples"]
+        if (variant_of(x["case"]) == "honest") != (x["outcome"] == "pass")
+    ]
+    keep = ("seeds", "honest", "cheat", "thresholds_versions", "fingerprints", "cells", "summary",
+            "minimal_thresholds", "conclusion", "under_thresholds")
+    return {**{k: report[k] for k in keep if k in report}, "unexpected": unexpected}
+
+
+def sha256(path: Path) -> str:
+    import hashlib
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def write_manifest(bundle: Path) -> None:
+    lines = [f"{sha256(f)}  cases/{f.name}\n" for f in sorted((bundle / "cases").glob("*.json"))]
+    (bundle / "MANIFEST.sha256").write_text("".join(lines))
+
+
+def check_manifest(bundle: Path) -> dict:
+    """The bundle against its manifest: listed cases that are missing, cases whose digest is not
+    the listed one (re-checked anyway and flagged: the re-check, not the manifest, decides
+    whether a case was changed), and cases the manifest does not list."""
+    listed = {}
+    for line in (bundle / "MANIFEST.sha256").read_text().splitlines():
+        digest, _, name = line.partition("  ")
+        listed[name.removeprefix("cases/")] = digest
+    present = {f.name: f for f in (bundle / "cases").glob("*.json")}
+    return {
+        "missing": sorted(n for n in listed if n not in present),
+        "mismatch": sorted(n for n, f in present.items() if n in listed and sha256(f) != listed[n]),
+        "unlisted": sorted(n for n in present if n not in listed),
+    }
+
+
+def shard_of(names: list[str], shard: str | None) -> list[str]:
+    """The cases of shard `K/N` (index ≡ K mod N in name order), or all of them."""
+    names = sorted(names)
+    if not shard:
+        return names
+    k, n = (int(v) for v in shard.split("/"))
+    if not 0 <= k < n:
+        raise ValueError(f"bad shard {shard!r}: use K/N with 0 <= K < N")
+    return [x for i, x in enumerate(names) if i % n == k]
+
+
+def generate_bundle(out: Path, honest: int, cheat: int, seed: int) -> int:
+    """Generates every variant into the bundle `out` (`cases/`, `prover.json`,
+    `MANIFEST.sha256`; logs in `out/logs`)."""
+    cases = out / "cases"
+    cases.mkdir(parents=True, exist_ok=True)
+    for f in cases.glob("*.json"):
+        f.unlink()
+    logs = out / "logs"
+    logs.mkdir(exist_ok=True)
+    env = dict(os.environ)
+    # A controlled experiment (m6-toploc-gpu-calibration design D4): the provider's engine with
+    # another oneDNN ISA than the auditor's, e.g. AMX allowed.
+    if os.environ.get("CALIBRATION_PROVER_ISA"):
+        env["ONEDNN_MAX_CPU_ISA"] = os.environ["CALIBRATION_PROVER_ISA"]
+    prints = []
+    for v in VARIANTS:
+        n = honest if v == "honest" else cheat
+        fp = logs / f"fingerprint-{v}.json"
+        with open(logs / f"generate-{v}.log", "w") as log:
+            run = subprocess.run(
+                [sys.executable, __file__, "--generate", v, "--count", str(n), "--seed", str(seed),
+                 "--out", str(cases), "--fingerprint", str(fp)],
+                stdout=log, stderr=subprocess.STDOUT, env=env,
+            )
+        lines = (logs / f"generate-{v}.log").read_text(errors="replace").strip().splitlines()
+        if run.returncode != 0:
+            # The log holds vLLM's messages, never the prompts (the marker check covers it).
+            print(f"generating {v} failed; the end of its log:", *lines[-60:], sep="\n", flush=True)
+            return 1
+        print(*[l for l in lines if l.startswith(f"{v}: ")], sep="\n", flush=True)
+        prints.append(json.loads(fp.read_text()))
+    if any(p != prints[0] for p in prints):
+        print("the variants ran on different hardware or software:", *map(json.dumps, prints), sep="\n")
+        return 1
+    (out / "prover.json").write_text(json.dumps(
+        {"seed": seed, "honest": honest, "cheat": cheat, "fingerprint": prints[0]}, indent=1) + "\n")
+    write_manifest(out)
+    print("prover:", json.dumps(prints[0]), flush=True)
+    return 0
+
+
+def recheck_bundle(bundle: Path, out: Path, shard: str | None = None) -> dict | None:
+    """Re-checks the bundle's cases (or one shard of them) on this machine; the report, or None
+    when cases listed in the manifest are missing."""
+    prover = json.loads((bundle / "prover.json").read_text())
+    found = check_manifest(bundle)
+    if found["missing"]:
+        print(f"{len(found['missing'])} cases of the manifest are missing, e.g. {found['missing'][:3]}")
+        return None
+    for k in ("mismatch", "unlisted"):
+        if found[k]:
+            print(f"{len(found[k])} cases {k} (re-checked and flagged), e.g. {found[k][:3]}", flush=True)
+    names = shard_of([f.name for f in (bundle / "cases").glob("*.json")], shard)
+    logs = out / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    picked = Path(tempfile.mkdtemp(prefix="ac-calibrate-cases-"))
+    for n in names:
+        (picked / n).symlink_to((bundle / "cases" / n).resolve())
+    auditor = fingerprint()
+    print("auditor:", json.dumps(auditor), flush=True)
+    results = recheck(picked, logs)
+    from_auditor = {r["case"] for r in results}
+    missing = [n for n in names if n not in from_auditor]
+    if missing:
+        print(f"the auditor reported no result for {missing[:3]}")
+        return None
+    for r in results:
+        r["manifest"] = next((k for k in ("mismatch", "unlisted") if r["case"] in found[k]), "ok")
+    return {
+        "seed": prover["seed"], "host": auditor["cpu"], "prover": prover["fingerprint"], "auditor": auditor,
+        "shard": shard or "0/1",
+        "honest": sum(variant_of(n) == "honest" for n in names),
+        "cheat": max([sum(variant_of(n) == v for n in names) for v in CHEATS] or [0]),
+        "thresholds_versions": sorted({r["thresholds_version"] for r in results}),
+        "manifest": {k: found[k] for k in ("mismatch", "unlisted")},
+        "summary": summary(results), "samples": results,
+    }
+
+
+def same_outcomes(a: dict, b: dict) -> list[str]:
+    """The cases whose outcome or reason differs between two reports of the same cases (empty
+    when they agree): the split run against the one-machine run (m6-toploc-gpu-calibration 1.6)."""
+    left = {x["case"]: (x["outcome"], x["reason"]) for x in a["samples"]}
+    right = {x["case"]: (x["outcome"], x["reason"]) for x in b["samples"]}
+    return sorted(c for c in left.keys() | right.keys() if left.get(c) != right.get(c))
+
+
+def leaked(logs: Path) -> list[str]:
+    return [f"{f.name} contains request content" for f in logs.iterdir()
+            if f.is_file() and MARKER in f.read_text(errors="replace")]
 
 
 def main() -> int:
@@ -505,55 +911,63 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=Path("target/toploc-calibration"))
     ap.add_argument("--generate", choices=(*VARIANTS, "preempt"), help=argparse.SUPPRESS)
     ap.add_argument("--count", type=int, help=argparse.SUPPRESS)
+    ap.add_argument("--fingerprint", type=Path, help=argparse.SUPPRESS)
+    ap.add_argument("--generate-only", action="store_true",
+                    help="only generate: write a case bundle (cases, prover.json, MANIFEST.sha256) to --out")
+    ap.add_argument("--recheck-only", type=Path, metavar="BUNDLE",
+                    help="only re-check the cases of BUNDLE on this machine; report to --out")
+    ap.add_argument("--shard", metavar="K/N", help="with --recheck-only: re-check every N-th case from the K-th")
     ap.add_argument("--merge", type=Path, nargs="+", metavar="JSON",
-                    help="merge the calibration.json files of shards (different seeds) into --out")
+                    help="merge the calibration.json files of shards into --out, by cell")
+    ap.add_argument("--thresholds", nargs="+", metavar="KIND=E,M,D",
+                    help="with --merge: also judge every sample by these (prefill=E,M,D decode=E,M,D; M in hundredths)")
+    ap.add_argument("--summary-out", type=Path, metavar="FILE",
+                    help="with --merge: write the condensed report kept in the repository")
+    ap.add_argument("--compare", type=Path, nargs=2, metavar="JSON",
+                    help="fail unless two reports of the same cases have the same outcomes")
     args = ap.parse_args()
+    if args.compare:
+        a, b = (json.loads(f.read_text()) for f in args.compare)
+        differ = same_outcomes(a, b)
+        print(f"{len(a['samples'])} cases; differ: {differ[:10]}" if differ else f"{len(a['samples'])} cases, same outcomes")
+        return 1 if differ else 0
     if args.generate:
+        if args.fingerprint:
+            # Before the engine starts: a GPU driver failure should not cost the fingerprint.
+            args.fingerprint.write_text(json.dumps(fingerprint()))
         generate(args.generate, args.count, args.seed, args.out)
         return 0
     if args.merge:
-        return merge(args.merge, args.out.resolve())
+        return merge(args.merge, args.out.resolve(), args.thresholds, args.summary_out)
 
-    print("host:", json.dumps(host()), flush=True)
+    out = args.out.resolve()
     honest = args.honest or (48 if args.quick else 3000)
     cheat = args.cheat or (8 if args.quick else 100)
-    out = args.out.resolve()
-    cases = out / "cases"
-    cases.mkdir(parents=True, exist_ok=True)
-    for f in cases.glob("*.json"):
-        f.unlink()
-    logs = out / "logs"
-    logs.mkdir(exist_ok=True)
-    for v in VARIANTS:
-        n = honest if v == "honest" else cheat
-        with open(logs / f"generate-{v}.log", "w") as log:
-            run = subprocess.run(
-                [sys.executable, __file__, "--generate", v, "--count", str(n), "--seed", str(args.seed), "--out", str(cases)],
-                stdout=log, stderr=subprocess.STDOUT,
-            )
-        lines = (logs / f"generate-{v}.log").read_text(errors="replace").strip().splitlines()
-        if run.returncode != 0:
-            # The log holds vLLM's messages, never the prompts (the marker check below covers it).
-            print(f"generating {v} failed; the end of its log:", *lines[-60:], sep="\n", flush=True)
+    if args.recheck_only:
+        report = recheck_bundle(args.recheck_only.resolve(), out, args.shard)
+        if report is None:
             return 1
-        print(*[l for l in lines if l.startswith(f"{v}: ")], sep="\n", flush=True)
+        (out / "calibration.json").write_text(json.dumps(report, indent=1))
+        print(json.dumps(report["summary"], indent=1))
+        failures = leaked(out / "logs")
+        print("FAILED:" if failures else "re-check done", *failures, sep="\n  ")
+        return 1 if failures else 0
 
-    results = recheck(cases, logs)
-    from_auditor = {r["case"] for r in results}
-    for f in sorted(cases.glob("*.json")):
-        assert f.name in from_auditor, f.name
-    s = summary(results)
-    thresholds = {r["thresholds_version"] for r in results}
-    report = {"seed": args.seed, "host": host(), "honest": honest, "cheat": cheat,
-              "thresholds_versions": sorted(thresholds),
-              "summary": s, "samples": results}
+    print("host:", json.dumps(host()), flush=True)
+    if generate_bundle(out, honest, cheat, args.seed):
+        return 1
+    if args.generate_only:
+        failures = leaked(out / "logs")
+        print("FAILED:" if failures else "bundle done", *failures, sep="\n  ")
+        return 1 if failures else 0
+    report = recheck_bundle(out, out)
+    if report is None:
+        return 1
+    s = report["summary"]
     (out / "calibration.json").write_text(json.dumps(report, indent=1))
     print(json.dumps(s, indent=1))
 
-    failures = []
-    for f in logs.iterdir():
-        if MARKER in f.read_text(errors="replace"):
-            failures.append(f"{f.name} contains request content")
+    failures = leaked(out / "logs")
     if args.quick:
         # User decision (2026-10-01): an answer that cannot be re-tokenized is inconclusive, not a
         # miss; at most one per variant is tolerated, while any honest failure or cheating pass

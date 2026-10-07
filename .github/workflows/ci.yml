@@ -231,6 +231,19 @@ jobs:
         run: env -u ONEDNN_MAX_CPU_ISA cargo test -p ac-e2e --test vllm -- --test-threads 1 --nocapture
       - name: Re-check regression (honest answers pass, another model, int8, int4 and a changed prompt fail)
         run: python scripts/calibrate-toploc.py --quick
+      # m6-toploc-gpu-calibration 1.6: the same bundle re-checked again on its own (as on another
+      # machine, in two shards) gives the outcomes of the one-machine run.
+      - name: A bundle re-checked on its own gives the same outcomes
+        run: |
+          for k in 0 1; do
+            python scripts/calibrate-toploc.py --recheck-only target/toploc-calibration --shard "$k/2" --out "target/toploc-split/$k"
+          done
+          python - <<'EOF'
+          import json
+          a = [json.load(open(f"target/toploc-split/{k}/calibration.json")) for k in (0, 1)]
+          json.dump({"samples": a[0]["samples"] + a[1]["samples"]}, open("target/toploc-split/both.json", "w"))
+          EOF
+          python scripts/calibrate-toploc.py --compare target/toploc-calibration/calibration.json target/toploc-split/both.json
       - name: Upload the re-check results
         if: always()
         uses: actions/upload-artifact@v4
