@@ -8,8 +8,9 @@
 # OpenMP, as vLLM's CPU wheels require) and the pins are exported to $GITHUB_ENV.
 # Requirements: bash, curl, git, sha256sum, a C++ compiler, network access.
 #
-# The wheel's SHA-256 and the model revision are pinned in plugins/vllm/ci/pins.env; an empty
-# or different pin fails the script after printing the value it found.
+# The wheel's SHA-256, the model revisions and the calibration models' snapshot digests are
+# pinned in plugins/vllm/ci/pins.env; an empty or different pin fails the script after printing
+# the value it found.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -88,8 +89,11 @@ fi
 (cd "$tmp/toploc" && "$py" -m pip install -q --no-build-isolation --no-deps .)
 
 # 5. The models, at their pinned revisions.
-"$py" -c "from huggingface_hub import snapshot_download; print(snapshot_download('$MODEL', revision='$revision'))"
-"$py" -c "from huggingface_hub import snapshot_download; print(snapshot_download('$CHEAT_MODEL', revision='$cheat_revision'))"
+# The two the re-check calibration uses are checked against their snapshot digests, as on a GPU
+# machine behind a mirror (scripts/gpu-calibration.sh); both pins are checked before failing.
+"$py" "$repo_root/scripts/verify-model.py" "$MODEL" "$revision" "${MODEL_SNAPSHOT_SHA256:-}" || failed=1
+"$py" "$repo_root/scripts/verify-model.py" "$CHEAT_MODEL" "$cheat_revision" "${CHEAT_MODEL_SNAPSHOT_SHA256:-}" || failed=1
+[ "$failed" = 0 ] || exit 1
 "$py" -c "from huggingface_hub import snapshot_download; print(snapshot_download('$EMBED_MODEL', revision='$embed_revision'))"
 
 # 6. Intel OpenMP for the CPU wheel, and a report of what was installed.
