@@ -28,11 +28,15 @@ kernels and attention backends on each: thresholds that hold between them hold f
 of providers. The RTX 5090 (compute capability 12.0) is the newest card the pinned PyTorch and
 vLLM build for; if a kernel were missing for it, `check` would show it within minutes. One card is enough (the model has 0.5B parameters; the script uses the first card).
 
-Rent both in the same region if you want to copy files between them directly. Expect about
+The two machines may be in different regions: only two bundle archives (tens of MB) travel
+between them, by `scp` over each machine's public SSH address, which works across regions. Expect about
 1.5–2 hours per machine, most of it the installation. The H800 costs several times the 5090
 (roughly ¥10–15/h against about ¥3–4/h; see the console for the current price), so set up and check the
 5090 first, and start the H800 once the 5090 has passed `check`. Shut a machine down (关机)
-whenever you pause: a stopped machine is not billed for its GPU and keeps its data disk.
+whenever you pause: a stopped machine is not billed for its GPU and keeps its data disk. When it
+is started again its GPU may be taken by someone else (AutoDL then offers only a mode without
+GPU), so keep the 5090 running until it has re-checked the H800's bundle; that is the order
+below.
 
 ## 2. Set up each machine
 
@@ -77,8 +81,8 @@ names.
 Then give each machine the other's bundle and re-check it:
 
 ```bash
-# on the 5090, with the H800's archive copied over (scp, the JupyterLab file browser, or
-# AutoDL's file storage /root/autodl-fs shared within a region):
+# on the 5090, with the H800's archive copied over (scp, or the JupyterLab file browser:
+# download it to your computer, upload it to the other machine):
 scripts/gpu-calibration.sh recheck /root/autodl-tmp/bundle-h800-…-seed12.tar.gz
 scripts/gpu-calibration.sh pack
 # and on the H800, with the 5090's archive:
@@ -88,7 +92,12 @@ scripts/gpu-calibration.sh pack
 
 A copy between two AutoDL machines: on the source machine,
 `scp -P <port> /root/autodl-tmp/agentcoin-gpu/out/bundle-*.tar.gz root@<host of the other machine>:/root/autodl-tmp/`
-(the port and host are in the other machine's SSH command on the console).
+(the port and host are in the other machine's SSH command on the console, e.g.
+`ssh -p 12345 root@connect.westb.seetacloud.com`; the password is asked once). This works
+between regions. If it does not, download the archive in JupyterLab's file browser and upload
+it to the other machine the same way. In order: the 5090 generates and re-checks its own
+bundle and sends it to the H800; the H800 generates, re-checks its own and the 5090's, and sends
+its bundle back; the 5090 re-checks it.
 
 The machines are not needed after this; shut them down.
 
