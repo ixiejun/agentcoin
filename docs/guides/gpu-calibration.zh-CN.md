@@ -106,7 +106,7 @@ scripts/gpu-calibration.sh pack
 
 ### 结束边界探测
 
-长 prompt 实验中，以 `stop` 结束的诚实回答复核时，最后一块比审计员复算的多一个位置（`gpu-exp-long-2026-10-07`）。怀疑的原因是 vLLM 在 GPU 上默认开启的异步调度：引擎在知道回答已经结束之前，就把结束符喂回了模型。`scripts/gpu-calibration.sh probe-stop`（几分钟，`setup` 之后即可运行）用同样的 prompt，分别在默认调度与关闭异步调度时生成，并统计每个回答的 decode 段数与“输出 token 数 − 1”是否相符；把输出发回即可（也保存在 `probe-stop-<gpu>.log`）。
+长 prompt 实验中，以 `stop` 结束的诚实回答复核时，最后一块比审计员复算的多一个位置（`gpu-exp-long-2026-10-07`）。`scripts/gpu-calibration.sh probe-stop`（几分钟，`setup` 之后即可运行）在 RTX 5090 与 H800 上查明了原因：vLLM 在 GPU 上默认开启的异步调度，在引擎得知回答已结束之前就把结束符喂回了模型，所以每个这样的回答都多出一个解码段（I-022）。现在提供者丢弃这一段，校准案例也遵循同一规则（OpenSpec 变更 `m6-toploc-async-stop`）；`check` 的插件检查会运行一批这样的回答，快速回归要求每个诚实回答都带证明。探测脚本保留，用于在其他引擎或 vLLM 版本上测量同样的现象。
 
 ## 各命令检查什么
 

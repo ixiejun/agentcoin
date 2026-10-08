@@ -103,14 +103,35 @@ fn mock(socket: PathBuf, mode: EngineMode, seed: u64) -> Config {
     }
 }
 
+/// How the prover's engine behaves.
+#[derive(Clone, Copy)]
+struct Prover {
+    /// The plugin's candidates make the case's proofs (else none).
+    proofs: bool,
+    /// The engine feeds the end token back (one decode segment more, as vLLM under
+    /// asynchronous scheduling; I-022).
+    fed_back: bool,
+}
+
 /// A provider (mock engine of `seed`) answers `words` with up to `max` tokens; the case of it.
 async fn answered(label: &str, seed: u64, words: &str, max: u32, proofs: bool) -> RecheckCase {
+    let prover = Prover {
+        proofs,
+        fed_back: false,
+    };
+    answer(label, seed, words, max, prover).await
+}
+
+/// [`answered`] with the given prover.
+async fn answer(label: &str, seed: u64, words: &str, max: u32, prover: Prover) -> RecheckCase {
     let d = dir(&format!("prover-{label}"));
     let socket = d.join("p.sock");
     let mut rx = prove_receiver(&socket).await;
-    let engine = spawn("127.0.0.1:0", mock(socket, EngineMode::Prove, seed))
-        .await
-        .unwrap();
+    let mut config = mock(socket, EngineMode::Prove, seed);
+    if let Some(plugin) = config.toploc.as_mut() {
+        plugin.end_fed_back = prover.fed_back;
+    }
+    let engine = spawn("127.0.0.1:0", config).await.unwrap();
     let messages = json!([{"role": "user", "content": words}]);
     let resp = Client::new()
         .unwrap()
@@ -142,7 +163,7 @@ async fn answered(label: &str, seed: u64, words: &str, max: u32, proofs: bool) -
             .unwrap()
             .into(),
         usage,
-        segments: proofs.then(|| {
+        segments: prover.proofs.then(|| {
             segments
                 .into_iter()
                 .map(|(phase, len, candidates)| InputSegment {
@@ -157,6 +178,7 @@ async fn answered(label: &str, seed: u64, words: &str, max: u32, proofs: bool) -
                 })
                 .collect()
         }),
+        engine_prompt_tokens: None,
     };
     std::fs::remove_dir_all(&d).unwrap();
     case_from(input).unwrap()
@@ -337,6 +359,24 @@ async fn a_changed_case_fails() {
         v.recheck(&proofs, QuantType::Bf16).await.verdict,
         Outcome::Fail(FailReason::CommitmentMismatch)
     );
+    std::fs::remove_dir_all(d).unwrap();
+}
+
+// m6-toploc-async-stop 2.3 / 3.1, scenario "结束符被喂回": the case of an answer whose engine fed
+// the end token back is built from the provider's fitted segments and passes the re-check, with
+// the proofs of an engine that did not.
+#[tokio::test]
+async fn an_end_token_fed_back_rechecks() {
+    let (v, d) = auditor("fed-back", 7).await;
+    let prover = Prover {
+        proofs: true,
+        fed_back: true,
+    };
+    let fed = answer("fed-back", 7, WORDS, 20, prover).await;
+    let plain = answered("fed-back-plain", 7, WORDS, 20, true).await;
+    assert_eq!(fed.toploc, plain.toploc);
+    let report = v.recheck(&fed, QuantType::Bf16).await;
+    assert_eq!(report.verdict, Outcome::Pass, "{report:?}");
     std::fs::remove_dir_all(d).unwrap();
 }
 

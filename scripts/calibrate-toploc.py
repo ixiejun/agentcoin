@@ -294,6 +294,7 @@ def generate(variant: str, count: int, seed: int, out: Path, min_words: int = 0)
     written = 0
     preempted = 0
     lengths = {}
+    unproven: dict[str, int] = {}
     for i, (o, (messages, _)) in enumerate(zip(outputs, prompts)):
         keys = [k for k in provider.segments if k == o.request_id or k.startswith(o.request_id + "-")]
         # The last requests of a batch get no end marker: the plugin sends it with the next step,
@@ -325,15 +326,28 @@ def generate(variant: str, count: int, seed: int, out: Path, min_words: int = 0)
             "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": len(c.token_ids)},
             "segments": segments,
         }
+        if variant == "prompt":
+            # The cheat reports the user's prompt tokens; its own code fits the segments to what
+            # its engine computed.
+            sample["engine_prompt_tokens"] = len(o.prompt_token_ids)
         made = subprocess.run(
-            [str(AUDITOR), "calibration-case"], input=json.dumps(sample).encode(), capture_output=True, check=True
+            [str(AUDITOR), "calibration-case"], input=json.dumps(sample).encode(), capture_output=True
         )
+        if made.returncode != 0:
+            # Segments that do not fit the usage: the provider would give no proof
+            # (m6-toploc-async-stop design D1). The reason holds counts only.
+            why = (made.stderr.decode(errors="replace").strip().splitlines() or ["?"])[-1]
+            unproven[why] = unproven.get(why, 0) + 1
+            continue
         (out / f"{variant}-{i:05d}.json").write_bytes(made.stdout)
         lengths[f"{variant}-{i:05d}.json"] = prompt_tokens
         written += 1
     # The prompt token count of every case (numbers only), for the statistics by prompt length.
     (out.parent / f"prompt-tokens-{variant}.json").write_text(json.dumps(lengths))
+    (out.parent / f"unproven-{variant}.json").write_text(json.dumps(unproven))
     print(f"{variant}: {written}/{count} cases", flush=True)
+    if unproven:
+        print(f"{variant}: {sum(unproven.values())} without proof at the prover: {unproven}", flush=True)
     if variant == "preempt":
         print(f"{variant}: {preempted} recomputed after preemption", flush=True)
 
@@ -893,9 +907,15 @@ def generate_bundle(out: Path, honest: int, cheat: int, seed: int, min_words: in
         lengths.update(json.loads(f.read_text()))
         f.unlink()
     (out / "prompt_tokens.json").write_text(json.dumps(lengths, sort_keys=True) + "\n")
+    unproven = {}
+    for v in VARIANTS:
+        f = out / f"unproven-{v}.json"
+        if f.exists():
+            unproven[v] = json.loads(f.read_text())
+            f.unlink()
     (out / "prover.json").write_text(json.dumps(
         {"seed": seed, "honest": honest, "cheat": cheat, "min_prompt_words": min_words,
-         "fingerprint": prints[0]}, indent=1) + "\n")
+         "unproven": unproven, "fingerprint": prints[0]}, indent=1) + "\n")
     write_manifest(out)
     print("prover:", json.dumps(prints[0]), flush=True)
     return 0
@@ -936,6 +956,7 @@ def recheck_bundle(bundle: Path, out: Path, shard: str | None = None) -> dict | 
     return {
         "seed": prover["seed"], "host": auditor["cpu"], "prover": prover["fingerprint"], "auditor": auditor,
         "min_prompt_words": prover.get("min_prompt_words", 0),
+        "unproven": prover.get("unproven", {}),
         "shard": shard or "0/1",
         "honest": sum(variant_of(n) == "honest" for n in names),
         "cheat": max([sum(variant_of(n) == v for n in names) for v in CHEATS] or [0]),
@@ -951,6 +972,25 @@ def same_outcomes(a: dict, b: dict) -> list[str]:
     left = {x["case"]: (x["outcome"], x["reason"]) for x in a["samples"]}
     right = {x["case"]: (x["outcome"], x["reason"]) for x in b["samples"]}
     return sorted(c for c in left.keys() | right.keys() if left.get(c) != right.get(c))
+
+
+def quick_failures(s: dict, unproven: dict, cheat: int) -> list[str]:
+    """The CI regression's verdict on a report's summary and the prover's answers without proof.
+    User decision (2026-10-01): an answer that cannot be re-tokenized is inconclusive, not a miss;
+    at most one per variant is tolerated, while any honest failure or cheating pass fails the
+    regression. An honest answer whose segments do not fit its usage (no proof at the provider,
+    m6-toploc-async-stop) fails it too."""
+    failures = []
+    h = s.get("honest", {}).get("outcomes", {})
+    if h.get("fail", 0) or h.get("inconclusive", 0) > 1:
+        failures.append(f"honest samples: {h}")
+    if unproven.get("honest"):
+        failures.append(f"honest answers without proof at the prover: {unproven['honest']}")
+    for v in CHEATS:
+        o = s.get(v, {}).get("outcomes", {})
+        if o.get("pass", 0) or o.get("inconclusive", 0) > 1:
+            failures.append(f"{v} samples: {o} of {cheat}")
+    return failures
 
 
 def leaked(logs: Path) -> list[str]:
@@ -1027,16 +1067,7 @@ def main() -> int:
 
     failures = leaked(out / "logs")
     if args.quick:
-        # User decision (2026-10-01): an answer that cannot be re-tokenized is inconclusive, not a
-        # miss; at most one per variant is tolerated, while any honest failure or cheating pass
-        # fails the regression.
-        h = s.get("honest", {}).get("outcomes", {})
-        if h.get("fail", 0) or h.get("inconclusive", 0) > 1:
-            failures.append(f"honest samples: {h}")
-        for v in CHEATS:
-            o = s.get(v, {}).get("outcomes", {})
-            if o.get("pass", 0) or o.get("inconclusive", 0) > 1:
-                failures.append(f"{v} samples: {o} of {cheat}")
+        failures += quick_failures(s, report.get("unproven", {}), cheat)
     print("FAILED:" if failures else "calibration done", *failures, sep="\n  ")
     return 1 if failures else 0
 

@@ -674,6 +674,21 @@ mod tests {
         out
     }
 
+    // The encoded size scripts/check-vllm-plugin.py reads the proof count from: 9 bytes of
+    // parameters, the count, then each proof's length and its 258 bytes.
+    #[test]
+    fn the_encoded_size_of_proofs() {
+        for chunks in [1usize, 3, 4] {
+            let p = ToplocProofs {
+                decode_batching_size: 32,
+                topk: 128,
+                skip_prefill: false,
+                proofs: vec![vec![0u8; PROOF_LEN]; chunks],
+            };
+            assert_eq!(p.encode().len(), 10 + 260 * chunks);
+        }
+    }
+
     // Spec market/provider-agent "带证明的收据": n − 1 decode segments are kept as they are.
     #[test]
     fn output_tokens_minus_one_decode_segments_are_kept() {

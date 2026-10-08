@@ -12,7 +12,10 @@ reference hook on the model's final norm (the activations the TOPLOC reference r
 3. on chunks without a tie at the k-th place they are byte-identical to the reference
    implementation's `build_proofs_bytes` (the reference leaves ties to `torch.topk`);
 4. a float16 model or prefix caching makes the engine fail to start;
-5. nothing of the prompt reaches the logs, and the plugin writes no file.
+5. nothing of the prompt reaches the logs, and the plugin writes no file;
+6. in a batch with the engine's default scheduling, every answer has output tokens − 1 decode
+   segments or, if the engine fed its end token back (asynchronous scheduling on GPUs, I-022),
+   exactly one more, and the provider's rule fits them to proofs of the output.
 
 Usage: scripts/check-vllm-plugin.py   (after scripts/setup-vllm-cpu.sh or
 scripts/gpu-calibration.sh setup, and with cargo; env AC_VLLM_MODEL, AC_VLLM_REVISION)
@@ -135,6 +138,74 @@ def rust_proofs(segments: list[dict]) -> list[str]:
     return json.loads(out.stdout)["proofs"]
 
 
+def auditor() -> list[str]:
+    """`ac-auditor`: the built binary (on a GPU machine possibly copied there), else cargo."""
+    built = REPO / "target" / "debug" / "ac-auditor"
+    if built.exists():
+        return [str(built)]
+    return ["cargo", "run", "-q", "-p", "ac-auditor", "--"]
+
+
+def stop_answers(llm, provider, hidden: int) -> None:
+    """m6-toploc-async-stop 3.3, spec market/engine-plugin "结束符被喂回": a batch of short
+    answers (they end with the end token) and long ones (cut by the length limit). An engine that
+    schedules asynchronously (vLLM's default on GPUs) feeds an answer's end token back before it
+    knows the answer ended, and the plugin sends that row too: each answer has n − 1 decode
+    segments or exactly one more. The provider's rule (`ac_market_proto::toploc::fit_segments`,
+    through `ac-auditor calibration-case`) fits them to n − 1 and the proofs to the output."""
+    from vllm import SamplingParams
+
+    short = ["Reply with the single word yes.", "What is 2 + 3? Answer with the number only.",
+             "Name the capital of France in one word.", "Say hello.", "Is water wet? Answer yes or no.",
+             "Write the word lighthouse and nothing else."]
+    long = ["Explain in detail how bread rises.", "Write a long story about a lighthouse keeper."]
+    prompts = [[{"role": "user", "content": p}] for p in short + long]
+    params = [SamplingParams(temperature=0, max_tokens=96) for _ in short] + \
+             [SamplingParams(temperature=0, max_tokens=24) for _ in long]
+    provider.segments.clear()
+    outputs = llm.chat(prompts, params, use_tqdm=False)
+    time.sleep(2)  # the sender thread drains its queue
+    counts = {"stop": [0, 0], "length": [0, 0]}  # [n − 1, one more]
+    bad = []
+    for o in outputs:
+        c = o.outputs[0]
+        segs = [x for x in provider.segments if x[0] == o.request_id or x[0].startswith(o.request_id + "-")]
+        decode = sum(1 for x in segs if x[1] == 1)
+        n = len(c.token_ids)
+        if decode == n - 1:
+            counts.setdefault(c.finish_reason, [0, 0])[0] += 1
+        elif decode == n:
+            counts.setdefault(c.finish_reason, [0, 0])[1] += 1
+        else:
+            bad.append(f"{c.finish_reason}: {decode} decode segments for {n} output tokens")
+            continue
+        sample = {
+            "model": "0x" + "71" * 32, "engine_model": "check", "messages": [], "output": "",
+            "finish_reason": c.finish_reason,
+            "usage": {"prompt_tokens": len(o.prompt_token_ids), "completion_tokens": n},
+            "segments": [{"phase": "prefill" if x[1] == 0 else "decode", "len": x[2], "candidates": x[3]}
+                         for x in segs],
+        }
+        made = subprocess.run([*auditor(), "calibration-case"], input=json.dumps(sample).encode(),
+                              capture_output=True, cwd=REPO)
+        if made.returncode != 0:
+            bad.append(f"{c.finish_reason}: the provider's rule refused them: "
+                       f"{made.stderr.decode(errors='replace').strip().splitlines()[-1:]}")
+            continue
+        proofs = json.loads(made.stdout).get("toploc")
+        chunks = 1 + (n - 1 + 31) // 32
+        if not proofs:
+            bad.append(f"{c.finish_reason}: no proofs for {n} output tokens")
+        elif len(bytes.fromhex(proofs)) != 10 + 260 * chunks:
+            # SCALE: two u32 and a bool (9 bytes), the proof count (1 byte below 64), then each
+            # proof's length (2 bytes) and its 258 bytes.
+            bad.append(f"{c.finish_reason}: not {chunks} proofs for {n} output tokens")
+    print(f"answers by finish reason, [decode segments n - 1, one more]: {counts}")
+    check(counts["stop"][0] + counts["stop"][1] > 0, "the batch has answers that end with the end token")
+    check(not bad, f"every answer's decode segments fit the provider's rule ({bad[:3]})")
+    check(counts["length"][1] == 0, "no answer cut by the length limit has a decode segment more")
+
+
 def refused(kwargs: str, needle: str) -> None:
     """A second engine with a bad configuration must fail to start, naming the reason."""
     code = (
@@ -255,6 +326,9 @@ def main() -> int:
         check(reference[i] == whole[i], f"chunk {i} equals the reference implementation")
     print(f"reference comparison: {compared} chunk(s) compared, {tied} with a tie at the k-th place skipped")
     check(len(reference) == len(whole), "the reference has as many chunks")
+
+    # 6. Answers that end with the end token, in a batch, with the engine's default scheduling.
+    stop_answers(llm, provider, hidden)
 
     # 4 and 5. Privacy.
     check(not any(MARKER in r for r in records), "no prompt content in the logs")

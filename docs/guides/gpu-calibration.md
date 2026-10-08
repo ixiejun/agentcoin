@@ -160,13 +160,15 @@ from the int8 cheat on and across GPUs. Each machine runs about 30 minutes (`MIN
 
 ### Stop-boundary probe
 
-In the long-prompt experiment, honest answers that end with `stop` re-check with a last chunk
-one position longer than the auditor recomputes (`gpu-exp-long-2026-10-07`). The suspected
-cause is vLLM's asynchronous scheduling, on by default on GPUs, feeding the end token back
-before the engine knows the answer ended. `scripts/gpu-calibration.sh probe-stop` (a few
-minutes, after `setup`) answers the same prompts with the default scheduling and with
-asynchronous scheduling off and counts each answer's decode segments against its output tokens
-− 1; send its output (also in `probe-stop-<gpu>.log`).
+In the long-prompt experiment, honest answers that end with `stop` re-checked with a last chunk
+one position longer than the auditor recomputes (`gpu-exp-long-2026-10-07`).
+`scripts/gpu-calibration.sh probe-stop` (a few minutes, after `setup`) showed why on an RTX 5090
+and an H800: vLLM's asynchronous scheduling, on by default on GPUs, feeds an answer's end token
+back before the engine knows the answer ended, so every such answer has one decode segment more
+(I-022). The provider now drops that segment, and the calibration's cases follow the same rule
+(OpenSpec change `m6-toploc-async-stop`); `check` runs a batch of such answers in the plugin
+check, and its quick regression requires every honest answer to come with a proof. The probe
+stays, to measure the same on another engine or vLLM version.
 
 ## What the commands check
 

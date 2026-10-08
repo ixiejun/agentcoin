@@ -57,6 +57,13 @@ prompt is a decode segment of its own, so the provider can rebuild the candidate
 that was never preempted. Requests that ask for several choices (`n > 1`) are refused by the
 gateway (issues I-009 to I-011 in `docs/issues.md` track what is left for later).
 
+On GPUs vLLM schedules asynchronously by default and feeds an answer's end token back before it
+knows the answer ended (m6-toploc-async-stop, I-022). The plugin sends that row like any other,
+so such an answer comes with one decode segment per output token; the provider drops the last
+one (it is the end token's row, which no proof covers). The plugin does not refuse asynchronous
+scheduling and needs no setting for it. `scripts/check-vllm-plugin.py` checks a batch of such
+answers.
+
 ## Install and run
 
 ```bash

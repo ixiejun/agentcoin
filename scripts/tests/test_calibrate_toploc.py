@@ -305,6 +305,35 @@ class PromptLengthTests(unittest.TestCase):
                                                   "prefill_mean_max": 1.562, "prefill_exp_max": 3})
 
 
+class QuickTests(unittest.TestCase):
+    """m6-toploc-async-stop 3.2: the CI regression's verdict, with the prover's answers without
+    proof."""
+
+    def summary(self, honest=None, cheat=None):
+        s = {"honest": {"outcomes": honest or {"pass": 48, "fail": 0, "inconclusive": 0}}}
+        for v in cal.CHEATS:
+            s[v] = {"outcomes": cheat or {"pass": 0, "fail": 8, "inconclusive": 0}}
+        return s
+
+    def test_a_clean_run_passes(self):
+        self.assertEqual(cal.quick_failures(self.summary(), {}, 8), [])
+        self.assertEqual(cal.quick_failures(self.summary(), {"honest": {}}, 8), [])
+
+    def test_honest_answers_without_proof_fail_it(self):
+        reasons = {"the segments do not fit the usage: 11 decode segments where the output calls for 9": 1}
+        failures = cal.quick_failures(self.summary(), {"honest": reasons}, 8)
+        self.assertEqual(len(failures), 1)
+        self.assertIn("without proof", failures[0])
+        # A cheat the prover could not prove is only counted (it is not re-checked).
+        self.assertEqual(cal.quick_failures(self.summary(), {"swap": reasons}, 8), [])
+
+    def test_outcomes(self):
+        self.assertTrue(cal.quick_failures(self.summary(honest={"pass": 47, "fail": 1}), {}, 8))
+        self.assertTrue(cal.quick_failures(self.summary(honest={"pass": 46, "inconclusive": 2}), {}, 8))
+        self.assertFalse(cal.quick_failures(self.summary(honest={"pass": 47, "inconclusive": 1}), {}, 8))
+        self.assertTrue(cal.quick_failures(self.summary(cheat={"pass": 1, "fail": 7}), {}, 8))
+
+
 class WorkflowTests(unittest.TestCase):
     """2.1: the calibration workflow and plugins/vllm/ci/calibration.env agree."""
 

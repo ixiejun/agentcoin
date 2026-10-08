@@ -5,7 +5,7 @@
 use ac_crypto::OsRng;
 use ac_crypto::SigAlg;
 use ac_crypto::sig::{SecretSeed, SigningKey};
-use ac_market_proto::toploc::{MARKET_PARAMS, ToplocProofs};
+use ac_market_proto::toploc::{MARKET_PARAMS, ToplocProofs, fit_segments};
 use ac_primitives::market::receipt::RECEIPT_CONTEXT;
 use ac_primitives::market::work::JobKind;
 use ac_primitives::market::{MicroUsd, ReceiptBody, SignedReceipt};
@@ -49,6 +49,11 @@ pub struct CalibrationInput {
     pub usage: CaseUsage,
     /// The plugin's segments; none for an inference without proofs.
     pub segments: Option<Vec<InputSegment>>,
+    /// The prompt tokens the engine computed, when the provider reports another count in
+    /// `usage` (the calibration's hidden-prompt cheat): its segments are fitted to what the
+    /// engine computed, as a cheating provider's own code would.
+    #[serde(default)]
+    pub engine_prompt_tokens: Option<u32>,
 }
 
 /// The re-check case of `input`: proofs built from its segments (none if there are none or
@@ -56,7 +61,8 @@ pub struct CalibrationInput {
 ///
 /// # Errors
 ///
-/// Unknown phases, a bad model ID, randomness or signing failures.
+/// Unknown phases, segments that do not fit the usage (as a provider would give no proof), a bad
+/// model ID, randomness or signing failures.
 pub fn case_from(input: CalibrationInput) -> Result<RecheckCase> {
     let segments = input
         .segments
@@ -82,6 +88,16 @@ pub fn case_from(input: CalibrationInput) -> Result<RecheckCase> {
                     })
                 })
                 .collect::<Result<Vec<_>>>()
+        })
+        .transpose()?;
+    // As the provider does (m6-toploc-async-stop design D1): segments that do not fit the usage
+    // make no case, and an end token fed back (one decode segment more) is dropped.
+    let segments = segments
+        .map(|s| {
+            let prompt = input
+                .engine_prompt_tokens
+                .unwrap_or(input.usage.prompt_tokens);
+            fit(s, prompt, input.usage.completion_tokens)
         })
         .transpose()?;
     let proofs = segments
@@ -135,6 +151,23 @@ pub fn case_from(input: CalibrationInput) -> Result<RecheckCase> {
     })
 }
 
+/// The segments fitted to the usage by the provider's rule, the hidden size read from the
+/// prefill (its values are the prompt tokens times the hidden size).
+fn fit(segments: Vec<Segment>, prompt_tokens: u32, completion_tokens: u32) -> Result<Vec<Segment>> {
+    let prefill: u64 = segments
+        .iter()
+        .take_while(|s| s.phase == Phase::Prefill)
+        .map(|s| u64::from(s.len))
+        .sum();
+    let hidden = prefill
+        .checked_div(u64::from(prompt_tokens))
+        .filter(|h| h.checked_mul(u64::from(prompt_tokens)) == Some(prefill))
+        .and_then(|h| u32::try_from(h).ok())
+        .context("the prefill segments do not cover the prompt")?;
+    fit_segments(segments, prompt_tokens, completion_tokens, hidden)
+        .map_err(|e| anyhow::anyhow!("the segments do not fit the usage: {e}"))
+}
+
 /// [`case_from`] on JSON text.
 ///
 /// # Errors
@@ -142,4 +175,42 @@ pub fn case_from(input: CalibrationInput) -> Result<RecheckCase> {
 /// Malformed JSON and the errors of [`case_from`].
 pub fn case_from_json(text: &str) -> Result<RecheckCase> {
     case_from(serde_json::from_str(text).context("calibration input")?)
+}
+
+#[cfg(test)]
+mod tests {
+    // Test code: unwrap and indexing make failures point at the case.
+    #![allow(clippy::unwrap_used, clippy::indexing_slicing)]
+    use super::*;
+
+    const HIDDEN: u32 = 256;
+
+    fn segs(prompt: u32, decode: usize) -> Vec<Segment> {
+        let mut out = vec![Segment {
+            phase: Phase::Prefill,
+            len: prompt * HIDDEN,
+            candidates: Vec::new(),
+        }];
+        out.extend((0..decode).map(|_| Segment {
+            phase: Phase::Decode,
+            len: HIDDEN,
+            candidates: Vec::new(),
+        }));
+        out
+    }
+
+    // m6-toploc-async-stop 3.1: as the provider: n − 1 kept, one more dropped, others refused.
+    #[test]
+    fn segments_are_fitted_as_the_provider_does() {
+        assert_eq!(fit(segs(4, 9), 4, 10).unwrap().len(), 10);
+        let fed = fit(segs(4, 10), 4, 10).unwrap();
+        assert_eq!(fed.len(), 10);
+        assert_eq!(fed, segs(4, 9));
+        let err = fit(segs(4, 11), 4, 10).unwrap_err().to_string();
+        assert!(
+            err.contains("11 decode segments where the output calls for 9"),
+            "{err}"
+        );
+        assert!(fit(segs(4, 9), 5, 10).is_err());
+    }
 }
