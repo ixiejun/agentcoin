@@ -1,0 +1,8642 @@
+{
+ "seeds": [
+  11,
+  12
+ ],
+ "honest": 16000,
+ "cheat": 600,
+ "thresholds_versions": [
+  3
+ ],
+ "fingerprints": {
+  "NVIDIA H800 PCIe": [
+   {
+    "cpu": {
+     "model": "Intel(R) Xeon(R) Platinum 8458P",
+     "flags": [
+      "avx2",
+      "avx512f",
+      "avx512_bf16",
+      "amx_bf16",
+      "amx_tile",
+      "amx_int8"
+     ],
+     "cpus": 176,
+     "onednn_max_cpu_isa": ""
+    },
+    "gpu": {
+     "name": "NVIDIA H800 PCIe",
+     "capability": [
+      9,
+      0
+     ],
+     "memory_gib": 79.2,
+     "count": 1,
+     "driver": "580.82.07",
+     "cuda": "13.0",
+     "cudnn": 92000
+    },
+    "torch": "2.13.0",
+    "vllm": "0.30.0",
+    "plugin": "0.1.0",
+    "model": "Qwen/Qwen2.5-0.5B-Instruct@7ae557604adf67be50417f59c2c2f167def9a775",
+    "cheat_model": "Qwen/Qwen2.5-0.5B@060db6499f32faf8b98477b0a26969ef7d8b9987"
+   }
+  ],
+  "NVIDIA GeForce RTX 5090": [
+   {
+    "cpu": {
+     "model": "Intel(R) Xeon(R) Gold 6459C",
+     "flags": [
+      "avx2",
+      "avx512f",
+      "avx512_bf16",
+      "amx_bf16",
+      "amx_tile",
+      "amx_int8"
+     ],
+     "cpus": 128,
+     "onednn_max_cpu_isa": ""
+    },
+    "gpu": {
+     "name": "NVIDIA GeForce RTX 5090",
+     "capability": [
+      12,
+      0
+     ],
+     "memory_gib": 31.4,
+     "count": 1,
+     "driver": "580.105.08",
+     "cuda": "13.0",
+     "cudnn": 92000
+    },
+    "torch": "2.13.0",
+    "vllm": "0.30.0",
+    "plugin": "0.1.0",
+    "model": "Qwen/Qwen2.5-0.5B-Instruct@7ae557604adf67be50417f59c2c2f167def9a775",
+    "cheat_model": "Qwen/Qwen2.5-0.5B@060db6499f32faf8b98477b0a26969ef7d8b9987"
+   }
+  ]
+ },
+ "cells": {
+  "NVIDIA GeForce RTX 5090 \u2192 NVIDIA GeForce RTX 5090": {
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "honest": {
+    "samples": 4000,
+    "pass": 3965,
+    "fail": 9,
+    "inconclusive": 26,
+    "inexact_prefill": 3974
+   },
+   "cheats": {
+    "int4": {
+     "samples": 150,
+     "missed": 0,
+     "inconclusive": 2
+    },
+    "int8": {
+     "samples": 150,
+     "missed": 31,
+     "inconclusive": 0
+    },
+    "prompt": {
+     "samples": 150,
+     "missed": 0,
+     "inconclusive": 0
+    },
+    "swap": {
+     "samples": 150,
+     "missed": 0,
+     "inconclusive": 0
+    }
+   },
+   "by_band": {
+    "inside": {
+     "honest": {
+      "samples": 3202,
+      "pass": 3173,
+      "fail": 9,
+      "inconclusive": 20,
+      "inexact_prefill": 3182
+     },
+     "cheats": {
+      "int4": {
+       "samples": 121,
+       "missed": 0,
+       "inconclusive": 1
+      },
+      "int8": {
+       "samples": 119,
+       "missed": 0,
+       "inconclusive": 0
+      },
+      "prompt": {
+       "samples": 111,
+       "missed": 0,
+       "inconclusive": 0
+      },
+      "swap": {
+       "samples": 124,
+       "missed": 0,
+       "inconclusive": 0
+      }
+     }
+    },
+    "outside": {
+     "honest": {
+      "samples": 798,
+      "pass": 792,
+      "fail": 0,
+      "inconclusive": 6,
+      "inexact_prefill": 792
+     },
+     "cheats": {
+      "int4": {
+       "samples": 29,
+       "missed": 0,
+       "inconclusive": 1
+      },
+      "int8": {
+       "samples": 31,
+       "missed": 31,
+       "inconclusive": 0
+      },
+      "prompt": {
+       "samples": 39,
+       "missed": 0,
+       "inconclusive": 0
+      },
+      "swap": {
+       "samples": 26,
+       "missed": 0,
+       "inconclusive": 0
+      }
+     }
+    }
+   }
+  },
+  "NVIDIA GeForce RTX 5090 \u2192 NVIDIA H800 PCIe": {
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "honest": {
+    "samples": 4000,
+    "pass": 3965,
+    "fail": 9,
+    "inconclusive": 26,
+    "inexact_prefill": 3974
+   },
+   "cheats": {
+    "int4": {
+     "samples": 150,
+     "missed": 0,
+     "inconclusive": 2
+    },
+    "int8": {
+     "samples": 150,
+     "missed": 31,
+     "inconclusive": 0
+    },
+    "prompt": {
+     "samples": 150,
+     "missed": 0,
+     "inconclusive": 0
+    },
+    "swap": {
+     "samples": 150,
+     "missed": 0,
+     "inconclusive": 0
+    }
+   },
+   "by_band": {
+    "inside": {
+     "honest": {
+      "samples": 3202,
+      "pass": 3173,
+      "fail": 9,
+      "inconclusive": 20,
+      "inexact_prefill": 3182
+     },
+     "cheats": {
+      "int4": {
+       "samples": 121,
+       "missed": 0,
+       "inconclusive": 1
+      },
+      "int8": {
+       "samples": 119,
+       "missed": 0,
+       "inconclusive": 0
+      },
+      "prompt": {
+       "samples": 111,
+       "missed": 0,
+       "inconclusive": 0
+      },
+      "swap": {
+       "samples": 124,
+       "missed": 0,
+       "inconclusive": 0
+      }
+     }
+    },
+    "outside": {
+     "honest": {
+      "samples": 798,
+      "pass": 792,
+      "fail": 0,
+      "inconclusive": 6,
+      "inexact_prefill": 792
+     },
+     "cheats": {
+      "int4": {
+       "samples": 29,
+       "missed": 0,
+       "inconclusive": 1
+      },
+      "int8": {
+       "samples": 31,
+       "missed": 31,
+       "inconclusive": 0
+      },
+      "prompt": {
+       "samples": 39,
+       "missed": 0,
+       "inconclusive": 0
+      },
+      "swap": {
+       "samples": 26,
+       "missed": 0,
+       "inconclusive": 0
+      }
+     }
+    }
+   }
+  },
+  "NVIDIA H800 PCIe \u2192 NVIDIA GeForce RTX 5090": {
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "honest": {
+    "samples": 4000,
+    "pass": 3954,
+    "fail": 14,
+    "inconclusive": 32,
+    "inexact_prefill": 3968
+   },
+   "cheats": {
+    "int4": {
+     "samples": 150,
+     "missed": 0,
+     "inconclusive": 3
+    },
+    "int8": {
+     "samples": 150,
+     "missed": 32,
+     "inconclusive": 1
+    },
+    "prompt": {
+     "samples": 150,
+     "missed": 0,
+     "inconclusive": 0
+    },
+    "swap": {
+     "samples": 150,
+     "missed": 0,
+     "inconclusive": 2
+    }
+   },
+   "by_band": {
+    "inside": {
+     "honest": {
+      "samples": 3142,
+      "pass": 3105,
+      "fail": 13,
+      "inconclusive": 24,
+      "inexact_prefill": 3118
+     },
+     "cheats": {
+      "int4": {
+       "samples": 120,
+       "missed": 0,
+       "inconclusive": 3
+      },
+      "int8": {
+       "samples": 118,
+       "missed": 0,
+       "inconclusive": 1
+      },
+      "prompt": {
+       "samples": 119,
+       "missed": 0,
+       "inconclusive": 0
+      },
+      "swap": {
+       "samples": 120,
+       "missed": 0,
+       "inconclusive": 2
+      }
+     }
+    },
+    "outside": {
+     "honest": {
+      "samples": 858,
+      "pass": 849,
+      "fail": 1,
+      "inconclusive": 8,
+      "inexact_prefill": 850
+     },
+     "cheats": {
+      "int4": {
+       "samples": 30,
+       "missed": 0,
+       "inconclusive": 0
+      },
+      "int8": {
+       "samples": 32,
+       "missed": 32,
+       "inconclusive": 0
+      },
+      "prompt": {
+       "samples": 31,
+       "missed": 0,
+       "inconclusive": 0
+      },
+      "swap": {
+       "samples": 30,
+       "missed": 0,
+       "inconclusive": 0
+      }
+     }
+    }
+   }
+  },
+  "NVIDIA H800 PCIe \u2192 NVIDIA H800 PCIe": {
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "honest": {
+    "samples": 4000,
+    "pass": 3959,
+    "fail": 9,
+    "inconclusive": 32,
+    "inexact_prefill": 3968
+   },
+   "cheats": {
+    "int4": {
+     "samples": 150,
+     "missed": 0,
+     "inconclusive": 3
+    },
+    "int8": {
+     "samples": 150,
+     "missed": 33,
+     "inconclusive": 1
+    },
+    "prompt": {
+     "samples": 150,
+     "missed": 0,
+     "inconclusive": 0
+    },
+    "swap": {
+     "samples": 150,
+     "missed": 0,
+     "inconclusive": 2
+    }
+   },
+   "by_band": {
+    "inside": {
+     "honest": {
+      "samples": 3142,
+      "pass": 3110,
+      "fail": 8,
+      "inconclusive": 24,
+      "inexact_prefill": 3118
+     },
+     "cheats": {
+      "int4": {
+       "samples": 120,
+       "missed": 0,
+       "inconclusive": 3
+      },
+      "int8": {
+       "samples": 118,
+       "missed": 1,
+       "inconclusive": 1
+      },
+      "prompt": {
+       "samples": 119,
+       "missed": 0,
+       "inconclusive": 0
+      },
+      "swap": {
+       "samples": 120,
+       "missed": 0,
+       "inconclusive": 2
+      }
+     }
+    },
+    "outside": {
+     "honest": {
+      "samples": 858,
+      "pass": 849,
+      "fail": 1,
+      "inconclusive": 8,
+      "inexact_prefill": 850
+     },
+     "cheats": {
+      "int4": {
+       "samples": 30,
+       "missed": 0,
+       "inconclusive": 0
+      },
+      "int8": {
+       "samples": 32,
+       "missed": 32,
+       "inconclusive": 0
+      },
+      "prompt": {
+       "samples": 31,
+       "missed": 0,
+       "inconclusive": 0
+      },
+      "swap": {
+       "samples": 30,
+       "missed": 0,
+       "inconclusive": 0
+      }
+     }
+    }
+   }
+  }
+ },
+ "summary": {
+  "honest": {
+   "aggregate": {
+    "mean": {
+     "min": 0.5254901960784314,
+     "p01": 0.6299212598425197,
+     "p50": 0.906930693069307,
+     "p99": 1.9595687331536389,
+     "max": 5.702702702702703
+    },
+    "exp_rate": {
+     "min": 0.0,
+     "p01": 0.00390625,
+     "p50": 0.0140625,
+     "p99": 0.033854166666666664,
+     "max": 0.2515625
+    },
+    "inexact": {
+     "min": 1.0,
+     "p01": 1.0,
+     "p50": 1.0,
+     "p99": 1.0,
+     "max": 1.0
+    },
+    "prefill_mean": {
+     "min": 0.2661290322580645,
+     "p01": 0.3412698412698413,
+     "p50": 0.5196850393700787,
+     "p99": 2.2992125984251968,
+     "max": 3.87603305785124
+    }
+   },
+   "worst_chunks": [
+    {
+     "mean": 27.733333333333334,
+     "exp": 83,
+     "chunk": 1,
+     "chunks": 5,
+     "mant_count": 45
+    },
+    {
+     "mean": 27.23913043478261,
+     "exp": 82,
+     "chunk": 1,
+     "chunks": 5,
+     "mant_count": 46
+    },
+    {
+     "mean": 25.013157894736842,
+     "exp": 52,
+     "chunk": 3,
+     "chunks": 5,
+     "mant_count": 76
+    },
+    {
+     "mean": 24.55263157894737,
+     "exp": 52,
+     "chunk": 3,
+     "chunks": 5,
+     "mant_count": 76
+    },
+    {
+     "mean": 13.689655172413794,
+     "exp": 70,
+     "chunk": 2,
+     "chunks": 5,
+     "mant_count": 58
+    }
+   ],
+   "samples": 16000,
+   "outcomes": {
+    "pass": 15843,
+    "fail": 41,
+    "inconclusive": 116
+   },
+   "inconclusive_reasons": [
+    "tokens cannot be re-created"
+   ],
+   "worst_chunk": {
+    "exp": {
+     "min": 0,
+     "p01": 1,
+     "p50": 3,
+     "p99": 7,
+     "max": 83
+    },
+    "mean": {
+     "min": 0.6015625,
+     "p01": 0.7874015748031497,
+     "p50": 1.1811023622047243,
+     "p99": 2.5416666666666665,
+     "max": 27.733333333333334
+    },
+    "median": {
+     "min": 0,
+     "p01": 1,
+     "p50": 1,
+     "p99": 2,
+     "max": 25
+    }
+   }
+  },
+  "swap": {
+   "aggregate": {
+    "mean": {
+     "min": 10.328125,
+     "p01": 10.846153846153847,
+     "p50": 15.45011086474501,
+     "p99": 25.06122448979592,
+     "max": 30.504347826086956
+    },
+    "exp_rate": {
+     "min": 0.17447916666666666,
+     "p01": 0.18125,
+     "p50": 0.309375,
+     "p99": 0.4895833333333333,
+     "max": 0.55078125
+    },
+    "inexact": {
+     "min": 1.0,
+     "p01": 1.0,
+     "p50": 1.0,
+     "p99": 1.0,
+     "max": 1.0
+    },
+    "prefill_mean": {
+     "min": 4.366071428571429,
+     "p01": 5.158415841584159,
+     "p50": 7.988636363636363,
+     "p99": 20.140625,
+     "max": 26.70689655172414
+    }
+   },
+   "worst_chunks": [
+    {
+     "mean": 45.4054054054054,
+     "exp": 91,
+     "chunk": 2,
+     "chunks": 4,
+     "mant_count": 37
+    },
+    {
+     "mean": 44.361111111111114,
+     "exp": 92,
+     "chunk": 2,
+     "chunks": 4,
+     "mant_count": 36
+    },
+    {
+     "mean": 41.24590163934426,
+     "exp": 67,
+     "chunk": 1,
+     "chunks": 3,
+     "mant_count": 61
+    },
+    {
+     "mean": 40.442622950819676,
+     "exp": 67,
+     "chunk": 1,
+     "chunks": 3,
+     "mant_count": 61
+    },
+    {
+     "mean": 38.732394366197184,
+     "exp": 57,
+     "chunk": 1,
+     "chunks": 3,
+     "mant_count": 71
+    }
+   ],
+   "samples": 600,
+   "outcomes": {
+    "pass": 0,
+    "fail": 596,
+    "inconclusive": 4
+   },
+   "inconclusive_reasons": [
+    "tokens cannot be re-created"
+   ],
+   "worst_chunk": {
+    "exp": {
+     "min": 25,
+     "p01": 32,
+     "p50": 51,
+     "p99": 82,
+     "max": 92
+    },
+    "mean": {
+     "min": 13.169811320754716,
+     "p01": 14.242424242424242,
+     "p50": 21.944444444444443,
+     "p99": 37.24590163934426,
+     "max": 45.4054054054054
+    },
+    "median": {
+     "min": 10,
+     "p01": 10,
+     "p50": 17,
+     "p99": 35,
+     "max": 40
+    }
+   }
+  },
+  "int8": {
+   "aggregate": {
+    "mean": {
+     "min": 1.3994638069705094,
+     "p01": 1.5504,
+     "p50": 2.2123655913978495,
+     "p99": 3.459016393442623,
+     "max": 3.800829875518672
+    },
+    "exp_rate": {
+     "min": 0.0078125,
+     "p01": 0.01171875,
+     "p50": 0.03125,
+     "p99": 0.05859375,
+     "max": 0.0703125
+    },
+    "inexact": {
+     "min": 1.0,
+     "p01": 1.0,
+     "p50": 1.0,
+     "p99": 1.0,
+     "max": 1.0
+    },
+    "prefill_mean": {
+     "min": 0.744,
+     "p01": 0.832,
+     "p50": 1.26890756302521,
+     "p99": 3.448,
+     "max": 4.571428571428571
+    }
+   },
+   "worst_chunks": [
+    {
+     "mean": 7.991525423728813,
+     "exp": 10,
+     "chunk": 2,
+     "chunks": 3,
+     "mant_count": 118
+    },
+    {
+     "mean": 6.446280991735537,
+     "exp": 7,
+     "chunk": 2,
+     "chunks": 3,
+     "mant_count": 121
+    },
+    {
+     "mean": 5.82051282051282,
+     "exp": 11,
+     "chunk": 1,
+     "chunks": 2,
+     "mant_count": 117
+    },
+    {
+     "mean": 5.466666666666667,
+     "exp": 8,
+     "chunk": 1,
+     "chunks": 5,
+     "mant_count": 120
+    },
+    {
+     "mean": 5.34453781512605,
+     "exp": 9,
+     "chunk": 1,
+     "chunks": 2,
+     "mant_count": 119
+    }
+   ],
+   "samples": 600,
+   "outcomes": {
+    "pass": 127,
+    "fail": 471,
+    "inconclusive": 2
+   },
+   "inconclusive_reasons": [
+    "tokens cannot be re-created"
+   ],
+   "worst_chunk": {
+    "exp": {
+     "min": 1,
+     "p01": 2,
+     "p50": 6,
+     "p99": 11,
+     "max": 13
+    },
+    "mean": {
+     "min": 1.5080645161290323,
+     "p01": 1.872,
+     "p50": 2.9274193548387095,
+     "p99": 5.258333333333334,
+     "max": 7.991525423728813
+    },
+    "median": {
+     "min": 1,
+     "p01": 1,
+     "p50": 2,
+     "p99": 4,
+     "max": 7
+    }
+   }
+  },
+  "int4": {
+   "aggregate": {
+    "mean": {
+     "min": 12.38659793814433,
+     "p01": 12.877450980392156,
+     "p50": 17.06006006006006,
+     "p99": 22.95195195195195,
+     "max": 27.335802469135803
+    },
+    "exp_rate": {
+     "min": 0.17447916666666666,
+     "p01": 0.205078125,
+     "p50": 0.2859375,
+     "p99": 0.390625,
+     "max": 0.4234375
+    },
+    "inexact": {
+     "min": 1.0,
+     "p01": 1.0,
+     "p50": 1.0,
+     "p99": 1.0,
+     "max": 1.0
+    },
+    "prefill_mean": {
+     "min": 8.31132075471698,
+     "p01": 8.673913043478262,
+     "p50": 11.907216494845361,
+     "p99": 22.776470588235295,
+     "max": 23.702380952380953
+    }
+   },
+   "worst_chunks": [
+    {
+     "mean": 32.75308641975309,
+     "exp": 47,
+     "chunk": 1,
+     "chunks": 3,
+     "mant_count": 81
+    },
+    {
+     "mean": 32.44444444444444,
+     "exp": 47,
+     "chunk": 1,
+     "chunks": 3,
+     "mant_count": 81
+    },
+    {
+     "mean": 31.666666666666668,
+     "exp": 41,
+     "chunk": 3,
+     "chunks": 5,
+     "mant_count": 87
+    },
+    {
+     "mean": 31.61842105263158,
+     "exp": 52,
+     "chunk": 3,
+     "chunks": 4,
+     "mant_count": 76
+    },
+    {
+     "mean": 31.584415584415584,
+     "exp": 51,
+     "chunk": 3,
+     "chunks": 4,
+     "mant_count": 77
+    }
+   ],
+   "samples": 600,
+   "outcomes": {
+    "pass": 0,
+    "fail": 590,
+    "inconclusive": 10
+   },
+   "inconclusive_reasons": [
+    "tokens cannot be re-created"
+   ],
+   "worst_chunk": {
+    "exp": {
+     "min": 24,
+     "p01": 28,
+     "p50": 45,
+     "p99": 70,
+     "max": 78
+    },
+    "mean": {
+     "min": 14.6,
+     "p01": 15.021978021978022,
+     "p50": 21.384615384615383,
+     "p99": 30.93103448275862,
+     "max": 32.75308641975309
+    },
+    "median": {
+     "min": 11,
+     "p01": 11,
+     "p50": 17,
+     "p99": 28,
+     "max": 30
+    }
+   }
+  },
+  "prompt": {
+   "aggregate": {
+    "mean": {
+     "min": 4.121588089330025,
+     "p01": 4.482109227871939,
+     "p50": 10.595419847328245,
+     "p99": 20.228448275862068,
+     "max": 25.762376237623762
+    },
+    "exp_rate": {
+     "min": 0.1484375,
+     "p01": 0.16875,
+     "p50": 0.28125,
+     "p99": 0.53515625,
+     "max": 0.60546875
+    },
+    "inexact": {
+     "min": 1.0,
+     "p01": 1.0,
+     "p50": 1.0,
+     "p99": 1.0,
+     "max": 1.0
+    },
+    "prefill_mean": {
+     "min": 8.232558139534884,
+     "p01": 8.655172413793103,
+     "p50": 16.928571428571427,
+     "p99": 27.57894736842105,
+     "max": 31.41176470588235
+    }
+   },
+   "worst_chunks": [
+    {
+     "mean": 31.41176470588235,
+     "exp": 77,
+     "chunk": 0,
+     "chunks": 2,
+     "mant_count": 51
+    },
+    {
+     "mean": 31.294117647058822,
+     "exp": 77,
+     "chunk": 0,
+     "chunks": 2,
+     "mant_count": 51
+    },
+    {
+     "mean": 29.914285714285715,
+     "exp": 58,
+     "chunk": 1,
+     "chunks": 2,
+     "mant_count": 70
+    },
+    {
+     "mean": 28.8,
+     "exp": 78,
+     "chunk": 0,
+     "chunks": 4,
+     "mant_count": 50
+    },
+    {
+     "mean": 28.54,
+     "exp": 78,
+     "chunk": 0,
+     "chunks": 4,
+     "mant_count": 50
+    }
+   ],
+   "samples": 600,
+   "outcomes": {
+    "pass": 0,
+    "fail": 600,
+    "inconclusive": 0
+   },
+   "inconclusive_reasons": [],
+   "worst_chunk": {
+    "exp": {
+     "min": 56,
+     "p01": 63,
+     "p50": 82,
+     "p99": 108,
+     "max": 109
+    },
+    "mean": {
+     "min": 8.58974358974359,
+     "p01": 9.357142857142858,
+     "p50": 17.511627906976745,
+     "p99": 28.133333333333333,
+     "max": 31.41176470588235
+    },
+    "median": {
+     "min": 5,
+     "p01": 6,
+     "p50": 14,
+     "p99": 27,
+     "max": 30
+    }
+   }
+  }
+ },
+ "by_prompt_length": {
+  "NVIDIA GeForce RTX 5090 \u2192 NVIDIA GeForce RTX 5090": {
+   "128-255": {
+    "honest": {
+     "samples": 2435,
+     "prefill_mean_min": 0.328,
+     "prefill_mean_median": 0.535,
+     "prefill_mean_max": 1.362,
+     "prefill_exp_max": 7
+    },
+    "int4": {
+     "samples": 92,
+     "prefill_mean_min": 8.791,
+     "prefill_mean_median": 11.608,
+     "prefill_mean_max": 16.821,
+     "prefill_exp_max": 41
+    },
+    "int8": {
+     "samples": 94,
+     "prefill_mean_min": 0.992,
+     "prefill_mean_median": 1.317,
+     "prefill_mean_max": 1.661,
+     "prefill_exp_max": 8
+    },
+    "prompt": {
+     "samples": 93,
+     "prefill_mean_min": 9.115,
+     "prefill_mean_median": 18.7,
+     "prefill_mean_max": 31.412,
+     "prefill_exp_max": 95
+    },
+    "swap": {
+     "samples": 94,
+     "prefill_mean_min": 5.31,
+     "prefill_mean_median": 8.112,
+     "prefill_mean_max": 12.643,
+     "prefill_exp_max": 44
+    }
+   },
+   "64-127": {
+    "honest": {
+     "samples": 297,
+     "prefill_mean_min": 0.544,
+     "prefill_mean_median": 1.144,
+     "prefill_mean_max": 3.876,
+     "prefill_exp_max": 11
+    },
+    "int4": {
+     "samples": 8,
+     "prefill_mean_min": 11.082,
+     "prefill_mean_median": 19.494,
+     "prefill_mean_max": 23.702,
+     "prefill_exp_max": 48
+    },
+    "int8": {
+     "samples": 16,
+     "prefill_mean_min": 1.64,
+     "prefill_mean_median": 3.016,
+     "prefill_mean_max": 3.448,
+     "prefill_exp_max": 10
+    },
+    "prompt": {
+     "samples": 12,
+     "prefill_mean_min": 15.767,
+     "prefill_mean_median": 23.132,
+     "prefill_mean_max": 25.875,
+     "prefill_exp_max": 102
+    },
+    "swap": {
+     "samples": 10,
+     "prefill_mean_min": 12.347,
+     "prefill_mean_median": 14.811,
+     "prefill_mean_max": 25.0,
+     "prefill_exp_max": 70
+    }
+   },
+   ">=256": {
+    "honest": {
+     "samples": 1167,
+     "prefill_mean_min": 0.346,
+     "prefill_mean_median": 0.532,
+     "prefill_mean_max": 1.405,
+     "prefill_exp_max": 6
+    },
+    "int4": {
+     "samples": 42,
+     "prefill_mean_min": 9.759,
+     "prefill_mean_median": 12.694,
+     "prefill_mean_max": 17.04,
+     "prefill_exp_max": 34
+    },
+    "int8": {
+     "samples": 37,
+     "prefill_mean_min": 0.832,
+     "prefill_mean_median": 1.12,
+     "prefill_mean_max": 2.017,
+     "prefill_exp_max": 7
+    },
+    "prompt": {
+     "samples": 40,
+     "prefill_mean_min": 8.233,
+     "prefill_mean_median": 12.314,
+     "prefill_mean_max": 19.1,
+     "prefill_exp_max": 101
+    },
+    "swap": {
+     "samples": 45,
+     "prefill_mean_min": 4.54,
+     "prefill_mean_median": 7.442,
+     "prefill_mean_max": 10.566,
+     "prefill_exp_max": 39
+    }
+   },
+   "0-63": {
+    "honest": {
+     "samples": 75,
+     "prefill_mean_min": 0.961,
+     "prefill_mean_median": 2.504,
+     "prefill_mean_max": 3.876,
+     "prefill_exp_max": 11
+    },
+    "int4": {
+     "samples": 6,
+     "prefill_mean_min": 19.0,
+     "prefill_mean_median": 21.545,
+     "prefill_mean_max": 22.889,
+     "prefill_exp_max": 64
+    },
+    "int8": {
+     "samples": 3,
+     "prefill_mean_min": 2.871,
+     "prefill_mean_median": 3.266,
+     "prefill_mean_max": 3.423,
+     "prefill_exp_max": 5
+    },
+    "prompt": {
+     "samples": 5,
+     "prefill_mean_min": 16.889,
+     "prefill_mean_median": 22.273,
+     "prefill_mean_max": 27.565,
+     "prefill_exp_max": 108
+    },
+    "swap": {
+     "samples": 1,
+     "prefill_mean_min": 21.145,
+     "prefill_mean_median": 21.145,
+     "prefill_mean_max": 21.145,
+     "prefill_exp_max": 66
+    }
+   }
+  },
+  "NVIDIA GeForce RTX 5090 \u2192 NVIDIA H800 PCIe": {
+   "128-255": {
+    "honest": {
+     "samples": 2435,
+     "prefill_mean_min": 0.331,
+     "prefill_mean_median": 0.54,
+     "prefill_mean_max": 1.205,
+     "prefill_exp_max": 9
+    },
+    "int4": {
+     "samples": 92,
+     "prefill_mean_min": 8.615,
+     "prefill_mean_median": 11.574,
+     "prefill_mean_max": 16.684,
+     "prefill_exp_max": 41
+    },
+    "int8": {
+     "samples": 94,
+     "prefill_mean_min": 0.872,
+     "prefill_mean_median": 1.26,
+     "prefill_mean_max": 1.992,
+     "prefill_exp_max": 9
+    },
+    "prompt": {
+     "samples": 93,
+     "prefill_mean_min": 9.358,
+     "prefill_mean_median": 18.562,
+     "prefill_mean_max": 31.294,
+     "prefill_exp_max": 95
+    },
+    "swap": {
+     "samples": 94,
+     "prefill_mean_min": 5.333,
+     "prefill_mean_median": 8.077,
+     "prefill_mean_max": 12.454,
+     "prefill_exp_max": 44
+    }
+   },
+   "64-127": {
+    "honest": {
+     "samples": 297,
+     "prefill_mean_min": 0.6,
+     "prefill_mean_median": 1.121,
+     "prefill_mean_max": 2.175,
+     "prefill_exp_max": 8
+    },
+    "int4": {
+     "samples": 8,
+     "prefill_mean_min": 10.828,
+     "prefill_mean_median": 20.138,
+     "prefill_mean_max": 23.084,
+     "prefill_exp_max": 49
+    },
+    "int8": {
+     "samples": 16,
+     "prefill_mean_min": 1.624,
+     "prefill_mean_median": 2.934,
+     "prefill_mean_max": 3.724,
+     "prefill_exp_max": 10
+    },
+    "prompt": {
+     "samples": 12,
+     "prefill_mean_min": 15.931,
+     "prefill_mean_median": 23.263,
+     "prefill_mean_max": 26.951,
+     "prefill_exp_max": 102
+    },
+    "swap": {
+     "samples": 10,
+     "prefill_mean_min": 11.697,
+     "prefill_mean_median": 14.694,
+     "prefill_mean_max": 26.707,
+     "prefill_exp_max": 70
+    }
+   },
+   ">=256": {
+    "honest": {
+     "samples": 1167,
+     "prefill_mean_min": 0.36,
+     "prefill_mean_median": 0.524,
+     "prefill_mean_max": 1.315,
+     "prefill_exp_max": 5
+    },
+    "int4": {
+     "samples": 42,
+     "prefill_mean_min": 9.807,
+     "prefill_mean_median": 12.598,
+     "prefill_mean_max": 17.02,
+     "prefill_exp_max": 34
+    },
+    "int8": {
+     "samples": 37,
+     "prefill_mean_min": 0.792,
+     "prefill_mean_median": 1.113,
+     "prefill_mean_max": 2.033,
+     "prefill_exp_max": 7
+    },
+    "prompt": {
+     "samples": 40,
+     "prefill_mean_min": 8.465,
+     "prefill_mean_median": 12.5,
+     "prefill_mean_max": 18.839,
+     "prefill_exp_max": 101
+    },
+    "swap": {
+     "samples": 45,
+     "prefill_mean_min": 4.366,
+     "prefill_mean_median": 7.515,
+     "prefill_mean_max": 10.42,
+     "prefill_exp_max": 39
+    }
+   },
+   "0-63": {
+    "honest": {
+     "samples": 75,
+     "prefill_mean_min": 0.887,
+     "prefill_mean_median": 1.26,
+     "prefill_mean_max": 1.648,
+     "prefill_exp_max": 6
+    },
+    "int4": {
+     "samples": 6,
+     "prefill_mean_min": 19.569,
+     "prefill_mean_median": 21.842,
+     "prefill_mean_max": 22.776,
+     "prefill_exp_max": 63
+    },
+    "int8": {
+     "samples": 3,
+     "prefill_mean_min": 2.79,
+     "prefill_mean_median": 3.242,
+     "prefill_mean_max": 3.598,
+     "prefill_exp_max": 6
+    },
+    "prompt": {
+     "samples": 5,
+     "prefill_mean_min": 16.929,
+     "prefill_mean_median": 21.864,
+     "prefill_mean_max": 27.13,
+     "prefill_exp_max": 109
+    },
+    "swap": {
+     "samples": 1,
+     "prefill_mean_min": 23.047,
+     "prefill_mean_median": 23.047,
+     "prefill_mean_max": 23.047,
+     "prefill_exp_max": 64
+    }
+   }
+  },
+  "NVIDIA H800 PCIe \u2192 NVIDIA GeForce RTX 5090": {
+   "128-255": {
+    "honest": {
+     "samples": 2410,
+     "prefill_mean_min": 0.375,
+     "prefill_mean_median": 0.544,
+     "prefill_mean_max": 1.378,
+     "prefill_exp_max": 8
+    },
+    "int4": {
+     "samples": 93,
+     "prefill_mean_min": 8.365,
+     "prefill_mean_median": 11.514,
+     "prefill_mean_max": 14.479,
+     "prefill_exp_max": 44
+    },
+    "int8": {
+     "samples": 96,
+     "prefill_mean_min": 1.033,
+     "prefill_mean_median": 1.347,
+     "prefill_mean_max": 1.935,
+     "prefill_exp_max": 7
+    },
+    "prompt": {
+     "samples": 98,
+     "prefill_mean_min": 10.37,
+     "prefill_mean_median": 17.587,
+     "prefill_mean_max": 27.579,
+     "prefill_exp_max": 102
+    },
+    "swap": {
+     "samples": 91,
+     "prefill_mean_min": 5.19,
+     "prefill_mean_median": 8.33,
+     "prefill_mean_max": 13.75,
+     "prefill_exp_max": 45
+    }
+   },
+   ">=256": {
+    "honest": {
+     "samples": 1182,
+     "prefill_mean_min": 0.323,
+     "prefill_mean_median": 0.504,
+     "prefill_mean_max": 1.22,
+     "prefill_exp_max": 6
+    },
+    "int4": {
+     "samples": 43,
+     "prefill_mean_min": 9.139,
+     "prefill_mean_median": 12.828,
+     "prefill_mean_max": 19.539,
+     "prefill_exp_max": 39
+    },
+    "int8": {
+     "samples": 44,
+     "prefill_mean_min": 0.817,
+     "prefill_mean_median": 1.144,
+     "prefill_mean_max": 2.016,
+     "prefill_exp_max": 7
+    },
+    "prompt": {
+     "samples": 35,
+     "prefill_mean_min": 8.5,
+     "prefill_mean_median": 14.214,
+     "prefill_mean_max": 21.13,
+     "prefill_exp_max": 100
+    },
+    "swap": {
+     "samples": 44,
+     "prefill_mean_min": 4.824,
+     "prefill_mean_median": 7.478,
+     "prefill_mean_max": 11.204,
+     "prefill_exp_max": 38
+    }
+   },
+   "64-127": {
+    "honest": {
+     "samples": 296,
+     "prefill_mean_min": 0.592,
+     "prefill_mean_median": 1.139,
+     "prefill_mean_max": 3.128,
+     "prefill_exp_max": 7
+    },
+    "int4": {
+     "samples": 10,
+     "prefill_mean_min": 9.46,
+     "prefill_mean_median": 15.405,
+     "prefill_mean_max": 22.735,
+     "prefill_exp_max": 47
+    },
+    "int8": {
+     "samples": 7,
+     "prefill_mean_min": 2.32,
+     "prefill_mean_median": 2.455,
+     "prefill_mean_max": 4.571,
+     "prefill_exp_max": 9
+    },
+    "prompt": {
+     "samples": 11,
+     "prefill_mean_min": 16.281,
+     "prefill_mean_median": 19.222,
+     "prefill_mean_max": 24.711,
+     "prefill_exp_max": 101
+    },
+    "swap": {
+     "samples": 10,
+     "prefill_mean_min": 9.489,
+     "prefill_mean_median": 16.123,
+     "prefill_mean_max": 21.125,
+     "prefill_exp_max": 71
+    }
+   },
+   "0-63": {
+    "honest": {
+     "samples": 80,
+     "prefill_mean_min": 0.889,
+     "prefill_mean_median": 1.504,
+     "prefill_mean_max": 3.303,
+     "prefill_exp_max": 9
+    },
+    "int4": {
+     "samples": 1,
+     "prefill_mean_min": 20.82,
+     "prefill_mean_median": 20.82,
+     "prefill_mean_max": 20.82,
+     "prefill_exp_max": 39
+    },
+    "int8": {
+     "samples": 2,
+     "prefill_mean_min": 3.056,
+     "prefill_mean_median": 3.344,
+     "prefill_mean_max": 3.344,
+     "prefill_exp_max": 4
+    },
+    "prompt": {
+     "samples": 6,
+     "prefill_mean_min": 14.9,
+     "prefill_mean_median": 19.0,
+     "prefill_mean_max": 28.433,
+     "prefill_exp_max": 109
+    },
+    "swap": {
+     "samples": 3,
+     "prefill_mean_min": 16.301,
+     "prefill_mean_median": 19.136,
+     "prefill_mean_max": 19.471,
+     "prefill_exp_max": 62
+    }
+   }
+  },
+  "NVIDIA H800 PCIe \u2192 NVIDIA H800 PCIe": {
+   "128-255": {
+    "honest": {
+     "samples": 2410,
+     "prefill_mean_min": 0.268,
+     "prefill_mean_median": 0.429,
+     "prefill_mean_max": 1.297,
+     "prefill_exp_max": 5
+    },
+    "int4": {
+     "samples": 93,
+     "prefill_mean_min": 8.311,
+     "prefill_mean_median": 11.52,
+     "prefill_mean_max": 14.574,
+     "prefill_exp_max": 45
+    },
+    "int8": {
+     "samples": 96,
+     "prefill_mean_min": 0.849,
+     "prefill_mean_median": 1.276,
+     "prefill_mean_max": 1.726,
+     "prefill_exp_max": 7
+    },
+    "prompt": {
+     "samples": 98,
+     "prefill_mean_min": 10.149,
+     "prefill_mean_median": 17.412,
+     "prefill_mean_max": 27.4,
+     "prefill_exp_max": 102
+    },
+    "swap": {
+     "samples": 91,
+     "prefill_mean_min": 5.245,
+     "prefill_mean_median": 8.253,
+     "prefill_mean_max": 13.613,
+     "prefill_exp_max": 45
+    }
+   },
+   ">=256": {
+    "honest": {
+     "samples": 1182,
+     "prefill_mean_min": 0.266,
+     "prefill_mean_median": 0.421,
+     "prefill_mean_max": 1.079,
+     "prefill_exp_max": 6
+    },
+    "int4": {
+     "samples": 43,
+     "prefill_mean_min": 9.241,
+     "prefill_mean_median": 12.79,
+     "prefill_mean_max": 19.112,
+     "prefill_exp_max": 39
+    },
+    "int8": {
+     "samples": 44,
+     "prefill_mean_min": 0.744,
+     "prefill_mean_median": 1.105,
+     "prefill_mean_max": 1.952,
+     "prefill_exp_max": 6
+    },
+    "prompt": {
+     "samples": 35,
+     "prefill_mean_min": 8.568,
+     "prefill_mean_median": 13.883,
+     "prefill_mean_max": 21.891,
+     "prefill_exp_max": 99
+    },
+    "swap": {
+     "samples": 44,
+     "prefill_mean_min": 4.843,
+     "prefill_mean_median": 7.475,
+     "prefill_mean_max": 11.082,
+     "prefill_exp_max": 37
+    }
+   },
+   "64-127": {
+    "honest": {
+     "samples": 296,
+     "prefill_mean_min": 0.387,
+     "prefill_mean_median": 0.646,
+     "prefill_mean_max": 1.36,
+     "prefill_exp_max": 6
+    },
+    "int4": {
+     "samples": 10,
+     "prefill_mean_min": 9.448,
+     "prefill_mean_median": 15.578,
+     "prefill_mean_max": 22.655,
+     "prefill_exp_max": 48
+    },
+    "int8": {
+     "samples": 7,
+     "prefill_mean_min": 2.295,
+     "prefill_mean_median": 2.468,
+     "prefill_mean_max": 3.746,
+     "prefill_exp_max": 10
+    },
+    "prompt": {
+     "samples": 11,
+     "prefill_mean_min": 16.125,
+     "prefill_mean_median": 19.552,
+     "prefill_mean_max": 25.923,
+     "prefill_exp_max": 99
+    },
+    "swap": {
+     "samples": 10,
+     "prefill_mean_min": 9.315,
+     "prefill_mean_median": 15.467,
+     "prefill_mean_max": 20.825,
+     "prefill_exp_max": 70
+    }
+   },
+   "0-63": {
+    "honest": {
+     "samples": 80,
+     "prefill_mean_min": 0.409,
+     "prefill_mean_median": 0.75,
+     "prefill_mean_max": 1.484,
+     "prefill_exp_max": 4
+    },
+    "int4": {
+     "samples": 1,
+     "prefill_mean_min": 20.818,
+     "prefill_mean_median": 20.818,
+     "prefill_mean_max": 20.818,
+     "prefill_exp_max": 40
+    },
+    "int8": {
+     "samples": 2,
+     "prefill_mean_min": 3.224,
+     "prefill_mean_median": 3.508,
+     "prefill_mean_max": 3.508,
+     "prefill_exp_max": 4
+    },
+    "prompt": {
+     "samples": 6,
+     "prefill_mean_min": 14.0,
+     "prefill_mean_median": 17.85,
+     "prefill_mean_max": 27.8,
+     "prefill_exp_max": 109
+    },
+    "swap": {
+     "samples": 3,
+     "prefill_mean_min": 16.0,
+     "prefill_mean_median": 18.761,
+     "prefill_mean_max": 19.662,
+     "prefill_exp_max": 63
+    }
+   }
+  }
+ },
+ "minimal_thresholds": {
+  "version": null,
+  "band": [
+   150,
+   300
+  ],
+  "prefill": [
+   9,
+   141,
+   1
+  ],
+  "prefill_outside": [
+   11,
+   388,
+   3
+  ],
+  "decode": [
+   83,
+   2774,
+   25
+  ]
+ },
+ "conclusion": {
+  "decision": "no thresholds",
+  "thresholds": {
+   "version": 3,
+   "band": [
+    150,
+    300
+   ],
+   "prefill": [
+    9,
+    141,
+    1
+   ],
+   "prefill_outside": [
+    15,
+    500,
+    4
+   ],
+   "decode": [
+    83,
+    2774,
+    25
+   ]
+  },
+  "broken": [
+   "NVIDIA GeForce RTX 5090 \u2192 NVIDIA GeForce RTX 5090 inside: 96 int8 missed",
+   "NVIDIA GeForce RTX 5090 \u2192 NVIDIA H800 PCIe inside: 105 int8 missed",
+   "NVIDIA H800 PCIe \u2192 NVIDIA GeForce RTX 5090 inside: 87 int8 missed",
+   "NVIDIA H800 PCIe \u2192 NVIDIA H800 PCIe inside: 94 int8 missed"
+  ],
+  "cells": {
+   "NVIDIA GeForce RTX 5090 \u2192 NVIDIA GeForce RTX 5090": {
+    "inside": {
+     "honest": 3202,
+     "honest_fail": 0,
+     "cheats": {
+      "int4": 121,
+      "int8": 119,
+      "prompt": 111,
+      "swap": 124
+     },
+     "missed": {
+      "int4": 0,
+      "int8": 96,
+      "prompt": 0,
+      "swap": 0
+     }
+    },
+    "outside": {
+     "honest": 798,
+     "honest_fail": 0,
+     "cheats": {
+      "int4": 29,
+      "int8": 31,
+      "prompt": 39,
+      "swap": 26
+     },
+     "missed": {
+      "int4": 0,
+      "int8": 31,
+      "prompt": 0,
+      "swap": 0
+     }
+    }
+   },
+   "NVIDIA GeForce RTX 5090 \u2192 NVIDIA H800 PCIe": {
+    "inside": {
+     "honest": 3202,
+     "honest_fail": 0,
+     "cheats": {
+      "int4": 121,
+      "int8": 119,
+      "prompt": 111,
+      "swap": 124
+     },
+     "missed": {
+      "int4": 0,
+      "int8": 105,
+      "prompt": 0,
+      "swap": 0
+     }
+    },
+    "outside": {
+     "honest": 798,
+     "honest_fail": 0,
+     "cheats": {
+      "int4": 29,
+      "int8": 31,
+      "prompt": 39,
+      "swap": 26
+     },
+     "missed": {
+      "int4": 0,
+      "int8": 31,
+      "prompt": 0,
+      "swap": 0
+     }
+    }
+   },
+   "NVIDIA H800 PCIe \u2192 NVIDIA GeForce RTX 5090": {
+    "inside": {
+     "honest": 3142,
+     "honest_fail": 0,
+     "cheats": {
+      "int4": 120,
+      "int8": 118,
+      "prompt": 119,
+      "swap": 120
+     },
+     "missed": {
+      "int4": 0,
+      "int8": 87,
+      "prompt": 0,
+      "swap": 0
+     }
+    },
+    "outside": {
+     "honest": 858,
+     "honest_fail": 0,
+     "cheats": {
+      "int4": 30,
+      "int8": 32,
+      "prompt": 31,
+      "swap": 30
+     },
+     "missed": {
+      "int4": 0,
+      "int8": 32,
+      "prompt": 0,
+      "swap": 0
+     }
+    }
+   },
+   "NVIDIA H800 PCIe \u2192 NVIDIA H800 PCIe": {
+    "inside": {
+     "honest": 3142,
+     "honest_fail": 0,
+     "cheats": {
+      "int4": 120,
+      "int8": 118,
+      "prompt": 119,
+      "swap": 120
+     },
+     "missed": {
+      "int4": 0,
+      "int8": 94,
+      "prompt": 0,
+      "swap": 0
+     }
+    },
+    "outside": {
+     "honest": 858,
+     "honest_fail": 0,
+     "cheats": {
+      "int4": 30,
+      "int8": 32,
+      "prompt": 31,
+      "swap": 30
+     },
+     "missed": {
+      "int4": 0,
+      "int8": 32,
+      "prompt": 0,
+      "swap": 0
+     }
+    }
+   }
+  },
+  "current": {
+   "NVIDIA GeForce RTX 5090 \u2192 NVIDIA GeForce RTX 5090": {
+    "inside": {
+     "honest": 3202,
+     "honest_fail": 9,
+     "cheats": {
+      "int4": 121,
+      "int8": 119,
+      "prompt": 111,
+      "swap": 124
+     },
+     "missed": {
+      "int4": 0,
+      "int8": 0,
+      "prompt": 0,
+      "swap": 0
+     }
+    },
+    "outside": {
+     "honest": 798,
+     "honest_fail": 0,
+     "cheats": {
+      "int4": 29,
+      "int8": 31,
+      "prompt": 39,
+      "swap": 26
+     },
+     "missed": {
+      "int4": 0,
+      "int8": 31,
+      "prompt": 0,
+      "swap": 0
+     }
+    }
+   },
+   "NVIDIA GeForce RTX 5090 \u2192 NVIDIA H800 PCIe": {
+    "inside": {
+     "honest": 3202,
+     "honest_fail": 9,
+     "cheats": {
+      "int4": 121,
+      "int8": 119,
+      "prompt": 111,
+      "swap": 124
+     },
+     "missed": {
+      "int4": 0,
+      "int8": 0,
+      "prompt": 0,
+      "swap": 0
+     }
+    },
+    "outside": {
+     "honest": 798,
+     "honest_fail": 0,
+     "cheats": {
+      "int4": 29,
+      "int8": 31,
+      "prompt": 39,
+      "swap": 26
+     },
+     "missed": {
+      "int4": 0,
+      "int8": 31,
+      "prompt": 0,
+      "swap": 0
+     }
+    }
+   },
+   "NVIDIA H800 PCIe \u2192 NVIDIA GeForce RTX 5090": {
+    "inside": {
+     "honest": 3142,
+     "honest_fail": 13,
+     "cheats": {
+      "int4": 120,
+      "int8": 118,
+      "prompt": 119,
+      "swap": 120
+     },
+     "missed": {
+      "int4": 0,
+      "int8": 0,
+      "prompt": 0,
+      "swap": 0
+     }
+    },
+    "outside": {
+     "honest": 858,
+     "honest_fail": 1,
+     "cheats": {
+      "int4": 30,
+      "int8": 32,
+      "prompt": 31,
+      "swap": 30
+     },
+     "missed": {
+      "int4": 0,
+      "int8": 32,
+      "prompt": 0,
+      "swap": 0
+     }
+    }
+   },
+   "NVIDIA H800 PCIe \u2192 NVIDIA H800 PCIe": {
+    "inside": {
+     "honest": 3142,
+     "honest_fail": 8,
+     "cheats": {
+      "int4": 120,
+      "int8": 118,
+      "prompt": 119,
+      "swap": 120
+     },
+     "missed": {
+      "int4": 0,
+      "int8": 1,
+      "prompt": 0,
+      "swap": 0
+     }
+    },
+    "outside": {
+     "honest": 858,
+     "honest_fail": 1,
+     "cheats": {
+      "int4": 30,
+      "int8": 32,
+      "prompt": 31,
+      "swap": 30
+     },
+     "missed": {
+      "int4": 0,
+      "int8": 32,
+      "prompt": 0,
+      "swap": 0
+     }
+    }
+   }
+  },
+  "minimal_thresholds": {
+   "version": null,
+   "band": [
+    150,
+    300
+   ],
+   "prefill": [
+    9,
+    141,
+    1
+   ],
+   "prefill_outside": [
+    11,
+    388,
+    3
+   ],
+   "decode": [
+    83,
+    2774,
+    25
+   ]
+  },
+  "minimal_holds": false
+ },
+ "unexpected": [
+  {
+   "case": "honest-00009.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 174,
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 156,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 112,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 95,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 102,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-00022.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 267,
+   "chunks": []
+  },
+  {
+   "case": "honest-00036.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "fail",
+   "reason": "chunk 2: exponent mismatches",
+   "prompt_tokens": 353,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 57,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 98,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 32,
+     "mant_count": 96,
+     "mant_err_sum": 442,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 52,
+     "mant_count": 76,
+     "mant_err_sum": 1866,
+     "median": 12
+    },
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 545,
+     "median": 4
+    }
+   ]
+  },
+  {
+   "case": "honest-00137.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 190,
+   "chunks": []
+  },
+  {
+   "case": "honest-00170.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 219,
+   "chunks": []
+  },
+  {
+   "case": "honest-00301.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 180,
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 166,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 165,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 167,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 142,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-00350.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 214,
+   "chunks": []
+  },
+  {
+   "case": "honest-00490.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 256,
+   "chunks": []
+  },
+  {
+   "case": "honest-00762.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 216,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 155,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 117,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-00851.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 270,
+   "chunks": []
+  },
+  {
+   "case": "honest-01211.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 205,
+   "chunks": []
+  },
+  {
+   "case": "honest-01217.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 128,
+   "chunks": []
+  },
+  {
+   "case": "honest-01278.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 282,
+   "chunks": []
+  },
+  {
+   "case": "honest-01292.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 268,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 136,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 112,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 102,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 125,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-01360.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 192,
+   "chunks": []
+  },
+  {
+   "case": "honest-01385.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 283,
+   "chunks": []
+  },
+  {
+   "case": "honest-01536.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 173,
+   "chunks": []
+  },
+  {
+   "case": "honest-01642.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 201,
+   "chunks": []
+  },
+  {
+   "case": "honest-01648.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 201,
+   "chunks": []
+  },
+  {
+   "case": "honest-01684.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 264,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 123,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 121,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 124,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 144,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-01786.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 450,
+   "chunks": []
+  },
+  {
+   "case": "honest-02150.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 139,
+   "chunks": []
+  },
+  {
+   "case": "honest-02300.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 105,
+   "chunks": []
+  },
+  {
+   "case": "honest-02477.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 220,
+   "chunks": []
+  },
+  {
+   "case": "honest-02873.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 109,
+   "chunks": []
+  },
+  {
+   "case": "honest-02887.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 199,
+   "chunks": []
+  },
+  {
+   "case": "honest-02930.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 242,
+   "chunks": []
+  },
+  {
+   "case": "honest-02943.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 207,
+   "chunks": []
+  },
+  {
+   "case": "honest-03041.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 209,
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 135,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 102,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 112,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-03260.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 165,
+   "chunks": []
+  },
+  {
+   "case": "honest-03389.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 502,
+   "chunks": []
+  },
+  {
+   "case": "honest-03452.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 200,
+   "chunks": []
+  },
+  {
+   "case": "honest-03479.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 271,
+   "chunks": []
+  },
+  {
+   "case": "honest-03509.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 287,
+   "chunks": []
+  },
+  {
+   "case": "honest-03666.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 206,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 142,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 131,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-03709.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 272,
+   "chunks": []
+  },
+  {
+   "case": "honest-03727.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "fail",
+   "reason": "chunk 1: exponent mismatches",
+   "prompt_tokens": 246,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 47,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 83,
+     "mant_count": 45,
+     "mant_err_sum": 1248,
+     "median": 25
+    },
+    {
+     "exp_mismatches": 70,
+     "mant_count": 58,
+     "mant_err_sum": 794,
+     "median": 7
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 383,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 271,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "honest-03753.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 53,
+   "chunks": []
+  },
+  {
+   "case": "honest-03906.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 88,
+   "chunks": []
+  },
+  {
+   "case": "honest-03955.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 230,
+   "chunks": []
+  },
+  {
+   "case": "honest-03964.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 282,
+   "chunks": []
+  },
+  {
+   "case": "int8-00005.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 327,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 153,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 220,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 220,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 222,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "int8-00009.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 93,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 325,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 494,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 359,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 299,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00010.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 118,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 306,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 9,
+     "mant_count": 119,
+     "mant_err_sum": 337,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00012.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 346,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 122,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 9,
+     "mant_count": 119,
+     "mant_err_sum": 388,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 416,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "int8-00014.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 135,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 184,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 276,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 309,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 317,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 346,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00018.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 467,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 137,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 334,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 377,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 256,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 224,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "int8-00019.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 459,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 106,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 307,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 301,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 358,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00022.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 318,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 113,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 364,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 350,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 274,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 438,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "int8-00027.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 84,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 291,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 308,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 288,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 269,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 253,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "int8-00033.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 424,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 130,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 277,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 287,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00034.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 372,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 141,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 225,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 225,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 192,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 9,
+     "mant_count": 119,
+     "mant_err_sum": 254,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "int8-00035.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 437,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 142,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 363,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 385,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 361,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 310,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00038.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 517,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 114,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 338,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 325,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 314,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 337,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00045.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 247,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 107,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 445,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00049.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 574,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 142,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 310,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 376,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00053.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 562,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 244,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 259,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 340,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 263,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 239,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00058.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 585,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 134,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 326,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 284,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00066.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 436,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 118,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 233,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 231,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 335,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 257,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "int8-00073.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 445,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 106,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 236,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 285,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00077.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 52,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 435,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 291,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 325,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 310,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 377,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "int8-00079.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 515,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 138,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 266,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 205,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 281,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 268,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "int8-00080.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 58,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 403,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 362,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 304,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 291,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00083.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 346,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 137,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 396,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 325,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00084.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 500,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 135,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 259,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 320,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00085.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 67,
+   "chunks": [
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 408,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 353,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 309,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00101.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 102,
+   "chunks": [
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 280,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 9,
+     "mant_count": 119,
+     "mant_err_sum": 415,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 264,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 378,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00120.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 404,
+   "chunks": [
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 132,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 453,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 367,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 305,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 338,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00121.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 514,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 93,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 456,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 354,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00125.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 95,
+   "chunks": [
+    {
+     "exp_mismatches": 10,
+     "mant_count": 118,
+     "mant_err_sum": 442,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 357,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 306,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00135.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 353,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 133,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 306,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 284,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 279,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 262,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00136.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 303,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 126,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 342,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 317,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 551,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "int8-00139.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 104,
+   "chunks": [
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 291,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 310,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 10,
+     "mant_count": 118,
+     "mant_err_sum": 452,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "int8-00145.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 384,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 98,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 263,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 11,
+     "mant_count": 117,
+     "mant_err_sum": 408,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "honest-00009.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 174,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 157,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 137,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 170,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 122,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-00022.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 267,
+   "chunks": []
+  },
+  {
+   "case": "honest-00036.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 2: exponent mismatches",
+   "prompt_tokens": 353,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 53,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 120,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 33,
+     "mant_count": 95,
+     "mant_err_sum": 393,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 52,
+     "mant_count": 76,
+     "mant_err_sum": 1901,
+     "median": 13
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 551,
+     "median": 4
+    }
+   ]
+  },
+  {
+   "case": "honest-00137.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 190,
+   "chunks": []
+  },
+  {
+   "case": "honest-00170.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 219,
+   "chunks": []
+  },
+  {
+   "case": "honest-00301.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 180,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 175,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 182,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 139,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 183,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-00350.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 214,
+   "chunks": []
+  },
+  {
+   "case": "honest-00490.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 256,
+   "chunks": []
+  },
+  {
+   "case": "honest-00762.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 216,
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 174,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 142,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-00851.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 270,
+   "chunks": []
+  },
+  {
+   "case": "honest-01044.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 252,
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 176,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 148,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 104,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-01211.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 205,
+   "chunks": []
+  },
+  {
+   "case": "honest-01217.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 128,
+   "chunks": []
+  },
+  {
+   "case": "honest-01278.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 282,
+   "chunks": []
+  },
+  {
+   "case": "honest-01292.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 268,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 134,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 103,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 104,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 117,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-01360.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 192,
+   "chunks": []
+  },
+  {
+   "case": "honest-01385.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 283,
+   "chunks": []
+  },
+  {
+   "case": "honest-01509.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 248,
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 156,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 123,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-01536.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 173,
+   "chunks": []
+  },
+  {
+   "case": "honest-01642.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 201,
+   "chunks": []
+  },
+  {
+   "case": "honest-01648.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 201,
+   "chunks": []
+  },
+  {
+   "case": "honest-01786.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 450,
+   "chunks": []
+  },
+  {
+   "case": "honest-01883.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 235,
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 140,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 225,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 133,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-02064.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 205,
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 150,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 103,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 110,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 135,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-02150.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 139,
+   "chunks": []
+  },
+  {
+   "case": "honest-02300.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 105,
+   "chunks": []
+  },
+  {
+   "case": "honest-02443.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 154,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 109,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 156,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 169,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-02477.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 220,
+   "chunks": []
+  },
+  {
+   "case": "honest-02554.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 176,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 164,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 178,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 115,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 91,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-02873.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 109,
+   "chunks": []
+  },
+  {
+   "case": "honest-02887.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 199,
+   "chunks": []
+  },
+  {
+   "case": "honest-02930.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 242,
+   "chunks": []
+  },
+  {
+   "case": "honest-02943.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 207,
+   "chunks": []
+  },
+  {
+   "case": "honest-03245.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 225,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 108,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 178,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 181,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-03260.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 165,
+   "chunks": []
+  },
+  {
+   "case": "honest-03389.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 502,
+   "chunks": []
+  },
+  {
+   "case": "honest-03452.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 200,
+   "chunks": []
+  },
+  {
+   "case": "honest-03479.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 271,
+   "chunks": []
+  },
+  {
+   "case": "honest-03509.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 287,
+   "chunks": []
+  },
+  {
+   "case": "honest-03709.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 272,
+   "chunks": []
+  },
+  {
+   "case": "honest-03727.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 1: exponent mismatches",
+   "prompt_tokens": 246,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 69,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 82,
+     "mant_count": 46,
+     "mant_err_sum": 1253,
+     "median": 24
+    },
+    {
+     "exp_mismatches": 71,
+     "mant_count": 57,
+     "mant_err_sum": 769,
+     "median": 6
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 334,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 277,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "honest-03753.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 53,
+   "chunks": []
+  },
+  {
+   "case": "honest-03808.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 222,
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 113,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 141,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 160,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 100,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 106,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-03906.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 88,
+   "chunks": []
+  },
+  {
+   "case": "honest-03955.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 230,
+   "chunks": []
+  },
+  {
+   "case": "honest-03964.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 282,
+   "chunks": []
+  },
+  {
+   "case": "int8-00005.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 327,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 147,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 236,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 267,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 279,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00009.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 93,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 319,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 426,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 365,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 322,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00010.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 118,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 304,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 9,
+     "mant_count": 119,
+     "mant_err_sum": 355,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00012.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 346,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 129,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 9,
+     "mant_count": 119,
+     "mant_err_sum": 409,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 398,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00014.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 135,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 174,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 305,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 331,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 304,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 342,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00018.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 467,
+   "chunks": [
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 147,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 323,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 304,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 251,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 208,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "int8-00019.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 459,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 108,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 318,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 286,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 338,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00022.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 318,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 111,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 314,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 296,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 260,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 450,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "int8-00027.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 84,
+   "chunks": [
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 283,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 290,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 322,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 285,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 261,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "int8-00033.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 424,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 145,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 280,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 308,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00034.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 372,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 132,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 210,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 228,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 186,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 11,
+     "mant_count": 117,
+     "mant_err_sum": 233,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00035.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 437,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 128,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 317,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 373,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 401,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 330,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00038.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 517,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 126,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 341,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 311,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 282,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 307,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00049.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 574,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 146,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 325,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 361,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00053.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 562,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 250,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 288,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 337,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 266,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 241,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00058.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 585,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 143,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 330,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 280,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00066.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 436,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 121,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 251,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 255,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 328,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 280,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00073.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 445,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 104,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 251,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 298,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00077.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 52,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 418,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 341,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 320,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 301,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 369,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "int8-00079.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 515,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 143,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 261,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 194,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 249,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 257,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00080.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 58,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 379,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 385,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 291,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 271,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00083.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 346,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 136,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 391,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 291,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00084.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 500,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 137,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 249,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 350,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00085.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 67,
+   "chunks": [
+    {
+     "exp_mismatches": 9,
+     "mant_count": 119,
+     "mant_err_sum": 544,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 401,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 353,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00101.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 102,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 300,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 9,
+     "mant_count": 119,
+     "mant_err_sum": 401,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 276,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 390,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00120.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 404,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 134,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 456,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 357,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 280,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 318,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00121.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 514,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 105,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 412,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 402,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00125.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 95,
+   "chunks": [
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 418,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 329,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 309,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00135.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 353,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 135,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 285,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 308,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 274,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 252,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00136.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 303,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 133,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 330,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 291,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 466,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "int8-00139.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 104,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 302,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 278,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 11,
+     "mant_count": 117,
+     "mant_err_sum": 443,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "int8-00145.json",
+   "seed": 12,
+   "prover": "NVIDIA H800 PCIe",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 384,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 103,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 262,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 12,
+     "mant_count": 116,
+     "mant_err_sum": 403,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "honest-00081.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 216,
+   "chunks": []
+  },
+  {
+   "case": "honest-00165.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 270,
+   "chunks": []
+  },
+  {
+   "case": "honest-00247.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 207,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 114,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 215,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 170,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 128,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-00344.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 264,
+   "chunks": []
+  },
+  {
+   "case": "honest-00504.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 242,
+   "chunks": []
+  },
+  {
+   "case": "honest-00524.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 180,
+   "chunks": []
+  },
+  {
+   "case": "honest-00622.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 173,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 124,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 180,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 134,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 134,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-00666.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 69,
+   "chunks": []
+  },
+  {
+   "case": "honest-00744.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 253,
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 152,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 175,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 185,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-00815.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 224,
+   "chunks": []
+  },
+  {
+   "case": "honest-01102.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 161,
+   "chunks": []
+  },
+  {
+   "case": "honest-01166.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 222,
+   "chunks": []
+  },
+  {
+   "case": "honest-01260.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 224,
+   "chunks": []
+  },
+  {
+   "case": "honest-01276.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 233,
+   "chunks": []
+  },
+  {
+   "case": "honest-01277.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 261,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 167,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 223,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 178,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 190,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-01524.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 286,
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 118,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 126,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 151,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-01641.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 276,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 110,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 111,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 172,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-01860.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 192,
+   "chunks": []
+  },
+  {
+   "case": "honest-02068.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 159,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 153,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 144,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-02127.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 591,
+   "chunks": []
+  },
+  {
+   "case": "honest-02293.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 55,
+   "chunks": []
+  },
+  {
+   "case": "honest-02338.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 203,
+   "chunks": []
+  },
+  {
+   "case": "honest-02380.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 196,
+   "chunks": []
+  },
+  {
+   "case": "honest-02404.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 259,
+   "chunks": []
+  },
+  {
+   "case": "honest-02478.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 112,
+   "chunks": []
+  },
+  {
+   "case": "honest-02505.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 263,
+   "chunks": []
+  },
+  {
+   "case": "honest-02559.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 262,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 122,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 94,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 134,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-02654.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 182,
+   "chunks": []
+  },
+  {
+   "case": "honest-02788.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 264,
+   "chunks": []
+  },
+  {
+   "case": "honest-02847.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "fail",
+   "reason": "chunk 0: exponent mismatches",
+   "prompt_tokens": 158,
+   "chunks": [
+    {
+     "exp_mismatches": 9,
+     "mant_count": 119,
+     "mant_err_sum": 65,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 94,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 133,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 130,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-02869.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 559,
+   "chunks": []
+  },
+  {
+   "case": "honest-03081.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 173,
+   "chunks": []
+  },
+  {
+   "case": "honest-03559.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 220,
+   "chunks": []
+  },
+  {
+   "case": "honest-03983.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 77,
+   "chunks": []
+  },
+  {
+   "case": "honest-03998.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 270,
+   "chunks": []
+  },
+  {
+   "case": "int8-00005.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 98,
+   "chunks": [
+    {
+     "exp_mismatches": 10,
+     "mant_count": 118,
+     "mant_err_sum": 352,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 421,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 339,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 237,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00008.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 57,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 346,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 374,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 391,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 324,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00012.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 321,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 170,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 306,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 356,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00019.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 80,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 352,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 248,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 270,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 301,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00020.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 84,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 366,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 243,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 280,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 330,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00022.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 98,
+   "chunks": [
+    {
+     "exp_mismatches": 9,
+     "mant_count": 119,
+     "mant_err_sum": 295,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 307,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 271,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 9,
+     "mant_count": 119,
+     "mant_err_sum": 327,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00023.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 73,
+   "chunks": [
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 346,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 369,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 376,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 228,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "int8-00040.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 59,
+   "chunks": [
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 439,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 324,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 12,
+     "mant_count": 116,
+     "mant_err_sum": 368,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 316,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 308,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00042.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 461,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 136,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 358,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00043.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 74,
+   "chunks": [
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 391,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 327,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 298,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 306,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 462,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "int8-00047.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 86,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 397,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 457,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 299,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 399,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "int8-00055.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 482,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 152,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 417,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 310,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 278,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 322,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00056.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 420,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 140,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 495,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "int8-00059.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 343,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 140,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 260,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 456,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00061.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 51,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 402,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 264,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 260,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 290,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00068.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 120,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 203,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 321,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 358,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 353,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 299,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00069.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 443,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 129,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 468,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 10,
+     "mant_count": 118,
+     "mant_err_sum": 255,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00077.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 67,
+   "chunks": [
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 361,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 335,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 280,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00081.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 115,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 334,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 308,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 376,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "int8-00082.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 95,
+   "chunks": [
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 341,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 503,
+     "median": 4
+    }
+   ]
+  },
+  {
+   "case": "int8-00091.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 461,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 99,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 322,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00093.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 425,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 118,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 285,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 330,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 312,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00098.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 454,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 134,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 345,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 259,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00099.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 430,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 150,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 9,
+     "mant_count": 119,
+     "mant_err_sum": 636,
+     "median": 4
+    }
+   ]
+  },
+  {
+   "case": "int8-00118.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 101,
+   "chunks": [
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 326,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 388,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 261,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 493,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "int8-00119.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 430,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 138,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 278,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 307,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00124.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 490,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 113,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 13,
+     "mant_count": 115,
+     "mant_err_sum": 235,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00127.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 92,
+   "chunks": [
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 358,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 200,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 291,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 288,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 228,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "int8-00143.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 124,
+   "chunks": [
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 233,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 286,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 273,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00146.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 79,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 458,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 327,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 331,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 234,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 290,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00148.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA H800 PCIe",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 97,
+   "chunks": [
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 360,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 327,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "honest-00079.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 251,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 147,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 150,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 274,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "honest-00081.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 216,
+   "chunks": []
+  },
+  {
+   "case": "honest-00165.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 270,
+   "chunks": []
+  },
+  {
+   "case": "honest-00344.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 264,
+   "chunks": []
+  },
+  {
+   "case": "honest-00504.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 242,
+   "chunks": []
+  },
+  {
+   "case": "honest-00524.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 180,
+   "chunks": []
+  },
+  {
+   "case": "honest-00622.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 173,
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 131,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 126,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 147,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 129,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-00666.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 69,
+   "chunks": []
+  },
+  {
+   "case": "honest-00744.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 253,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 139,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 130,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 154,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-00815.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 224,
+   "chunks": []
+  },
+  {
+   "case": "honest-00880.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 189,
+   "chunks": [
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 119,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 147,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 151,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 147,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-01102.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 161,
+   "chunks": []
+  },
+  {
+   "case": "honest-01166.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 222,
+   "chunks": []
+  },
+  {
+   "case": "honest-01225.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 161,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 114,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 123,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-01260.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 224,
+   "chunks": []
+  },
+  {
+   "case": "honest-01276.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 233,
+   "chunks": []
+  },
+  {
+   "case": "honest-01277.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 261,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 177,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 216,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 201,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 182,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-01860.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 192,
+   "chunks": []
+  },
+  {
+   "case": "honest-02068.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 159,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 173,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 164,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-02127.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 591,
+   "chunks": []
+  },
+  {
+   "case": "honest-02293.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 55,
+   "chunks": []
+  },
+  {
+   "case": "honest-02338.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 203,
+   "chunks": []
+  },
+  {
+   "case": "honest-02380.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 196,
+   "chunks": []
+  },
+  {
+   "case": "honest-02404.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 259,
+   "chunks": []
+  },
+  {
+   "case": "honest-02478.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 112,
+   "chunks": []
+  },
+  {
+   "case": "honest-02505.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 263,
+   "chunks": []
+  },
+  {
+   "case": "honest-02654.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 182,
+   "chunks": []
+  },
+  {
+   "case": "honest-02788.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 264,
+   "chunks": []
+  },
+  {
+   "case": "honest-02869.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 559,
+   "chunks": []
+  },
+  {
+   "case": "honest-03081.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 173,
+   "chunks": []
+  },
+  {
+   "case": "honest-03247.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 177,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 134,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 121,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 115,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 171,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-03371.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "fail",
+   "reason": "chunk 0: mean mantissa error",
+   "prompt_tokens": 189,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 139,
+     "median": 0
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 138,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 0,
+     "mant_count": 128,
+     "mant_err_sum": 131,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 173,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 154,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "honest-03559.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 220,
+   "chunks": []
+  },
+  {
+   "case": "honest-03983.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 77,
+   "chunks": []
+  },
+  {
+   "case": "honest-03998.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "inconclusive",
+   "reason": "tokens cannot be re-created",
+   "prompt_tokens": 270,
+   "chunks": []
+  },
+  {
+   "case": "int8-00005.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 98,
+   "chunks": [
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 364,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 433,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 358,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 257,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00008.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 57,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 356,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 370,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 399,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 356,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00012.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 321,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 161,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 284,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 345,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00019.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 80,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 374,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 235,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 276,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 311,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00020.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 84,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 374,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 276,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 278,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 331,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00022.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 98,
+   "chunks": [
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 346,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 316,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 310,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 341,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00023.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 73,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 364,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 370,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 371,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 255,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00040.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 59,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 421,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 326,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 11,
+     "mant_count": 117,
+     "mant_err_sum": 390,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 306,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 310,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00042.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 461,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 130,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 366,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00043.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 74,
+   "chunks": [
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 403,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 337,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 303,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 327,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 481,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "int8-00047.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 86,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 392,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 440,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 314,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 408,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "int8-00055.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 482,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 154,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 463,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 313,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 252,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 297,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00056.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 420,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 126,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 467,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "int8-00059.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 343,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 135,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 279,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 465,
+     "median": 3
+    }
+   ]
+  },
+  {
+   "case": "int8-00061.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 51,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 405,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 281,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 323,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 317,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00068.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 120,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 205,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 293,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 328,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 335,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 332,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00069.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 443,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 121,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 392,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 10,
+     "mant_count": 118,
+     "mant_err_sum": 218,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "int8-00077.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 67,
+   "chunks": [
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 389,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 505,
+     "median": 4
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 381,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00081.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 115,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 375,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 320,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 414,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00082.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 95,
+   "chunks": [
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 283,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 633,
+     "median": 5
+    }
+   ]
+  },
+  {
+   "case": "int8-00091.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 461,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 104,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 314,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00093.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 425,
+   "chunks": [
+    {
+     "exp_mismatches": 1,
+     "mant_count": 127,
+     "mant_err_sum": 119,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 277,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 310,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 315,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00098.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 454,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 143,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 343,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 276,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00099.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 430,
+   "chunks": [
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 134,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 11,
+     "mant_count": 117,
+     "mant_err_sum": 681,
+     "median": 4
+    }
+   ]
+  },
+  {
+   "case": "int8-00118.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 101,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 288,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 455,
+     "median": 3
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 383,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 8,
+     "mant_count": 120,
+     "mant_err_sum": 563,
+     "median": 4
+    }
+   ]
+  },
+  {
+   "case": "int8-00119.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 430,
+   "chunks": [
+    {
+     "exp_mismatches": 2,
+     "mant_count": 126,
+     "mant_err_sum": 154,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 269,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 289,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00124.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 490,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 109,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 10,
+     "mant_count": 118,
+     "mant_err_sum": 231,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "int8-00127.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 92,
+   "chunks": [
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 345,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 184,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 271,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 253,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 222,
+     "median": 1
+    }
+   ]
+  },
+  {
+   "case": "int8-00143.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 124,
+   "chunks": [
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 231,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 303,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 4,
+     "mant_count": 124,
+     "mant_err_sum": 298,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00146.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 79,
+   "chunks": [
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 431,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 5,
+     "mant_count": 123,
+     "mant_err_sum": 412,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 7,
+     "mant_count": 121,
+     "mant_err_sum": 348,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 256,
+     "median": 1
+    },
+    {
+     "exp_mismatches": 3,
+     "mant_count": 125,
+     "mant_err_sum": 269,
+     "median": 2
+    }
+   ]
+  },
+  {
+   "case": "int8-00148.json",
+   "seed": 11,
+   "prover": "NVIDIA GeForce RTX 5090",
+   "auditor": "NVIDIA GeForce RTX 5090",
+   "outcome": "pass",
+   "reason": "",
+   "prompt_tokens": 97,
+   "chunks": [
+    {
+     "exp_mismatches": 10,
+     "mant_count": 118,
+     "mant_err_sum": 332,
+     "median": 2
+    },
+    {
+     "exp_mismatches": 6,
+     "mant_count": 122,
+     "mant_err_sum": 364,
+     "median": 2
+    }
+   ]
+  }
+ ]
+}
