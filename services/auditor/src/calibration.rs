@@ -5,7 +5,7 @@
 use ac_crypto::OsRng;
 use ac_crypto::SigAlg;
 use ac_crypto::sig::{SecretSeed, SigningKey};
-use ac_market_proto::toploc::{MARKET_PARAMS, ToplocProofs, fit_segments};
+use ac_market_proto::toploc::{ChunkBounds, MARKET_PARAMS, Thresholds, ToplocProofs, fit_segments};
 use ac_primitives::market::receipt::RECEIPT_CONTEXT;
 use ac_primitives::market::work::JobKind;
 use ac_primitives::market::{MicroUsd, ReceiptBody, SignedReceipt};
@@ -14,7 +14,7 @@ use anyhow::{Context, Result};
 use parity_scale_codec::Encode;
 use rand_core::TryRng;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use sp_core::H256;
 use sp_runtime::AccountId32;
 
@@ -177,6 +177,21 @@ pub fn case_from_json(text: &str) -> Result<RecheckCase> {
     case_from(serde_json::from_str(text).context("calibration input")?)
 }
 
+/// `thresholds` as JSON, for the calibration script (m6-toploc-gpu-calibration design D10): the
+/// band and the bounds come from the crate, not from a second copy in Python. Bounds are
+/// `[exponent mismatches, mean mantissa error in hundredths, median mantissa error]`.
+#[must_use]
+pub fn thresholds_json(thresholds: &Thresholds) -> Value {
+    let bounds = |b: &ChunkBounds| json!([b.exp_mismatches, b.mant_mean_centi, b.mant_median]);
+    json!({
+        "version": thresholds.version,
+        "band": [thresholds.band.min, thresholds.band.max],
+        "prefill": bounds(&thresholds.prefill),
+        "prefill_outside": bounds(&thresholds.prefill_outside),
+        "decode": bounds(&thresholds.decode),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     // Test code: unwrap and indexing make failures point at the case.
@@ -212,5 +227,22 @@ mod tests {
             "{err}"
         );
         assert!(fit(segs(4, 9), 5, 10).is_err());
+    }
+
+    #[test]
+    fn the_thresholds_print_as_the_script_reads_them() {
+        let t = ac_market_proto::toploc::AUDIT_THRESHOLDS;
+        let v = thresholds_json(&t);
+        assert_eq!(v["version"], json!(t.version));
+        assert_eq!(v["band"], json!([t.band.min, t.band.max]));
+        assert_eq!(
+            v["prefill_outside"],
+            json!([
+                t.prefill_outside.exp_mismatches,
+                t.prefill_outside.mant_mean_centi,
+                t.prefill_outside.mant_median
+            ])
+        );
+        assert_eq!(v["decode"][1], json!(t.decode.mant_mean_centi));
     }
 }

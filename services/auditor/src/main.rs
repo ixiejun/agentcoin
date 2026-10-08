@@ -55,6 +55,9 @@ enum Command {
         #[arg(long)]
         password_file: PathBuf,
     },
+    /// Print the thresholds this auditor judges by (version, audit length band, bounds) as
+    /// JSON, for the calibration script.
+    Thresholds,
     /// Build a re-check case from a prover engine's candidates (calibration and tests only:
     /// the receipt is signed by a key made for the run). Reads JSON, prints the case.
     CalibrationCase {
@@ -248,6 +251,11 @@ async fn main() -> Result<()> {
                 .with_context(|| format!("writing {}", out.display()))?;
             let commitment = e.commitment().map_err(|e| anyhow::anyhow!("{e}"))?;
             println!("{}", json!({"commitment": hex::encode(commitment)}));
+            Ok(())
+        }
+        Command::Thresholds => {
+            let t = ac_market_proto::toploc::AUDIT_THRESHOLDS;
+            println!("{}", calibration::thresholds_json(&t));
             Ok(())
         }
         Command::CalibrationCase { input } => {

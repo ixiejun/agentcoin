@@ -159,7 +159,11 @@ class MergeTests(unittest.TestCase):
         self.assertIn("NVIDIA GeForce RTX 3090 → NVIDIA GeForce RTX 3090", report["cells"])
         self.assertEqual(report["fingerprints"]["NVIDIA A100-SXM4-80GB"], [b])
         self.assertEqual(report["fingerprints"]["NVIDIA GeForce RTX 3090"], [a])
-        self.assertEqual(report["conclusion"]["decision"], "keep")
+        # A handful of samples: the conclusion would keep the thresholds but needs more.
+        self.assertEqual(report["conclusion"]["decision"], "too few samples")
+        self.assertEqual(report["conclusion"]["would_be"], "keep")
+        # Samples without prompt token counts are on neither side of the band.
+        self.assertEqual(list(cell["by_band"]), ["unknown"])
         # The condensed report: numbers and case names, never request content.
         kept = json.loads(condensed)
         self.assertNotIn("samples", kept)
@@ -259,7 +263,8 @@ class ReplayTests(unittest.TestCase):
         under = report["under_thresholds"]
         self.assertEqual(under["thresholds"]["prefill"], [4, 50, 1])
         self.assertEqual(under["thresholds"]["band"], [100, 250])
-        self.assertEqual(under["cells"]["A → B"], {"honest_fail": 0, "missed": {"swap": 0}})
+        self.assertEqual(under["cells"]["A → B"],
+                         {"inside": {"honest": 1, "honest_fail": 0, "cheats": {"swap": 1}, "missed": {"swap": 0}}})
         with self.assertRaises(ValueError):
             cal.parse_thresholds(["prefill=1,2"])
         with self.assertRaises(ValueError):
@@ -267,41 +272,83 @@ class ReplayTests(unittest.TestCase):
 
 
 class ConclusionTests(unittest.TestCase):
-    """The conclusion rules of "GPU 跨硬件校准"."""
+    """The conclusion rules of "GPU 跨硬件校准", per side of the audit length band (version 3:
+    150–300 prompt tokens; prefill 6/0.85/1 inside, 15/5.00/4 outside)."""
 
-    def cheats(self):
-        return [sample(f"{v}-0.json", [chunk(exp=90, total=900, median=9)]) for v in cal.CHEATS]
+    IN, OUT = 200, 100
+
+    def cheats(self, n=IN, int8=None):
+        out = [dict(sample(f"{v}-{n}.json", [chunk(exp=90, total=900, median=9)]), prompt_tokens=n)
+               for v in cal.CHEATS if v != "int8"]
+        out.append(dict(sample(f"int8-{n}.json", [int8 or chunk(exp=90, total=900, median=9)]), prompt_tokens=n))
+        return out
 
     @staticmethod
-    def conclusion(samples):
-        return cal.conclusion([dict(x, prover="A", auditor="B") for x in samples])
+    def honest(n, *chunks):
+        return dict(sample(f"honest-{n}-{len(chunks)}.json", list(chunks)), prompt_tokens=n)
 
-    # Scenario "现行阈值在所有格子成立".
+    @staticmethod
+    def conclusion(samples, minimum=False):
+        return cal.conclusion([dict(x, prover="A", auditor="B") for x in samples], minimum)
+
     def test_keep(self):
-        c = self.conclusion([sample("honest-0.json", [EXACT, chunk(exp=5, total=200)])] + self.cheats())
+        c = self.conclusion([self.honest(self.IN, EXACT, chunk(exp=5, total=200)),
+                             self.honest(self.OUT, chunk(exp=10, total=300))]
+                            + self.cheats() + self.cheats(self.OUT))
         self.assertEqual(c["decision"], "keep")
+        self.assertTrue(c["minimal_holds"])
 
-    # Scenario "需要统一放宽阈值": an honest prefill with 3 exponent mismatches; version 2 widened
-    # to 3 still fails every cheat.
-    def test_new_version(self):
-        honest = sample("honest-0.json", [chunk(exp=3, total=10), EXACT])
-        c = self.conclusion([honest] + self.cheats())
-        self.assertEqual(c["decision"], "new version")
-        self.assertEqual(c["thresholds"]["prefill"], (3, 50, 1))
-        self.assertEqual(c["thresholds"]["decode"], (20, 800, 8))
-        self.assertEqual(c["current"]["A → B"]["honest_fail"], 1)
-        self.assertEqual(c["cells"]["A → B"]["honest_fail"], 0)
+    # Scenario "报告按区间内外分开": per cell both sides, and the minimal thresholds per side.
+    def test_the_report_has_both_sides(self):
+        samples = [dict(x, prover="A", auditor="B") for x in
+                   [self.honest(self.IN, chunk(exp=1, total=64), EXACT), self.honest(self.OUT, chunk(exp=9, total=320))]
+                   + self.cheats() + self.cheats(self.OUT)]
+        cell = cal.cells(samples)["A → B"]
+        self.assertEqual(sorted(cell["by_band"]), ["inside", "outside"])
+        self.assertEqual(cell["by_band"]["outside"]["honest"]["samples"], 1)
+        self.assertEqual(cell["by_band"]["inside"]["cheats"]["int8"]["samples"], 1)
+        low = cal.minimal_thresholds(samples)
+        self.assertEqual((low["prefill"], low["prefill_outside"]), ((1, 50, 0), (9, 250, 0)))
+        r = cal.under(samples, cal.CURRENT)["A → B"]
+        self.assertEqual((r["inside"]["honest"], r["outside"]["honest"]), (1, 1))
 
-    # Scenario "统一阈值无法满足": the honest worst case is as bad as a cheat.
-    def test_no_uniform_thresholds(self):
-        honest = sample("honest-0.json", [chunk(exp=90, total=900, median=9)])
+    # Scenario "区间外的 int8 不计漏检": an int8 answer outside the band passes; still satisfied,
+    # and its pass is reported.
+    def test_int8_outside_the_band(self):
+        passing = chunk(exp=4, total=256)  # mean 2.00: inside it fails, outside it passes
+        c = self.conclusion([self.honest(self.IN, EXACT), self.honest(self.OUT, EXACT)]
+                            + self.cheats() + self.cheats(self.OUT, int8=passing))
+        self.assertEqual(c["decision"], "keep")
+        self.assertEqual(c["cells"]["A → B"]["outside"]["missed"]["int8"], 1)
+        # The same int8 answer inside the band is a miss of the current values: it fails there.
+        inside = cal.under([dict(x, prover="A", auditor="B") for x in self.cheats(int8=passing)], cal.CURRENT)
+        self.assertEqual(inside["A → B"]["inside"]["missed"]["int8"], 0)
+
+    # Honest prefill errors above the provisional values: widened to the honest maximum, still
+    # catching every cheat it must.
+    def test_widen(self):
+        c = self.conclusion([self.honest(self.IN, chunk(exp=8, total=100), EXACT)] + self.cheats())
+        self.assertEqual(c["decision"], "widen")
+        self.assertEqual(c["thresholds"]["prefill"], (8, 85, 1))
+        self.assertEqual(c["thresholds"]["band"], cal.CURRENT["band"])
+        self.assertEqual(c["current"]["A → B"]["inside"]["honest_fail"], 1)
+
+    # Scenario "无法满足": the honest worst case is as bad as a cheat; the report names the cell
+    # and the side.
+    def test_no_thresholds(self):
+        honest = self.honest(self.IN, chunk(exp=90, total=900, median=9))
         c = self.conclusion([honest] + self.cheats())
-        self.assertEqual(c["decision"], "no uniform thresholds")
-        missed = sum(sum(o["missed"].values()) for o in c["cells"].values())
-        self.assertEqual(missed, len(cal.CHEATS))
-        # An honest chunk without a matching exponent: no bound passes it.
-        c = self.conclusion([sample("honest-1.json", [chunk(exp=128, count=0, median=None)])])
-        self.assertEqual(c["decision"], "no uniform thresholds")
+        self.assertEqual(c["decision"], "no thresholds")
+        self.assertIn("A → B inside: 1 swap missed", c["broken"])
+        self.assertFalse(c["minimal_holds"])
+        c = self.conclusion([self.honest(self.IN, chunk(exp=128, count=0, median=None))])
+        self.assertEqual(c["decision"], "no thresholds")
+
+    def test_too_few_samples(self):
+        c = self.conclusion([self.honest(self.IN, EXACT)] + self.cheats(), minimum=True)
+        self.assertEqual((c["decision"], c["would_be"]), ("too few samples", "keep"))
+        self.assertIn("A → B inside: 1 honest of 3000", c["short"])
+        self.assertIn("A → B outside: 0 honest of 500", c["short"])
 
 
 class PromptLengthTests(unittest.TestCase):
@@ -317,6 +364,43 @@ class PromptLengthTests(unittest.TestCase):
         for (lm, _), (pm, _) in zip(long, plain):
             self.assertTrue(lm[-1]["content"].endswith(pm[-1]["content"]))
         self.assertEqual(long, cal.prompt_set("honest", 48, 1, 100))
+
+    def test_targets_cover_both_sides_of_the_band(self):
+        # m6-toploc-gpu-calibration 7.1 (design D10): about 80% in the band, 10% shorter, 10%
+        # longer, the same for the same seed and variant.
+        band = (150, 300)
+        t = cal.prompt_targets("honest", 10_000, 4, band)
+        self.assertEqual(t, cal.prompt_targets("honest", 10_000, 4, band))
+        self.assertNotEqual(t, cal.prompt_targets("honest", 10_000, 5, band))
+        self.assertNotEqual(t, cal.prompt_targets("int8", 10_000, 4, band))
+        inside = sum(band[0] <= x <= band[1] - cal.SENTENCE for x in t)
+        shorter = sum(cal.SHORTEST <= x <= band[0] - cal.SENTENCE for x in t)
+        longer = sum(band[1] < x <= cal.LONGEST for x in t)
+        self.assertEqual(inside + shorter + longer, len(t))
+        self.assertTrue(7_700 <= inside <= 8_300, inside)
+        self.assertTrue(800 <= shorter <= 1_200 and 800 <= longer <= 1_200, (shorter, longer))
+
+    def test_prompts_are_fitted_to_their_targets(self):
+        # A token per word, as the fake count; a sentence adds at most SENTENCE tokens.
+        def count(m):
+            return sum(len(x["content"].split()) for x in m) + 3 * len(m)
+
+        band = (150, 300)
+        prompts = cal.prompt_set("honest", 200, 2, preamble=False)
+        targets = cal.prompt_targets("honest", 200, 2, band)
+        for i, ((m, _), target) in enumerate(zip(prompts, targets)):
+            fitted = cal.fit_prompt(m, target, count, cal.random.Random(i))
+            n = count(fitted)
+            if count(m) < target:
+                self.assertTrue(target <= n < target + cal.SENTENCE, (target, n))
+            else:
+                self.assertEqual(fitted, m)
+            # The question and its marker stay at the end; the input is not changed.
+            self.assertTrue(fitted[-1]["content"].endswith(m[-1]["content"]))
+            self.assertIn(cal.MARKER, fitted[-1]["content"])
+            self.assertEqual(band[0] <= n <= band[1], band[0] <= target <= band[1])
+        again = cal.fit_prompt(prompts[0][0], 250, count, cal.random.Random(0))
+        self.assertEqual(again, cal.fit_prompt(prompts[0][0], 250, count, cal.random.Random(0)))
 
     def test_buckets(self):
         samples = [dict(sample("honest-0.json", [chunk(total=128)]), prompt_tokens=20, prover="A", auditor="B"),
@@ -358,6 +442,14 @@ class QuickTests(unittest.TestCase):
         self.assertTrue(cal.quick_failures(self.summary(honest={"pass": 46, "inconclusive": 2}), {}, 8))
         self.assertFalse(cal.quick_failures(self.summary(honest={"pass": 47, "inconclusive": 1}), {}, 8))
         self.assertTrue(cal.quick_failures(self.summary(cheat={"pass": 1, "fail": 7}), {}, 8))
+
+    def test_int8_outside_the_band_may_pass(self):
+        s = self.summary()
+        s["int8"]["outcomes"] = {"pass": 1, "fail": 7, "inconclusive": 0}
+        outside = {"case": "int8-00003.json", "outcome": "pass", "prompt_tokens": 40}
+        self.assertEqual(cal.quick_failures(s, {}, 8, [outside]), [])
+        self.assertTrue(cal.quick_failures(s, {}, 8, [dict(outside, prompt_tokens=200)]))
+        self.assertTrue(cal.quick_failures(s, {}, 8, [dict(outside, case="swap-00003.json")]))
 
 
 class WorkflowTests(unittest.TestCase):

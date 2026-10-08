@@ -47,13 +47,15 @@ scripts/gpu-calibration.sh setup           # 30–60 分钟；最后输出 "veri
 
 ```bash
 scripts/gpu-calibration.sh check      # 约 10 分钟：插件在该 GPU 上的检查，然后是快速回归
-scripts/gpu-calibration.sh generate   # 3,000 个诚实 + 每类作弊 100 个；案例包在 /root/autodl-tmp/agentcoin-gpu
+scripts/gpu-calibration.sh generate   # 4,000 个诚实 + 每类作弊 150 个；案例包在 /root/autodl-tmp/agentcoin-gpu
 ls /root/autodl-tmp/agentcoin-gpu     # 案例包名：bundle-rtx-5090-seed11，H800 上为 bundle-h800…-seed12
 scripts/gpu-calibration.sh recheck /root/autodl-tmp/agentcoin-gpu/<自己的案例包>   # 复核自己的案例包
 scripts/gpu-calibration.sh pack       # 打包并打印 SHA-256，在 /root/autodl-tmp/agentcoin-gpu/out
 ```
 
 （案例包名取自 GPU 型号，例如 `bundle-h800-pcie-seed12` 或 `bundle-h800-sxm-seed12`；A100 同样用种子 12。）`check` 停止时，这台 GPU 上不会生成任何东西：把它指出的日志发给我。
+
+prompt 按阈值版本 3 的审计长度区间（150–300 个 token，取自 `ac-auditor thresholds`）补到目标长度：约 80% 在区间内，10% 更短，10% 更长。因此 4,000 个诚实样本中约 3,200 个在区间内、800 个在区间外，满足每格区间内 ≥ 3,000、区间外 ≥ 500 的要求；作弊也按同样比例分布。`check` 的快速回归按版本 3 判定，区间外的 int8 允许通过。
 
 然后把各自的案例包交给另一台机器复核：
 

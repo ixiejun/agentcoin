@@ -37,6 +37,29 @@ computation. The int8 cheat shows why the prefill bound must stay strict. Its de
 inside the decode bounds (worst-chunk exponent mismatches 2–11, mean 1.6–4.6), so it is caught
 mainly by the prefill chunk.
 
+## Thresholds version 3 (provisional)
+
+On GPUs the honest prefill error depends on the prompt's length and on the batch's shape, and
+for short prompts it overlaps the int8 cheat's (`calibration-results/gpu-quick-2026-10-07`,
+`gpu-exp-long-2026-10-07`). Version 3 (`m6-toploc-gpu-calibration` design D8) judges the prefill
+chunk by the prompt's token count:
+
+| Chunk | Exponent mismatches ≤ | Mean mantissa error ≤ | Median mantissa error ≤ |
+|---|---|---|---|
+| Prefill, prompt of 150–300 tokens (the audit length band, both ends included) | 6 | 0.85 | 1 |
+| Prefill, any other prompt | 15 | 5.00 | 4 |
+| Decode (each later chunk) | 20 | 8.00 | 8 |
+
+Auditors send only prompts in the band (`ac-auditor run`), so an audit can tell int8 apart;
+outside the band the prefill bound still catches another model, int4 and a changed prompt. The
+values are provisional until the GPU calibration fixes them; the chain accepts version 3 from
+genesis.
+
+The calibration's prompts are fitted to target lengths with the engine's own tokenizer: about
+80% in the band, 10% shorter (from 20 tokens) and 10% longer (up to 600), deterministic per
+seed. The band comes from the crate (`ac-auditor thresholds` prints it), so the script cannot
+drift from it.
+
 ## Runs
 
 | Run | Seed | Honest / per cheat | Setting | Honest: pass / fail / inconclusive | Cheats passed |
@@ -113,17 +136,27 @@ python scripts/calibrate-toploc.py --merge recheck-*/calibration.json --summary-
   oneDNN may use it).
 - **Cells.** The merged report counts every sample in its "prover → auditor" cell: honest
   passes, fails, inconclusive answers and inexact prefill chunks, and per cheating variant its
-  samples and misses. Reports from before the split count as their own host on both sides.
+  samples and misses, in all and per side of the audit length band (`by_band`: inside, outside,
+  or unknown for reports without prompt token counts). Reports from before the split count as
+  their own host on both sides.
 - **Integrity.** `MANIFEST.sha256` catches transfer damage: a listed case that is missing stops
   the re-check, a case whose digest differs is re-checked and flagged. Whether a case was
   changed is decided by the re-check itself: changed proofs do not open the receipt's
   commitment, a changed prompt or answer fails on a chunk.
 - **Thresholds replayed.** The merge judges every sample again from its chunk metrics, as the
-  auditor does; under version 2 this must give each sample the auditor's own outcome, or the
-  merge fails. It reports the smallest thresholds every honest sample passes, how each cell
-  fares under `--thresholds`, and a conclusion: keep version 2 (it holds in every cell), a new
-  version (version 2 widened to the honest maximum still fails every cheat), or no uniform
-  thresholds (for the user to decide).
+  auditor does; under the version the auditor judged by this must give each sample the
+  auditor's own outcome, or the merge fails. It reports the smallest thresholds every honest
+  sample passes (the prefill bounds per side of the band), how each cell fares under
+  `--thresholds` (`band=MIN,MAX prefill=… prefill_outside=… decode=…`), and a conclusion by
+  the rules below.
+- **Conclusion rules** (spec "GPU 跨硬件校准", every cell on its own). Inside the band: no honest
+  fail, and no miss of another model, int8, int4 or a changed prompt. Outside it: no honest fail,
+  and no miss but int8's (an int8 pass outside the band is only reported). Each cell needs at
+  least 3,000 honest samples inside the band and 500 outside. The conclusion is `keep` (version
+  3's provisional values hold), `widen` (every bound widened to the honest maximum, the band
+  kept, still satisfies the rules), `no thresholds` (with the cells and sides that break the
+  rules, for the user to decide), or `too few samples` (with what it would be). The CI quick
+  regression lets int8 pass outside the band too.
 - **Condensed report.** `--summary-out` writes what the repository keeps: fingerprints, cells,
   distributions, thresholds, conclusion and the chunk metrics of every sample that did not go
   as it should; case names and numbers only, never prompts or answers.

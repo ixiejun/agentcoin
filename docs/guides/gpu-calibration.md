@@ -77,7 +77,7 @@ On each machine:
 
 ```bash
 scripts/gpu-calibration.sh check      # ~10 min: the plugin on this GPU, then the quick regression
-scripts/gpu-calibration.sh generate   # 3,000 honest + 100 per cheat; a bundle in /root/autodl-tmp/agentcoin-gpu
+scripts/gpu-calibration.sh generate   # 4,000 honest + 150 per cheat; a bundle in /root/autodl-tmp/agentcoin-gpu
 ls /root/autodl-tmp/agentcoin-gpu     # the bundle's name: bundle-rtx-5090-seed11, or bundle-h800…-seed12 on the H800
 scripts/gpu-calibration.sh recheck /root/autodl-tmp/agentcoin-gpu/<its bundle>   # its own bundle
 scripts/gpu-calibration.sh pack       # archives and their SHA-256 in /root/autodl-tmp/agentcoin-gpu/out
@@ -86,6 +86,12 @@ scripts/gpu-calibration.sh pack       # archives and their SHA-256 in /root/auto
 (The name comes from the GPU's model, e.g. `bundle-h800-pcie-seed12` or `bundle-h800-sxm-seed12`;
 an A100 also gets seed 12.) If `check` stops, nothing is generated on that GPU: send the log it
 names.
+
+Prompts are fitted to target lengths around the audit length band of thresholds version 3
+(150–300 tokens, from `ac-auditor thresholds`): about 80% inside it, 10% shorter, 10% longer. Of
+4,000 honest samples about 3,200 are inside the band and 800 outside, as each cell needs (at
+least 3,000 and 500); the cheats are spread the same way. The quick regression of `check` judges
+by version 3, and lets int8 pass outside the band.
 
 Then give each machine the other's bundle and re-check it:
 

@@ -24,7 +24,7 @@ Generation and re-check can run on different machines (m6-toploc-gpu-calibration
 --generate-only writes a case bundle (`cases/`, `prover.json` with the prover's hardware
 fingerprint, `MANIFEST.sha256`), --recheck-only re-checks a bundle and records the auditor's
 fingerprint, and --merge counts every sample in its "prover → auditor" cell, replays the
-thresholds on the chunk metrics and states the conclusion (keep version 2, a uniform new version,
+thresholds on the chunk metrics and states the conclusion per side of the audit length band (keep
 or none). Without either option both steps run on this machine, as before.
 
 Usage: scripts/calibrate-toploc.py [--quick] [--honest N] [--cheat N] [--seed N] [--out DIR]
@@ -92,10 +92,12 @@ CONTEXT = [
 ]
 
 
-def prompt_set(variant: str, count: int, seed: int, min_words: int = 0) -> list[tuple[list[dict], int]]:
+def prompt_set(variant: str, count: int, seed: int, min_words: int = 0,
+               preamble: bool = True) -> list[tuple[list[dict], int]]:
     """`count` (messages, max_tokens) pairs; deterministic per variant and seed. With `min_words`,
     every user message is lengthened with background sentences to at least that many words (from
-    a separate random stream, so that the other prompts stay those of the seed)."""
+    a separate random stream, so that the other prompts stay those of the seed). Without
+    `preamble`, no prompt gets the long preamble (the generation fits them to target lengths)."""
     rng = random.Random(f"{seed}-{variant}")
     out = []
     for i in range(count):
@@ -103,13 +105,13 @@ def prompt_set(variant: str, count: int, seed: int, min_words: int = 0) -> list[
         task = rng.choice(TASKS).format(t=topic)
         # 20 to about 400 prompt tokens: a few context sentences, sometimes a long preamble.
         extra = " ".join(rng.choice(CONTEXT) for _ in range(rng.randint(0, 3)))
-        preamble = ""
-        if rng.random() < 0.3:
-            preamble = " ".join(
+        preamble_text = ""
+        if rng.random() < 0.3 and preamble:
+            preamble_text = " ".join(
                 f"Background {k}: {rng.choice(TOPICS)} relates to {rng.choice(TOPICS)}."
                 for k in range(rng.randint(5, 40))
             ) + " "
-        content = f"{preamble}{task} {extra} (ref {MARKER}-{i})".strip()
+        content = f"{preamble_text}{task} {extra} (ref {MARKER}-{i})".strip()
         if min_words:
             pad = random.Random(f"{seed}-{variant}-pad-{i}")
             while len(content.split()) < min_words:
@@ -118,6 +120,51 @@ def prompt_set(variant: str, count: int, seed: int, min_words: int = 0) -> list[
         if rng.random() < 0.3:
             messages.insert(0, {"role": "system", "content": "You are a helpful assistant."})
         out.append((messages, rng.randint(16, 128)))
+    return out
+
+
+# Prompt lengths of the calibration (m6-toploc-gpu-calibration design D10): about 80% of the
+# prompts in the audit length band, 10% shorter (from 20 tokens) and 10% longer (to 600), so that
+# both sides of the band are calibrated. A background sentence is at most about 15 tokens: targets
+# keep that much clear of the band's ends, so that a prompt fitted to one stays on its side.
+SHORTEST, LONGEST, SENTENCE = 20, 600, 16
+
+
+def auditor_band() -> tuple[int, int]:
+    """The audit length band of the thresholds `ac-auditor` judges by (`ac-auditor thresholds`):
+    one source for the band, the crate's constant."""
+    made = subprocess.run([str(AUDITOR), "thresholds"], capture_output=True, check=True)
+    lo, hi = json.loads(made.stdout)["band"]
+    return int(lo), int(hi)
+
+
+def prompt_targets(variant: str, count: int, seed: int, band: tuple[int, int]) -> list[int]:
+    """A target prompt token count per prompt, deterministic per variant and seed."""
+    rng = random.Random(f"{seed}-{variant}-target")
+    lo, hi = band
+    out = []
+    for _ in range(count):
+        r = rng.random()
+        if r < 0.8:
+            out.append(rng.randint(lo, max(lo, hi - SENTENCE)))
+        elif r < 0.9:
+            out.append(rng.randint(SHORTEST, max(SHORTEST, lo - SENTENCE)))
+        else:
+            out.append(rng.randint(hi + 1, LONGEST))
+    return out
+
+
+def fit_prompt(messages: list[dict], target: int, count, rng: random.Random) -> list[dict]:
+    """The messages with background sentences put before the last user message's text until
+    `count(messages)` (prompt tokens under the chat template) reaches `target`; a prompt already
+    that long is kept. The question and the marker stay at the end."""
+    out = [dict(m) for m in messages]
+    last = max(i for i, m in enumerate(out) if m["role"] == "user")
+    question = out[last]["content"]
+    background: list[str] = []
+    while count(out) < target:
+        background.append(f"Background: {rng.choice(TOPICS)} relates to {rng.choice(TOPICS)}.")
+        out[last]["content"] = " ".join(background) + " " + question
     return out
 
 
@@ -204,8 +251,10 @@ def quantized_checkpoint(bits: int, group: int | None, workdir: str) -> str:
     return str(dst)
 
 
-def generate(variant: str, count: int, seed: int, out: Path, min_words: int = 0) -> None:
-    """Child process: answer the variant's prompts in prove mode and write re-check cases."""
+def generate(variant: str, count: int, seed: int, out: Path, min_words: int = 0,
+             band: tuple[int, int] | None = None) -> None:
+    """Child process: answer the variant's prompts in prove mode and write re-check cases. With
+    `band` (and no `min_words`), prompts are fitted to target lengths around it (design D10)."""
     workdir = tempfile.mkdtemp(prefix="ac-calibrate-gen-")
     sock = os.path.join(workdir, "toploc.sock")
     provider = FakeProvider(sock)
@@ -248,7 +297,23 @@ def generate(variant: str, count: int, seed: int, out: Path, min_words: int = 0)
     if not provider.connected:
         sys.exit("the plugin did not connect")
 
-    prompts = prompt_set(variant, count, seed, min_words)
+    targeted = band is not None and not min_words and variant != "preempt"
+    prompts = prompt_set(variant, count, seed, min_words, preamble=not targeted)
+    if targeted:
+        tok = llm.get_tokenizer()
+
+        def count_tokens(m: list[dict]) -> int:
+            # Rendered then tokenized without special tokens, as vLLM's chat endpoint does.
+            text = tok.apply_chat_template(m, add_generation_prompt=True, tokenize=False)
+            return len(tok(text, add_special_tokens=False).input_ids)
+
+        targets = prompt_targets(variant, count, seed, band)
+        prompts = [
+            (fit_prompt(m, t, count_tokens, random.Random(f"{seed}-{variant}-fit-{i}")), mt)
+            for i, ((m, mt), t) in enumerate(zip(prompts, targets))
+        ]
+        inside = sum(band[0] <= count_tokens(m) <= band[1] for m, _ in prompts)
+        print(f"{variant}: {inside}/{count} prompts in the band {band[0]}-{band[1]}", flush=True)
     if variant == "preempt":
         # Short prompts and long answers, all at once.
         prompts = [([m for m in msgs if m["role"] == "user"][-1:], 200) for msgs, _ in prompts]
@@ -581,15 +646,21 @@ def variant_of(case: str) -> str:
     return case.split("-", 1)[0]
 
 
-def cells(samples: list[dict]) -> dict:
-    """Per "prover → auditor" cell: honest outcomes and inexact prefill chunks, and per cheating
-    variant its samples and how many passed (missed) or were inconclusive."""
-    out: dict = {}
+def side(x: dict, band: tuple[int, int] | None = None) -> str:
+    """Which side of the audit length band (the current version's unless given) a sample's prompt
+    is on: "inside", "outside", or "unknown" for reports without prompt token counts."""
+    band = band or CURRENT["band"]
+    n = x.get("prompt_tokens")
+    if n is None:
+        return "unknown"
+    return "inside" if band[0] <= n <= band[1] else "outside"
+
+
+def cell_counts(samples: list[dict]) -> dict:
+    """Honest outcomes and inexact prefill chunks, and per cheating variant its samples and how
+    many passed (missed) or were inconclusive."""
+    c = {"honest": {"samples": 0, "pass": 0, "fail": 0, "inconclusive": 0, "inexact_prefill": 0}, "cheats": {}}
     for x in samples:
-        key = f'{x["prover"]} → {x["auditor"]}'
-        c = out.setdefault(key, {"prover": x["prover"], "auditor": x["auditor"],
-                                 "honest": {"samples": 0, "pass": 0, "fail": 0, "inconclusive": 0, "inexact_prefill": 0},
-                                 "cheats": {}})
         v = variant_of(x["case"])
         if v == "honest":
             h = c["honest"]
@@ -602,7 +673,23 @@ def cells(samples: list[dict]) -> dict:
             o["samples"] += 1
             o["missed"] += x["outcome"] == "pass"
             o["inconclusive"] += x["outcome"] == "inconclusive"
-    return dict(sorted(out.items()))
+    return c
+
+
+def cells(samples: list[dict]) -> dict:
+    """Per "prover → auditor" cell: the counts of `cell_counts`, in all and per side of the audit
+    length band (spec "报告按区间内外分开")."""
+    groups: dict = {}
+    for x in samples:
+        groups.setdefault(f'{x["prover"]} → {x["auditor"]}', []).append(x)
+    out = {}
+    for key, xs in sorted(groups.items()):
+        by_side: dict = {}
+        for x in xs:
+            by_side.setdefault(side(x), []).append(x)
+        out[key] = {"prover": xs[0]["prover"], "auditor": xs[0]["auditor"], **cell_counts(xs),
+                    "by_band": {k: cell_counts(v) for k, v in sorted(by_side.items())}}
+    return out
 
 
 # Thresholds as (exponent mismatches, mean mantissa error in hundredths, median mantissa error)
@@ -678,22 +765,31 @@ def parse_thresholds(specs: list[str]) -> dict:
     return t
 
 
-def minimal_thresholds(samples: list[dict]) -> dict | None:
-    """The smallest thresholds under which every honest sample judged by thresholds passes:
-    per chunk kind the largest exponent mismatches, mean (hundredths, rounded up) and median of
-    any honest chunk. None when an honest chunk has no matching exponent (no bound passes it)."""
-    worst = {"prefill": [0, 0, 0], "decode": [0, 0, 0]}
+def minimal_thresholds(samples: list[dict], band: tuple[int, int] | None = None) -> dict | None:
+    """The smallest thresholds (with the current band unless given) under which every honest
+    sample judged by thresholds passes: per chunk kind the largest exponent mismatches, mean
+    (hundredths, rounded up) and median of any honest chunk, the prefill chunk per side of the
+    band (a sample without its prompt token count counts on both sides). None when an honest
+    chunk has no matching exponent (no bound passes it)."""
+    band = band or CURRENT["band"]
+    worst = {"prefill": [0, 0, 0], "prefill_outside": [0, 0, 0], "decode": [0, 0, 0]}
     for x in samples:
         if variant_of(x["case"]) != "honest" or not judged(x):
             continue
+        where = side(x, band)
         for i, c in enumerate(x["chunks"]):
             if c["mant_count"] == 0 or c["median"] is None:
                 return None
-            w = worst["prefill" if i == 0 else "decode"]
-            w[0] = max(w[0], c["exp_mismatches"])
-            w[1] = max(w[1], -(-c["mant_err_sum"] * 100 // c["mant_count"]))
-            w[2] = max(w[2], c["median"])
-    return {"version": None, "prefill": tuple(worst["prefill"]), "decode": tuple(worst["decode"])}
+            if i > 0:
+                kinds = ["decode"]
+            else:
+                kinds = {"inside": ["prefill"], "outside": ["prefill_outside"]}.get(where, ["prefill", "prefill_outside"])
+            for k in kinds:
+                w = worst[k]
+                w[0] = max(w[0], c["exp_mismatches"])
+                w[1] = max(w[1], -(-c["mant_err_sum"] * 100 // c["mant_count"]))
+                w[2] = max(w[2], c["median"])
+    return {"version": None, "band": tuple(band), **{k: tuple(v) for k, v in worst.items()}}
 
 
 LENGTH_BUCKETS = (0, 64, 128, 256)
@@ -729,41 +825,89 @@ def by_prompt_length(samples: list[dict]) -> dict:
     return out
 
 
+# Each cell needs this many honest samples inside and outside the band (spec "GPU 跨硬件校准").
+MINIMUM_HONEST = {"inside": 3000, "outside": 500}
+
+
 def under(samples: list[dict], t: dict) -> dict:
-    """Per cell, honest fails and cheating passes when every sample is judged by `t`."""
+    """Per cell and side of `t`'s band (all inside without a band): honest samples and fails,
+    and per cheating variant its samples and passes, when every sample is judged by `t`. A
+    sample without its prompt token count (a report from before version 3) is "unknown" and
+    judged by the bounds and rules of the band's inside, the strict ones."""
     out: dict = {}
     for x in samples:
-        o = out.setdefault(f'{x["prover"]} → {x["auditor"]}', {"honest_fail": 0, "missed": {}})
-        outcome, _ = replay(x, t)
+        if t.get("band") is None:
+            where, judge_by = "inside", t
+        elif x.get("prompt_tokens") is None:
+            where, judge_by = "unknown", dict(t, band=None)
+        else:
+            where, judge_by = ("inside" if in_band(x, t) else "outside"), t
+        o = out.setdefault(f'{x["prover"]} → {x["auditor"]}', {}).setdefault(
+            where, {"honest": 0, "honest_fail": 0, "cheats": {}, "missed": {}})
+        outcome, _ = replay(x, judge_by)
         v = variant_of(x["case"])
         if v == "honest":
+            o["honest"] += 1
             o["honest_fail"] += outcome == "fail"
         elif v in CHEATS:
+            o["cheats"][v] = o["cheats"].get(v, 0) + 1
             o["missed"][v] = o["missed"].get(v, 0) + (outcome == "pass")
     return dict(sorted(out.items()))
 
 
-def clean(r: dict) -> bool:
-    return all(o["honest_fail"] == 0 and not any(o["missed"].values()) for o in r.values())
+def broken(r: dict) -> list[str]:
+    """Where `under`'s result breaks the conclusion rules: inside the band no honest fail and no
+    cheat missed; outside it no honest fail and no cheat but int8 missed (int8 is not required to
+    fail there; its passes are only reported)."""
+    out = []
+    for cell, sides in r.items():
+        for where, o in sides.items():
+            if o["honest_fail"]:
+                out.append(f'{cell} {where}: {o["honest_fail"]} honest fail')
+            for v, n in o["missed"].items():
+                if n and not (where == "outside" and v == "int8"):
+                    out.append(f"{cell} {where}: {n} {v} missed")
+    return out
 
 
-def conclusion(samples: list[dict]) -> dict:
-    """The conclusion rules of spec engineering/ci-quality-gates "GPU 跨硬件校准": keep version 2
-    if it holds in every cell; else a uniform set of thresholds (version 2 widened to the honest
-    maximum) if it still fails every cheat; else no uniform thresholds, for the user to decide."""
-    current = under(samples, THRESHOLDS_V2)
-    if clean(current):
-        return {"decision": "keep", "thresholds": THRESHOLDS_V2, "cells": current}
+def short_of_samples(r: dict) -> list[str]:
+    """Cells with fewer honest samples on a side of the band than the calibration needs."""
+    return [f'{cell} {where}: {sides.get(where, {}).get("honest", 0)} honest of {need}'
+            for cell, sides in r.items() for where, need in MINIMUM_HONEST.items()
+            if sides.get(where, {}).get("honest", 0) < need]
+
+
+def conclusion(samples: list[dict], minimum: bool = True) -> dict:
+    """The conclusion rules of spec engineering/ci-quality-gates "GPU 跨硬件校准", cell by cell:
+    keep version 3's provisional values if they hold in every cell; else version 3 with every
+    bound widened to the honest maximum (the band kept) if that still catches every cheat it must;
+    else no thresholds, for the user to decide (design D12: version 3's values can change until
+    the change is archived). With `minimum`, a cell short of honest samples on a side of the band
+    leaves the conclusion open."""
+    current = under(samples, CURRENT)
     low = minimal_thresholds(samples)
-    if low is None:
-        return {"decision": "no uniform thresholds", "reason": "an honest chunk has no matching exponent",
-                "cells": current}
-    wide = {"version": None,
-            **{k: tuple(max(a, b) for a, b in zip(THRESHOLDS_V2[k], low[k])) for k in ("prefill", "decode")}}
-    widened = under(samples, wide)
-    if clean(widened):
-        return {"decision": "new version", "thresholds": wide, "cells": widened, "current": current}
-    return {"decision": "no uniform thresholds", "thresholds": wide, "cells": widened, "current": current}
+    found = {"minimal_thresholds": low}
+    if low is not None:
+        found["minimal_holds"] = not broken(under(samples, low))
+    short = short_of_samples(current) if minimum else []
+    if not broken(current):
+        decision = {"decision": "keep", "thresholds": CURRENT, "cells": current}
+    elif low is None:
+        return {"decision": "no thresholds", "reason": "an honest chunk has no matching exponent",
+                "broken": broken(current), "cells": current, **found}
+    else:
+        wide = {"version": CURRENT["version"], "band": CURRENT["band"],
+                **{k: tuple(max(a, b) for a, b in zip(CURRENT[k], low[k]))
+                   for k in ("prefill", "prefill_outside", "decode")}}
+        widened = under(samples, wide)
+        if broken(widened):
+            return {"decision": "no thresholds", "thresholds": wide, "broken": broken(widened),
+                    "cells": widened, "current": current, **found}
+        decision = {"decision": "widen", "thresholds": wide, "cells": widened, "current": current}
+    if short:
+        return {**decision, "decision": "too few samples", "would_be": decision["decision"],
+                "short": short, **found}
+    return {**decision, **found}
 
 
 class ReplayMismatch(Exception):
@@ -899,6 +1043,10 @@ def shard_of(names: list[str], shard: str | None) -> list[str]:
 def generate_bundle(out: Path, honest: int, cheat: int, seed: int, min_words: int = 0) -> int:
     """Generates every variant into the bundle `out` (`cases/`, `prover.json`,
     `MANIFEST.sha256`; logs in `out/logs`)."""
+    band = auditor_band()
+    if CURRENT["band"] != band:
+        print(f"ac-auditor judges by the band {band}, this script by {CURRENT['band']}: update THRESHOLDS")
+        return 1
     cases = out / "cases"
     cases.mkdir(parents=True, exist_ok=True)
     for f in cases.glob("*.json"):
@@ -917,7 +1065,8 @@ def generate_bundle(out: Path, honest: int, cheat: int, seed: int, min_words: in
         with open(logs / f"generate-{v}.log", "w") as log:
             run = subprocess.run(
                 [sys.executable, __file__, "--generate", v, "--count", str(n), "--seed", str(seed),
-                 "--out", str(cases), "--fingerprint", str(fp), "--min-prompt-words", str(min_words)],
+                 "--out", str(cases), "--fingerprint", str(fp), "--min-prompt-words", str(min_words),
+                 "--band", f"{band[0]},{band[1]}"],
                 stdout=log, stderr=subprocess.STDOUT, env=env,
             )
         lines = (logs / f"generate-{v}.log").read_text(errors="replace").strip().splitlines()
@@ -943,6 +1092,7 @@ def generate_bundle(out: Path, honest: int, cheat: int, seed: int, min_words: in
             f.unlink()
     (out / "prover.json").write_text(json.dumps(
         {"seed": seed, "honest": honest, "cheat": cheat, "min_prompt_words": min_words,
+         "band": None if min_words else list(band),
          "unproven": unproven, "fingerprint": prints[0]}, indent=1) + "\n")
     write_manifest(out)
     print("prover:", json.dumps(prints[0]), flush=True)
@@ -1002,13 +1152,16 @@ def same_outcomes(a: dict, b: dict) -> list[str]:
     return sorted(c for c in left.keys() | right.keys() if left.get(c) != right.get(c))
 
 
-def quick_failures(s: dict, unproven: dict, cheat: int) -> list[str]:
+def quick_failures(s: dict, unproven: dict, cheat: int, samples: list[dict] = ()) -> list[str]:
     """The CI regression's verdict on a report's summary and the prover's answers without proof.
     User decision (2026-10-01): an answer that cannot be re-tokenized is inconclusive, not a miss;
     at most one per variant is tolerated, while any honest failure or cheating pass fails the
     regression. An honest answer whose segments do not fit its usage (no proof at the provider,
-    m6-toploc-async-stop) fails it too."""
+    m6-toploc-async-stop) fails it too. An int8 answer to a prompt outside the audit length band
+    (of `samples`) may pass: the rules do not require it to fail there (design D8)."""
     failures = []
+    excused = sum(variant_of(x["case"]) == "int8" and x["outcome"] == "pass" and side(x) == "outside"
+                  for x in samples)
     h = s.get("honest", {}).get("outcomes", {})
     if h.get("fail", 0) or h.get("inconclusive", 0) > 1:
         failures.append(f"honest samples: {h}")
@@ -1016,7 +1169,8 @@ def quick_failures(s: dict, unproven: dict, cheat: int) -> list[str]:
         failures.append(f"honest answers without proof at the prover: {unproven['honest']}")
     for v in CHEATS:
         o = s.get(v, {}).get("outcomes", {})
-        if o.get("pass", 0) or o.get("inconclusive", 0) > 1:
+        passed = o.get("pass", 0) - (excused if v == "int8" else 0)
+        if passed or o.get("inconclusive", 0) > 1:
             failures.append(f"{v} samples: {o} of {cheat}")
     return failures
 
@@ -1036,6 +1190,7 @@ def main() -> int:
     ap.add_argument("--generate", choices=(*VARIANTS, "preempt"), help=argparse.SUPPRESS)
     ap.add_argument("--count", type=int, help=argparse.SUPPRESS)
     ap.add_argument("--fingerprint", type=Path, help=argparse.SUPPRESS)
+    ap.add_argument("--band", help=argparse.SUPPRESS)
     ap.add_argument("--min-prompt-words", type=int, default=0,
                     help="lengthen every prompt to at least this many words (the prefill bound depends on it on GPUs)")
     ap.add_argument("--generate-only", action="store_true",
@@ -1061,7 +1216,8 @@ def main() -> int:
         if args.fingerprint:
             # Before the engine starts: a GPU driver failure should not cost the fingerprint.
             args.fingerprint.write_text(json.dumps(fingerprint()))
-        generate(args.generate, args.count, args.seed, args.out, args.min_prompt_words)
+        band = tuple(int(v) for v in args.band.split(",")) if args.band else None
+        generate(args.generate, args.count, args.seed, args.out, args.min_prompt_words, band)
         return 0
     if args.merge:
         return merge(args.merge, args.out.resolve(), args.thresholds, args.summary_out)
@@ -1095,7 +1251,7 @@ def main() -> int:
 
     failures = leaked(out / "logs")
     if args.quick:
-        failures += quick_failures(s, report.get("unproven", {}), cheat)
+        failures += quick_failures(s, report.get("unproven", {}), cheat, report["samples"])
     print("FAILED:" if failures else "calibration done", *failures, sep="\n  ")
     return 1 if failures else 0
 

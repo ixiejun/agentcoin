@@ -8,7 +8,8 @@
 #   verify           check versions and models against the pins (stops on any difference)
 #   check            the plugin on this GPU (scripts/check-vllm-plugin.py), then the quick re-check
 #                    regression; nothing is generated unless both pass
-#   generate         a case bundle: 3,000 honest answers and 100 per cheating variant
+#   generate         a case bundle: 4,000 honest answers and 150 per cheating variant, about 80%
+#                    of the prompts in the audit length band (3,000 and 100 per cell needed there)
 #   recheck <bundle> re-check a bundle (a directory or the .tar.gz of one) on this machine
 #   probe-stop       whether answers that end with stop get one decode segment too many, with the
 #                    default scheduling and with asynchronous scheduling off (a few minutes)
@@ -305,8 +306,8 @@ cmd_generate() {
   seed="${SEED:-$(seed_for "$slug")}"
   local out="$WORK/bundle-$slug-seed$seed"
   echo "generating $out (seed $seed)"
-  (cd "$repo_root" && python scripts/calibrate-toploc.py --generate-only --honest "${HONEST:-3000}" \
-    --cheat "${CHEAT:-100}" --seed "$seed" --out "$out")
+  (cd "$repo_root" && python scripts/calibrate-toploc.py --generate-only --honest "${HONEST:-4000}" \
+    --cheat "${CHEAT:-150}" --seed "$seed" --out "$out")
 }
 
 # The long-prompt experiment (calibration-results/gpu-quick-2026-10-07: on GPUs the honest
