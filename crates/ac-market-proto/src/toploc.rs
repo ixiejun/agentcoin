@@ -258,29 +258,71 @@ pub struct ChunkBounds {
     pub mant_median: u8,
 }
 
-/// The bounds audits judge by: strict ones for the prefill chunk (the prompt, which the
-/// auditor knows exactly and recomputes the way the provider computed it) and wider ones for
-/// the decode chunks (whose activations an auditor recomputes in a prefill, a different
-/// computation path). Versioned: an audit verdict names the version it was judged under, and
-/// every change of a bound is a new version, calibrated anew.
+impl ChunkBounds {
+    /// Whether every bound of `self` is at most the same bound of `wider`.
+    #[must_use]
+    pub const fn within(&self, wider: &Self) -> bool {
+        self.exp_mismatches <= wider.exp_mismatches
+            && self.mant_mean_centi <= wider.mant_mean_centi
+            && self.mant_median <= wider.mant_median
+    }
+}
+
+/// The audit length band: prompt token counts from `min` to `max`, both included (spec
+/// `market/toploc` "复核判定规则与阈值").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PromptBand {
+    /// Fewest prompt tokens in the band.
+    pub min: u32,
+    /// Most prompt tokens in the band.
+    pub max: u32,
+}
+
+impl PromptBand {
+    /// Whether a prompt of `tokens` tokens is in the band.
+    #[must_use]
+    pub const fn contains(&self, tokens: u32) -> bool {
+        self.min <= tokens && tokens <= self.max
+    }
+}
+
+/// The bounds audits judge by. The prefill chunk (the prompt, which the auditor knows exactly
+/// and recomputes the way the provider computed it) has strict bounds when the prompt is in the
+/// audit length band and wider ones outside it: on GPUs a short prompt's prefill varies with the
+/// batch's shape, and only prompts in the band tell a weight quantization apart (m6-toploc-gpu-
+/// calibration). Decode chunks, whose activations an auditor recomputes in a prefill (a
+/// different computation path), have the widest. Versioned: an audit verdict names the version
+/// it was judged under, and every change of a bound or of the band is a new version, calibrated
+/// anew.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Thresholds {
     /// Version of this set of bounds.
     pub version: u16,
-    /// Bounds of the prefill chunk (chunk 0).
+    /// The audit length band.
+    pub band: PromptBand,
+    /// Bounds of the prefill chunk (chunk 0) of a prompt in the band.
     pub prefill: ChunkBounds,
+    /// Bounds of the prefill chunk of a prompt outside the band.
+    pub prefill_outside: ChunkBounds,
     /// Bounds of every decode chunk.
     pub decode: ChunkBounds,
 }
 
-/// The bounds audits judge by. Version 2 is provisional (CPU calibration of m6-toploc-verify;
-/// the values are fixed by the large calibration run of group 8).
+/// The bounds audits judge by. Version 3 (m6-toploc-gpu-calibration design D8): the prefill
+/// bounds depend on the prompt's length. The values are provisional until the change's GPU and
+/// CPU calibration fixes them (version 2 bounded every prefill chunk by 2 / 0.50 / 1).
 pub const AUDIT_THRESHOLDS: Thresholds = Thresholds {
-    version: 2,
+    version: 3,
+    band: PromptBand { min: 150, max: 300 },
     prefill: ChunkBounds {
-        exp_mismatches: 2,
-        mant_mean_centi: 50,
+        exp_mismatches: 6,
+        mant_mean_centi: 85,
         mant_median: 1,
+    },
+    prefill_outside: ChunkBounds {
+        exp_mismatches: 15,
+        mant_mean_centi: 500,
+        mant_median: 4,
     },
     decode: ChunkBounds {
         exp_mismatches: 20,
@@ -353,11 +395,17 @@ pub fn judge_chunk(c: &Comparison, b: &ChunkBounds) -> Option<Metric> {
     }
 }
 
-/// Judges an inference under [`MARKET_PARAMS`] (chunk 0 is the prefill): it passes if and only
-/// if every chunk is within its bounds (and there is one); else it fails on the first chunk out
-/// of bounds.
+/// Judges an inference of a `prompt_tokens`-token prompt under [`MARKET_PARAMS`] (chunk 0 is
+/// the prefill, judged by the bounds of the prompt's side of the audit length band): it passes
+/// if and only if every chunk is within its bounds (and there is one); else it fails on the
+/// first chunk out of bounds.
 #[must_use]
-pub fn judge(comparisons: &[Comparison], t: &Thresholds) -> Judgement {
+pub fn judge(comparisons: &[Comparison], t: &Thresholds, prompt_tokens: u32) -> Judgement {
+    let prefill = if t.band.contains(prompt_tokens) {
+        &t.prefill
+    } else {
+        &t.prefill_outside
+    };
     if comparisons.is_empty() {
         return Judgement::Fail {
             chunk: 0,
@@ -368,7 +416,7 @@ pub fn judge(comparisons: &[Comparison], t: &Thresholds) -> Judgement {
         .iter()
         .enumerate()
         .find_map(|(chunk, c)| {
-            let bounds = if chunk == 0 { &t.prefill } else { &t.decode };
+            let bounds = if chunk == 0 { prefill } else { &t.decode };
             judge_chunk(c, bounds).map(|metric| Judgement::Fail { chunk, metric })
         })
         .unwrap_or(Judgement::Pass)
@@ -487,12 +535,16 @@ mod tests {
         mant_mean_centi: 300,
         mant_median: 2,
     };
-    /// The same bounds for every chunk.
+    /// The same bounds for every chunk; prompts of 10 to 20 tokens are in the band.
     const T: Thresholds = Thresholds {
         version: 9,
+        band: PromptBand { min: 10, max: 20 },
         prefill: B,
+        prefill_outside: B,
         decode: B,
     };
+    /// A prompt in the band of [`T`].
+    const IN: u32 = 10;
 
     fn chunk(exp: u32, sum: u32, count: u32, median: Option<u8>) -> Comparison {
         Comparison {
@@ -509,7 +561,7 @@ mod tests {
     fn chunks_within_the_bounds_pass() {
         let ok = chunk(4, 30, 124, Some(2));
         assert_eq!(
-            judge(&[ok, chunk(0, 0, 128, Some(0)), ok], &T),
+            judge(&[ok, chunk(0, 0, 128, Some(0)), ok], &T, IN),
             Judgement::Pass
         );
     }
@@ -519,7 +571,7 @@ mod tests {
     fn one_chunk_with_too_many_exponent_mismatches_fails() {
         let ok = chunk(0, 0, 128, Some(0));
         assert_eq!(
-            judge(&[ok, ok, chunk(5, 0, 123, Some(0)), ok], &T),
+            judge(&[ok, ok, chunk(5, 0, 123, Some(0)), ok], &T, IN),
             Judgement::Fail {
                 chunk: 2,
                 metric: Metric::ExpMismatches
@@ -536,11 +588,12 @@ mod tests {
         };
         let all_wrong = Thresholds {
             prefill: lax,
+            prefill_outside: lax,
             decode: lax,
             ..T
         };
         assert_eq!(
-            judge(&[chunk(128, 0, 0, None)], &all_wrong),
+            judge(&[chunk(128, 0, 0, None)], &all_wrong, IN),
             Judgement::Fail {
                 chunk: 0,
                 metric: Metric::NoMatchingExponent
@@ -552,25 +605,25 @@ mod tests {
     #[test]
     fn a_mean_equal_to_the_bound_passes() {
         assert_eq!(
-            judge(&[chunk(0, 3 * 128, 128, Some(2))], &T),
+            judge(&[chunk(0, 3 * 128, 128, Some(2))], &T, IN),
             Judgement::Pass
         );
         assert_eq!(
-            judge(&[chunk(0, 3 * 128 + 1, 128, Some(2))], &T),
+            judge(&[chunk(0, 3 * 128 + 1, 128, Some(2))], &T, IN),
             Judgement::Fail {
                 chunk: 0,
                 metric: Metric::MantissaMean
             }
         );
         assert_eq!(
-            judge(&[chunk(0, 0, 128, Some(3))], &T),
+            judge(&[chunk(0, 0, 128, Some(3))], &T, IN),
             Judgement::Fail {
                 chunk: 0,
                 metric: Metric::MantissaMedian
             }
         );
         assert_eq!(
-            judge(&[], &T),
+            judge(&[], &T, IN),
             Judgement::Fail {
                 chunk: 0,
                 metric: Metric::NoChunks
@@ -582,30 +635,87 @@ mod tests {
     #[test]
     fn the_prefill_has_its_own_bounds() {
         let t = Thresholds {
-            version: 9,
             prefill: ChunkBounds {
                 exp_mismatches: 0,
                 mant_mean_centi: 50,
                 mant_median: 0,
             },
-            decode: B,
+            ..T
         };
         let slightly_off = chunk(0, 100, 128, Some(0)); // mean 0.78
         assert_eq!(
-            judge(&[slightly_off, slightly_off], &t),
+            judge(&[slightly_off, slightly_off], &t, IN),
             Judgement::Fail {
                 chunk: 0,
                 metric: Metric::MantissaMean
             }
         );
         let exact = chunk(0, 0, 128, Some(0));
-        assert_eq!(judge(&[exact, slightly_off], &t), Judgement::Pass);
+        assert_eq!(judge(&[exact, slightly_off], &t, IN), Judgement::Pass);
         // Half a unit is the bound in hundredths: 64 / 128 = 0.50 passes, 65 / 128 does not.
-        assert_eq!(judge(&[chunk(0, 64, 128, Some(0))], &t), Judgement::Pass);
+        assert_eq!(
+            judge(&[chunk(0, 64, 128, Some(0))], &t, IN),
+            Judgement::Pass
+        );
         assert!(matches!(
-            judge(&[chunk(0, 65, 128, Some(0))], &t),
+            judge(&[chunk(0, 65, 128, Some(0))], &t, IN),
             Judgement::Fail { chunk: 0, .. }
         ));
+    }
+
+    // Spec "预填充块按严格阈值判定", "区间外的 prompt 用宽松的预填充阈值" and "区间的界含两端"
+    // (m6-toploc-gpu-calibration 4.1): a prefill mean between the two prefill bounds fails in
+    // the band, both ends included, and passes one token outside it on either side.
+    #[test]
+    fn the_prefill_bounds_depend_on_the_prompt_length() {
+        let t = Thresholds {
+            prefill: ChunkBounds {
+                exp_mismatches: 0,
+                mant_mean_centi: 50,
+                mant_median: 1,
+            },
+            ..T
+        };
+        let between = chunk(0, 100, 128, Some(1)); // mean 0.78: over 0.50, under 3.00
+        let ok = chunk(0, 0, 128, Some(0));
+        for tokens in [t.band.min, 15, t.band.max] {
+            assert_eq!(
+                judge(&[between, ok], &t, tokens),
+                Judgement::Fail {
+                    chunk: 0,
+                    metric: Metric::MantissaMean
+                },
+                "{tokens} tokens"
+            );
+        }
+        for tokens in [t.band.min - 1, t.band.max + 1, 0] {
+            assert_eq!(
+                judge(&[between, ok], &t, tokens),
+                Judgement::Pass,
+                "{tokens} tokens"
+            );
+        }
+        // Decode chunks have their own bounds, whatever the prompt's length.
+        let wide = chunk(5, 0, 123, Some(0));
+        assert!(matches!(
+            judge(&[ok, wide], &t, 15),
+            Judgement::Fail { chunk: 1, .. }
+        ));
+        assert!(matches!(
+            judge(&[ok, wide], &t, 9),
+            Judgement::Fail { chunk: 1, .. }
+        ));
+    }
+
+    // The bounds nest: the band's prefill bounds within those outside it, those within the
+    // decode bounds (spec "复核判定规则与阈值").
+    #[test]
+    fn the_market_bounds_nest() {
+        let t = AUDIT_THRESHOLDS;
+        assert!(t.prefill.within(&t.prefill_outside));
+        assert!(t.prefill_outside.within(&t.decode));
+        assert!(t.band.min <= t.band.max);
+        assert_eq!(t.version, 3);
     }
 
     // Recomputing the very activations passes; another model's do not.
@@ -619,10 +729,13 @@ mod tests {
         let (a, b) = (n(7), n(13));
         let proofs = build_proofs(&[&a, &a], &MARKET_PARAMS).unwrap();
         let same = ac_toploc::compare(&[&a, &a], &proofs, &MARKET_PARAMS).unwrap();
-        assert_eq!(judge(&same, &AUDIT_THRESHOLDS), Judgement::Pass);
+        assert_eq!(
+            judge(&same, &AUDIT_THRESHOLDS, AUDIT_THRESHOLDS.band.min),
+            Judgement::Pass
+        );
         let other = ac_toploc::compare(&[&b, &b], &proofs, &MARKET_PARAMS).unwrap();
         assert!(matches!(
-            judge(&other, &AUDIT_THRESHOLDS),
+            judge(&other, &AUDIT_THRESHOLDS, AUDIT_THRESHOLDS.band.min),
             Judgement::Fail { .. }
         ));
     }

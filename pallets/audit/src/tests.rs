@@ -285,7 +285,7 @@ fn outdated_thresholds_version_is_refused() {
             AdjustableParams {
                 stake_usd: MicroUsd(1_000_000_000),
                 payment_usd: MicroUsd(50_000),
-                thresholds_version: 3,
+                thresholds_version: 4,
             }
         ));
         let a = assigned(PROVIDER)[0].clone();
@@ -679,7 +679,7 @@ fn adjustments_stay_within_guardrails() {
         let ok = AdjustableParams {
             stake_usd: MicroUsd(1_000_000_000),
             payment_usd: MicroUsd(50_000),
-            thresholds_version: 3,
+            thresholds_version: 4,
         };
         assert_noop!(
             Audit::set_params(RuntimeOrigin::signed(acc(1)), ok),
@@ -700,7 +700,7 @@ fn adjustments_stay_within_guardrails() {
             Audit::set_params(
                 RuntimeOrigin::root(),
                 AdjustableParams {
-                    thresholds_version: 2,
+                    thresholds_version: 3,
                     ..ok
                 }
             ),

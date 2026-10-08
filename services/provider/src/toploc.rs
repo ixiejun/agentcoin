@@ -606,7 +606,11 @@ mod tests {
             .collect();
         let cmp = ac_toploc::compare_from_candidates(&rows, &polys, &MARKET_PARAMS).unwrap();
         assert_eq!(
-            ac_market_proto::toploc::judge(&cmp, &ac_market_proto::toploc::AUDIT_THRESHOLDS),
+            ac_market_proto::toploc::judge(
+                &cmp,
+                &ac_market_proto::toploc::AUDIT_THRESHOLDS,
+                ac_market_proto::toploc::AUDIT_THRESHOLDS.band.min
+            ),
             ac_market_proto::toploc::Judgement::Pass
         );
     }

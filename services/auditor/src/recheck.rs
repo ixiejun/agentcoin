@@ -47,7 +47,7 @@ impl Verifier {
     /// problem is an outcome. Logs only IDs, counts, metrics and the verdict.
     pub async fn recheck(&self, case: &RecheckCase, quant: QuantType) -> Report {
         let receipt = case.signed_receipt().ok();
-        let (outcome, chunks) = self.run(case, receipt.as_ref(), quant).await;
+        let (outcome, chunks, prompt_tokens) = self.run(case, receipt.as_ref(), quant).await;
         let request = receipt.as_ref().map(|r| hex::encode(r.body.request_id));
         log::info!(
             target: TARGET,
@@ -63,6 +63,7 @@ impl Verifier {
             reason: outcome.reason(),
             request,
             thresholds_version: self.thresholds.version,
+            prompt_tokens,
             chunks,
             verdict: outcome,
         }
@@ -73,9 +74,9 @@ impl Verifier {
         case: &RecheckCase,
         receipt: Option<&SignedReceipt>,
         quant: QuantType,
-    ) -> (Outcome, Vec<ChunkMetrics>) {
-        let none = Vec::new();
-        let inconclusive = |why| (Outcome::Inconclusive(why), Vec::new());
+    ) -> (Outcome, Vec<ChunkMetrics>, Option<u32>) {
+        let fail = |why| (Outcome::Fail(why), Vec::new(), None);
+        let inconclusive = |why| (Outcome::Inconclusive(why), Vec::new(), None);
         // 1. The receipt is the one of this case.
         let Some(receipt) = receipt else {
             return inconclusive(Inconclusive::InputMismatch);
@@ -94,10 +95,10 @@ impl Verifier {
         }
         // 3. The proofs (spec "缺少证明即不通过").
         let Ok(proofs) = case.proofs() else {
-            return (Outcome::Fail(FailReason::CommitmentMismatch), none);
+            return fail(FailReason::CommitmentMismatch);
         };
         let proofs = match (body.toploc_commit == [0; 32], proofs) {
-            (true, None) => return (Outcome::Fail(FailReason::NoProof), none),
+            (true, None) => return fail(FailReason::NoProof),
             (_, p) => p,
         };
         if let Err(e) = check(body, proofs.as_ref()) {
@@ -108,10 +109,10 @@ impl Verifier {
                 }
                 _ => FailReason::CommitmentMismatch,
             };
-            return (Outcome::Fail(reason), none);
+            return fail(reason);
         }
         let Some(proofs) = proofs.as_ref().and_then(decode_proofs) else {
-            return (Outcome::Fail(FailReason::CommitmentMismatch), none);
+            return fail(FailReason::CommitmentMismatch);
         };
         // 4. The tokens (spec "重现 token").
         let tokens = match self.tokens(case).await {
@@ -126,11 +127,16 @@ impl Verifier {
         for r in rows.iter_mut().skip(tokens.prompt) {
             r.phase = Phase::Decode;
         }
-        // 6. Compare and judge.
+        // 6. Compare and judge: the prefill bounds depend on the prompt's length (thresholds
+        // version 3), the prompt the auditor re-created and checked against the receipt.
+        let Ok(prompt_tokens) = u32::try_from(tokens.prompt) else {
+            return inconclusive(Inconclusive::InputMismatch);
+        };
         match compare_from_candidates(&rows, &proofs, &MARKET_PARAMS) {
             Ok(cmp) => (
-                Outcome::from_judgement(judge(&cmp, &self.thresholds)),
+                Outcome::from_judgement(judge(&cmp, &self.thresholds, prompt_tokens)),
                 cmp.iter().map(ChunkMetrics::from).collect(),
+                Some(prompt_tokens),
             ),
             Err(_) => inconclusive(Inconclusive::Engine),
         }

@@ -193,15 +193,37 @@ class MergeTests(unittest.TestCase):
 class ReplayTests(unittest.TestCase):
     """Design D5: the thresholds replayed in Python, as `ac_market_proto::toploc::judge`."""
 
-    def test_version_2_is_the_crate_constant(self):
+    # m6-toploc-gpu-calibration 4.3: the current version, band included, is the crate's.
+    def test_the_current_version_is_the_crate_constant(self):
         text = (ROOT / "crates" / "ac-market-proto" / "src" / "toploc.rs").read_text()
         block = text[text.index("pub const AUDIT_THRESHOLDS"):]
-        block = block[: block.index("};") + 2]
+        block = block[: block.index("\n};") + 3]
         version = int(re.search(r"version:\s*(\d+)", block).group(1))
+        band = tuple(int(v) for v in re.search(r"band:\s*PromptBand\s*\{\s*min:\s*(\d+),\s*max:\s*(\d+)", block).groups())
         bounds = [tuple(int(v) for v in m) for m in re.findall(
             r"exp_mismatches:\s*(\d+),\s*mant_mean_centi:\s*(\d+),\s*mant_median:\s*(\d+)", block)]
-        self.assertEqual(version, cal.THRESHOLDS_V2["version"])
-        self.assertEqual(bounds, [cal.THRESHOLDS_V2["prefill"], cal.THRESHOLDS_V2["decode"]])
+        self.assertEqual(version, cal.CURRENT["version"])
+        self.assertEqual(band, cal.CURRENT["band"])
+        self.assertEqual(bounds, [cal.CURRENT["prefill"], cal.CURRENT["prefill_outside"], cal.CURRENT["decode"]])
+        self.assertIs(cal.THRESHOLDS[cal.CURRENT["version"]], cal.CURRENT)
+
+    # Spec market/toploc "区间的界含两端" and "区间外的 prompt 用宽松的预填充阈值", as the crate's
+    # test `the_prefill_bounds_depend_on_the_prompt_length`.
+    def test_the_band_picks_the_prefill_bounds(self):
+        t = cal.THRESHOLDS_V3
+        lo, hi = t["band"]
+        between = chunk(total=128)  # mean 1.00: over the band's 0.85, under 5.00 outside it
+        for n, outcome in ((lo, "fail"), (hi, "fail"), (lo - 1, "pass"), (hi + 1, "pass")):
+            x = {"case": "honest-0.json", "chunks": [between, EXACT], "outcome": "pass", "reason": "",
+                 "prompt_tokens": n}
+            self.assertEqual(cal.replay(x, t)[0], outcome, n)
+        self.assertEqual(cal.replay(dict(x, prompt_tokens=lo), t)[1], "chunk 0: mean mantissa error")
+        # Without its prompt token count a sample cannot be judged under a banded version.
+        with self.assertRaises(ValueError):
+            cal.replay({"case": "honest-1.json", "chunks": [EXACT], "outcome": "pass", "reason": ""}, t)
+        # Version 2 has no band.
+        self.assertEqual(cal.replay({"case": "h.json", "chunks": [between], "outcome": "pass", "reason": ""},
+                                    cal.THRESHOLDS_V2)[0], "fail")
 
     # The boundary cases of the crate's own tests (`a_mean_equal_to_the_bound_passes`,
     # `a_chunk_without_a_matching_exponent_fails`, `one_chunk_with_too_many_exponent_mismatches_fails`)
@@ -230,14 +252,18 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(code, 1)
 
     def test_other_thresholds(self):
-        s = [sample("honest-0.json", [chunk(exp=3), EXACT]), sample("swap-0.json", [chunk(exp=40)])]
-        code, report, _ = merged([shard(5, gpu_fp("A"), gpu_fp("B"), s)], ["prefill=4,50,1"])
+        s = [dict(sample("honest-0.json", [chunk(exp=3), EXACT]), prompt_tokens=200),
+             dict(sample("swap-0.json", [chunk(exp=40)]), prompt_tokens=200)]
+        code, report, _ = merged([shard(5, gpu_fp("A"), gpu_fp("B"), s)], ["prefill=4,50,1", "band=100,250"])
         self.assertEqual(code, 0)
         under = report["under_thresholds"]
         self.assertEqual(under["thresholds"]["prefill"], [4, 50, 1])
+        self.assertEqual(under["thresholds"]["band"], [100, 250])
         self.assertEqual(under["cells"]["A → B"], {"honest_fail": 0, "missed": {"swap": 0}})
         with self.assertRaises(ValueError):
             cal.parse_thresholds(["prefill=1,2"])
+        with self.assertRaises(ValueError):
+            cal.parse_thresholds(["band=1,2,3"])
 
 
 class ConclusionTests(unittest.TestCase):

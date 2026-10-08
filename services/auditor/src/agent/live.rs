@@ -231,6 +231,7 @@ impl Recheck for Engines {
                 reason: "no re-check engine for the model".into(),
                 request: None,
                 thresholds_version: AUDIT_THRESHOLDS.version,
+                prompt_tokens: None,
                 chunks: Vec::new(),
                 verdict: crate::case::Outcome::Inconclusive(crate::case::Inconclusive::Engine),
             },

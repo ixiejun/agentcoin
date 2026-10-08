@@ -607,8 +607,16 @@ def cells(samples: list[dict]) -> dict:
 
 # Thresholds as (exponent mismatches, mean mantissa error in hundredths, median mantissa error)
 # per chunk kind, judged as `ac_market_proto::toploc::judge` does (the replay must reproduce the
-# auditor's outcomes; scripts/tests checks these numbers against AUDIT_THRESHOLDS).
-THRESHOLDS_V2 = {"version": 2, "prefill": (2, 50, 1), "decode": (20, 800, 8)}
+# auditor's outcomes; scripts/tests checks the current version against AUDIT_THRESHOLDS). Version
+# 3 bounds the prefill chunk by `prefill` when the prompt's tokens are in `band` (both ends
+# included) and by `prefill_outside` otherwise (m6-toploc-gpu-calibration design D8); version 2
+# had one prefill set, kept to replay older reports.
+THRESHOLDS_V2 = {"version": 2, "band": None, "prefill": (2, 50, 1), "prefill_outside": (2, 50, 1),
+                 "decode": (20, 800, 8)}
+THRESHOLDS_V3 = {"version": 3, "band": (150, 300), "prefill": (6, 85, 1), "prefill_outside": (15, 500, 4),
+                 "decode": (20, 800, 8)}
+THRESHOLDS = {2: THRESHOLDS_V2, 3: THRESHOLDS_V3}
+CURRENT = THRESHOLDS_V3
 METRICS = {"exp": "exponent mismatches", "noexp": "no matching exponent",
            "mean": "mean mantissa error", "median": "median mantissa error"}
 
@@ -633,25 +641,39 @@ def judged(x: dict) -> bool:
     return bool(x["chunks"]) and (x["outcome"] == "pass" or x["reason"].startswith("chunk "))
 
 
+def in_band(x: dict, t: dict) -> bool:
+    """Whether a sample's prompt is in the audit length band of `t` (always, without a band). A
+    sample without its prompt token count cannot be placed: it is an error under a banded version."""
+    if t.get("band") is None:
+        return True
+    n = x.get("prompt_tokens")
+    if n is None:
+        raise ValueError(f"{x['case']}: no prompt token count to judge it under version {t['version']}")
+    return t["band"][0] <= n <= t["band"][1]
+
+
 def replay(x: dict, t: dict) -> tuple[str, str]:
     """A sample's (outcome, reason) under thresholds `t`."""
     if not judged(x):
         return x["outcome"], x["reason"]
+    prefill = t["prefill"] if in_band(x, t) else t["prefill_outside"]
     for i, c in enumerate(x["chunks"]):
-        m = judge_chunk(c, t["prefill"] if i == 0 else t["decode"])
+        m = judge_chunk(c, prefill if i == 0 else t["decode"])
         if m:
             return "fail", f"chunk {i}: {METRICS[m]}"
     return "pass", ""
 
 
 def parse_thresholds(specs: list[str]) -> dict:
-    """`prefill=E,M,D decode=E,M,D` (M in hundredths), the unnamed kinds from version 2."""
-    t = {"version": None, "prefill": THRESHOLDS_V2["prefill"], "decode": THRESHOLDS_V2["decode"]}
+    """`band=MIN,MAX prefill=E,M,D prefill_outside=E,M,D decode=E,M,D` (M in hundredths), the
+    unnamed ones from the current version."""
+    t = dict(CURRENT, version=None)
     for s in specs:
         kind, _, values = s.partition("=")
         parts = [int(v) for v in values.split(",")]
-        if kind not in ("prefill", "decode") or len(parts) != 3 or min(parts) < 0:
-            raise ValueError(f"bad thresholds {s!r}: use prefill=E,M,D or decode=E,M,D")
+        size = 2 if kind == "band" else 3
+        if kind not in ("band", "prefill", "prefill_outside", "decode") or len(parts) != size or min(parts) < 0:
+            raise ValueError(f"bad thresholds {s!r}: use band=MIN,MAX or prefill|prefill_outside|decode=E,M,D")
         t[kind] = tuple(parts)
     return t
 
@@ -749,12 +771,18 @@ class ReplayMismatch(Exception):
 
 
 def check_replay(samples: list[dict]) -> None:
-    """The replay under version 2 must give each sample judged under version 2 the auditor's
-    own outcome and reason; anything else means the replay and `judge` disagree."""
-    bad = [x["case"] for x in samples
-           if x.get("thresholds_version") == 2 and replay(x, THRESHOLDS_V2) != (x["outcome"], x["reason"])]
+    """The replay under the version each sample was judged under must give it the auditor's own
+    outcome and reason; anything else means the replay and `judge` disagree."""
+    bad = []
+    for x in samples:
+        t = THRESHOLDS.get(x.get("thresholds_version"))
+        try:
+            if t and replay(x, t) != (x["outcome"], x["reason"]):
+                bad.append(x["case"])
+        except ValueError:
+            bad.append(x["case"])
     if bad:
-        raise ReplayMismatch(f"the replay of version 2 disagrees with the auditor on {len(bad)} samples, e.g. {bad[:3]}")
+        raise ReplayMismatch(f"the replay disagrees with the auditor on {len(bad)} samples, e.g. {bad[:3]}")
 
 
 def merge(files: list[Path], out: Path, thresholds: list[str] | None = None,

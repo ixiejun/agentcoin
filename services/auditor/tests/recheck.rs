@@ -380,6 +380,36 @@ async fn an_end_token_fed_back_rechecks() {
     std::fs::remove_dir_all(d).unwrap();
 }
 
+// m6-toploc-gpu-calibration 4.2 (thresholds version 3): the report names the prompt tokens the
+// inference was judged with, which pick the prefill bounds: a prompt in the audit length band and
+// one shorter than it.
+#[tokio::test]
+async fn reports_name_the_prompt_tokens_judged_with() {
+    use ac_market_proto::toploc::AUDIT_THRESHOLDS;
+    let (v, d) = auditor("band", 7).await;
+    let band = AUDIT_THRESHOLDS.band;
+    let long: String = (0..band.min + 10).map(|i| format!("w{i} ")).collect();
+    for (label, words) in [("in-band", long.as_str()), ("short", WORDS)] {
+        let case = answered(&format!("band-{label}"), 7, words, 12, true).await;
+        let report = v.recheck(&case, QuantType::Bf16).await;
+        assert_eq!(report.verdict, Outcome::Pass, "{report:?}");
+        let tokens = report.prompt_tokens.expect("judged");
+        assert_eq!(tokens, case.usage.prompt_tokens);
+        assert_eq!(
+            band.contains(tokens),
+            label == "in-band",
+            "{label}: {tokens} tokens"
+        );
+    }
+    // No comparison, no prompt tokens.
+    let no_proof = answered("band-noproof", 7, WORDS, 10, false).await;
+    assert_eq!(
+        v.recheck(&no_proof, QuantType::Bf16).await.prompt_tokens,
+        None
+    );
+    std::fs::remove_dir_all(d).unwrap();
+}
+
 // A re-check engine whose rows never arrive (its plugin sends elsewhere) is inconclusive.
 #[tokio::test]
 async fn missing_rows_are_an_engine_error() {

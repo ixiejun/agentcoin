@@ -199,6 +199,9 @@ pub struct Report {
     pub request: Option<String>,
     /// Version of the thresholds judged by.
     pub thresholds_version: u16,
+    /// The prompt tokens the inference was judged with (they pick the prefill bounds); none when
+    /// no comparison ran.
+    pub prompt_tokens: Option<u32>,
     /// Per-chunk metrics.
     pub chunks: Vec<ChunkMetrics>,
     #[serde(skip)]

@@ -250,7 +250,7 @@ pub const PRICE: PricePerMTok = PricePerMTok {
 pub const ROUND: u64 = 10;
 
 /// Test parameters: rounds of 10 blocks, 2 auditors per provider, 3 reviewers deciding by 2,
-/// votes within 5 blocks, 20-block unbonding, $1,000 stake, $0.05 payments, thresholds v2.
+/// votes within 5 blocks, 20-block unbonding, $1,000 stake, $0.05 payments, thresholds v3.
 pub fn genesis() -> AuditGenesis {
     AuditGenesis {
         round_blocks: 10,
@@ -323,7 +323,7 @@ pub fn submission(provider: u8, id: u8, outcome: VerdictOutcome) -> Box<VerdictS
         provider: acc(provider),
         round: current_round(),
         outcome,
-        thresholds_version: 2,
+        thresholds_version: 3,
         evidence: matches!(outcome, VerdictOutcome::Fail(_)).then_some([id; 32]),
         receipt: receipt(provider, GATEWAY, id),
     })

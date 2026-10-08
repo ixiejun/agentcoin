@@ -43,7 +43,7 @@ AgentCoin 推理市场的线协议：钱包本地代理、网关（`ac-gateway`�
 
 ## 审计阈值
 
-`toploc::judge` 是审计对 `ac_toploc::compare` 逐块结果的通过 / 不通过规则（规格 `market/toploc`“复核判定规则与阈值”）。`Thresholds` 包含两组 `ChunkBounds`：预填充块用严格的一组（prompt 由审计员确切知道，并以与提供者相同的方式复算），解码块用较宽的一组。一块通过，当且仅当指数不一致次数、尾数误差均值（以百分之一为单位，按“和 × 100 ≤ 上限 × 项数”计算）与尾数误差中位数都不超过所属一组的界限，且至少有一项指数相同；一次推理只有每块都通过才通过，否则在第一个超限的块上判不通过。`AUDIT_THRESHOLDS` 带版本号，取值来自 `scripts/calibrate-toploc.py` 的校准。
+`toploc::judge` 是审计对 `ac_toploc::compare` 逐块结果的通过 / 不通过规则（规格 `market/toploc`“复核判定规则与阈值”）。`Thresholds`（版本 3）包含一个审计长度区间（`PromptBand`，prompt token 数从 `min` 到 `max`，含两端）与三组 `ChunkBounds`：prompt 落在区间内时，预填充块用严格的一组（prompt 由审计员确切知道，并以与提供者相同的方式复算）；落在区间外时用较宽的一组（在 GPU 上，短 prompt 的预填充随批次形状变化）；解码块用最宽的一组。`judge` 按 prompt 的 token 数选择预填充的一组；审计员只发区间内的 prompt。一块通过，当且仅当指数不一致次数、尾数误差均值（以百分之一为单位，按“和 × 100 ≤ 上限 × 项数”计算）与尾数误差中位数都不超过所属一组的界限，且至少有一项指数相同；一次推理只有每块都通过才通过，否则在第一个超限的块上判不通过。`AUDIT_THRESHOLDS` 带版本号，取值来自 `scripts/calibrate-toploc.py` 的校准。
 
 ## 审计证据
 

@@ -46,7 +46,7 @@ the commitment to its evidence.
 | Auditor unbonding | 604,800 blocks | 20 | > 0 | genesis |
 | Auditor stake | $1,000 | $1,000 | $100–$100,000 | administration |
 | Payment per verdict or vote | $0.05 | $0.05 | $0–$1 | administration |
-| Accepted thresholds version | `AUDIT_THRESHOLDS` | same | only increases | administration |
+| Accepted thresholds version | `AUDIT_THRESHOLDS` (3: prefill bounds by prompt length) | same | only increases | administration |
 
 The administration cannot slash, jail, open or decide anything (D6).
 
