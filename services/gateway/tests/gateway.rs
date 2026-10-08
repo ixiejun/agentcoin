@@ -940,6 +940,7 @@ async fn users_get_the_proofs_the_gateway_keeps() {
                 socket,
                 half_decode: false,
                 preempt_after: None,
+                end_fed_back: false,
                 mode: ac_market_proto::engine::EngineMode::Prove,
             }),
             ..fast()

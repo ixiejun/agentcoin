@@ -6,7 +6,8 @@
 //! In the prove mode, after each answer the engine sends a prefill (in two segments when the
 //! prompt has more than one token) and one decode segment per output token but the last, then
 //! the end marker, as the vLLM plugin does (optionally with a preemption and recomputation
-//! midway, see [`PluginConfig::preempt_after`]). In the verify mode it sends one segment per prefilled
+//! midway, see [`PluginConfig::preempt_after`], or with the end token fed back, see
+//! [`PluginConfig::end_fed_back`]). In the verify mode it sends one segment per prefilled
 //! token row of a completion, then the end marker.
 
 use std::path::PathBuf;
@@ -31,6 +32,10 @@ pub struct PluginConfig {
     /// prompt as one prefill segment, then one decode segment per generated row, as the vLLM
     /// plugin splits a recomputation) and finishes (prove mode; m6-public-jobs 5.5).
     pub preempt_after: Option<usize>,
+    /// Send one decode segment more, the last output token's row, as vLLM does under
+    /// asynchronous scheduling when it feeds the end token back before it knows the answer
+    /// ended (prove mode; m6-toploc-async-stop, I-022).
+    pub end_fed_back: bool,
     /// Prove (provider) or verify (auditor).
     pub mode: EngineMode,
 }
@@ -43,6 +48,7 @@ impl PluginConfig {
             socket,
             half_decode: false,
             preempt_after: None,
+            end_fed_back: false,
             mode: EngineMode::Prove,
         }
     }
@@ -140,6 +146,11 @@ impl Plugin {
         let prefixes = prefix_hashes(self.seed(), &tokens);
         let p = prompt.len();
         let decode = output.len().saturating_sub(1);
+        let decode = if self.config.end_fed_back && !output.is_empty() {
+            output.len()
+        } else {
+            decode
+        };
         let decode = if self.config.half_decode {
             decode / 2
         } else {

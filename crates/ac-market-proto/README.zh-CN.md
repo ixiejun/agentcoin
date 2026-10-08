@@ -35,6 +35,8 @@ AgentCoin 推理市场的线协议：钱包本地代理、网关（`ac-gateway`�
 
 `toploc::ToplocProofs` 携带一次推理的证明及其参数（规格 `market/toploc`）。市场使用 `MARKET_PARAMS`：top-k 128、解码每 32 步一块、预填充单独一块，因此输出 `n` 个 token 的推理有 `1 + ⌈(n − 1) / 32⌉` 份各 258 字节的证明。`toploc::check` 是网关与钱包代理对每张收据运行的检查：承诺为全零时不得带证明；否则参数、证明份数、编码与复算出的承诺都必须与收据一致。
 
+`toploc::fit_segments` 在构造证明之前，把插件为一个请求发来的段与其用量对齐（规格 `market/provider-agent`）：预填充元素数为 prompt token 数乘以隐藏维度，其后除最后一个输出 token 外每个输出 token 一个单行解码段。恰好多出一个解码段，说明引擎在得知回答结束之前把最后一个 token 又喂回了模型（异步调度，I-022）：丢弃这一行。其他数目返回 `SegmentsError`。提供者与校准案例都使用它。
+
 ## 引擎插件协议
 
 `engine` 是推理引擎插件与接收方之间的本机协议（规格 `market/engine-plugin`，版本 `ENGINE_PROTOCOL_VERSION` = 2）：帧为 4 字节大端长度加固定的大端布局（至多 1 MiB），Python 插件用 `struct` 即可编码。插件发送 `Hello`（魔数 `ACTL`、版本、隐藏维度、模式），接收方回复 `Welcome`（版本、top-k）；之后插件发送 `Segment`（引擎请求 ID、阶段、元素个数、top-k 候选），每个请求结束时发送 `Finish`。**证明**模式（模式 0）下，提供者为每个前向步骤的每个请求收到一段，用于构造证明；**复核**模式（模式 1）下，审计员的复核程序为预填充的每个 token 行收到一段。`answer_hello` 是接收方的握手：版本不同的插件收到接收方的版本，模式不被接受的插件收到 top-k 为 0，两种情况都随后断开连接（不带模式字节的版本 1 `Hello` 仍可解码，以便回复）。`market_request_id` 从引擎请求 ID 中找出市场请求 ID：接收方提交请求时把 `X-Request-Id` 设为它的 64 位小写十六进制，vLLM 把请求命名为 `chatcmpl-<X-Request-Id>-<后缀>`（对话）或 `cmpl-<X-Request-Id>-<后缀>`（补全）。与插件测试共用的字节级向量在 `tests/vectors/engine_protocol.json`。

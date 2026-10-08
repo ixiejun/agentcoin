@@ -18,7 +18,7 @@ use ac_market_proto::engine::{
     ENGINE_PROTOCOL_VERSION, EngineMode, EngineMsg, EngineReader, HelloRefusal, answer_hello,
     market_request_id,
 };
-use ac_market_proto::toploc::{MARKET_PARAMS, ToplocProofs};
+use ac_market_proto::toploc::{MARKET_PARAMS, SegmentsError, ToplocProofs, fit_segments};
 use ac_toploc::{Phase, Segment, build_proofs_from_candidates};
 use anyhow::{Context, Result};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -214,8 +214,20 @@ impl Collector {
         };
         let (p, hidden) = pending;
         let hidden = hidden.ok_or(Missing::Incomplete)?;
-        check_segments(&p, hidden, usage)?;
-        let segments = p.segments;
+        if p.overflow {
+            return Err(Missing::Incomplete);
+        }
+        // The shared rule (m6-toploc-async-stop design D1): the calibration's cases follow it too.
+        let segments = fit_segments(
+            p.segments,
+            usage.prompt_tokens,
+            usage.completion_tokens,
+            hidden,
+        )
+        .map_err(|e| match e {
+            SegmentsError::Recomputed => Missing::Recomputed,
+            _ => Missing::Incomplete,
+        })?;
         let built = tokio::task::spawn_blocking(move || {
             build_proofs_from_candidates(&segments, &MARKET_PARAMS)
         })
@@ -335,39 +347,6 @@ impl Collector {
             _ => {}
         }
     }
-}
-
-/// The segments must fit the engine's usage: the prefill values are the prompt tokens times the
-/// hidden size, and there is one decode segment of `hidden` values per output token but the
-/// last (spec: 解码段数 = 输出 token 数 − 1).
-fn check_segments(p: &Pending, hidden: u32, usage: Usage) -> Result<(), Missing> {
-    if p.overflow || p.segments.is_empty() {
-        return Err(Missing::Incomplete);
-    }
-    let prefill: u64 = p
-        .segments
-        .iter()
-        .take_while(|s| s.phase == Phase::Prefill)
-        .map(|s| u64::from(s.len))
-        .sum();
-    let decode: Vec<&Segment> = p
-        .segments
-        .iter()
-        .skip_while(|s| s.phase == Phase::Prefill)
-        .collect();
-    if decode.iter().any(|s| s.phase == Phase::Prefill) {
-        return Err(Missing::Recomputed);
-    }
-    let expected_prefill = u64::from(usage.prompt_tokens).saturating_mul(u64::from(hidden));
-    let expected_decode = usize::try_from(usage.completion_tokens.saturating_sub(1))
-        .map_err(|_| Missing::Incomplete)?;
-    if prefill != expected_prefill
-        || decode.len() != expected_decode
-        || decode.iter().any(|s| s.len != hidden)
-    {
-        return Err(Missing::Incomplete);
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -541,6 +520,47 @@ mod tests {
         assert!(c.expect(id));
         run(&mut plugin, &id, 4, 6).await;
         assert_eq!(c.take(&id, usage(5, 6)).await, Err(Missing::Incomplete));
+    }
+
+    // Scenario "结束符被喂回" (m6-toploc-async-stop, I-022): an answer of 20 tokens that ends
+    // with the end token, which the engine fed back before it knew the answer ended, comes with
+    // 20 decode segments; the proofs are those of the first 19, as if the row had not been
+    // computed.
+    #[tokio::test]
+    async fn an_end_token_fed_back_is_dropped() {
+        let (_dir, path) = socket();
+        let c = Collector::listen(&path).unwrap();
+        let mut plugin = Plugin::connect(&path).await;
+        let id = [4u8; 32];
+        assert!(c.expect(id));
+        // `run` sends `out − 1` decode segments: 21 gives the 20 of a 20-token answer.
+        let acts = run(&mut plugin, &id, 5, 21).await;
+        let proofs = c.take(&id, usage(5, 20)).await.unwrap();
+        let kept: Vec<&[Bf16]> = acts
+            .iter()
+            .take(acts.len() - 1)
+            .map(Vec::as_slice)
+            .collect();
+        let expected = build_proofs(&kept, &MARKET_PARAMS).unwrap();
+        assert_eq!(proofs, ToplocProofs::new(&MARKET_PARAMS, &expected));
+        assert_eq!(
+            proofs.proofs.len(),
+            ac_market_proto::toploc::expected_chunks(20)
+        );
+    }
+
+    // Scenario "多出不止一个解码段": 11 decode segments for a 10-token answer give no proof.
+    #[tokio::test]
+    async fn two_decode_segments_more_give_no_proof() {
+        let (_dir, path) = socket();
+        let c = Collector::listen(&path).unwrap();
+        let mut plugin = Plugin::connect(&path).await;
+        let id = [5u8; 32];
+        assert!(c.expect(id));
+        run(&mut plugin, &id, 4, 12).await;
+        assert_eq!(c.take(&id, usage(4, 10)).await, Err(Missing::Incomplete));
+        c.count_missing(&id, Missing::Incomplete);
+        assert_eq!(c.missing(), 1);
     }
 
     // Spec "被抢占的请求带证明" (m6-public-jobs, I-008): a request preempted after 5 of 12

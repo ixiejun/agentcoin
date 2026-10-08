@@ -62,24 +62,25 @@ async fn setup(label: &str, engine: ac_mock_engine::Config) -> Setup {
     setup_with(label, engine, None).await
 }
 
-/// With `toploc = Some(half_decode)` the provider listens for the plugin and the mock engine
-/// plays it.
+/// With `toploc = Some((half_decode, end_fed_back))` the provider listens for the plugin and the
+/// mock engine plays it.
 async fn setup_with(
     label: &str,
     mut engine: ac_mock_engine::Config,
-    toploc: Option<bool>,
+    toploc: Option<(bool, bool)>,
 ) -> Setup {
     logging::init(log::LevelFilter::Debug, Sink::Buffer(&LOGS));
     let data =
         std::env::temp_dir().join(format!("ac-provider-test-{label}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&data);
     std::fs::create_dir_all(&data).unwrap();
-    let collector = toploc.map(|half_decode| {
+    let collector = toploc.map(|(half_decode, end_fed_back)| {
         let socket = data.join("toploc.sock");
         engine.toploc = Some(ac_mock_engine::PluginConfig {
             socket: socket.clone(),
             half_decode,
             preempt_after: None,
+            end_fed_back,
             mode: ac_market_proto::engine::EngineMode::Prove,
         });
         ac_provider::toploc::Collector::listen(&socket).unwrap()
@@ -490,7 +491,7 @@ fn cosign(s: &Setup, reply: &[(Duration, ProviderMsg)]) -> SignedReceipt {
 // co-signed receipt and pruned with it, and only receipts and proofs reach the disk.
 #[tokio::test]
 async fn receipts_commit_to_toploc_proofs_kept_until_pruned() {
-    let s = setup_with("toploc", fast(), Some(false)).await;
+    let s = setup_with("toploc", fast(), Some((false, false))).await;
     let prompt = format!("w w w {MARKER}");
     let reply = call(&s, &s.gateway, &infer(MODEL, &prompt, 40))
         .await
@@ -538,7 +539,7 @@ async fn receipts_commit_to_toploc_proofs_kept_until_pruned() {
 // Scenario "步骤数不符": too few decode segments give an all-zero commitment and no proofs.
 #[tokio::test]
 async fn incomplete_candidates_give_no_proof() {
-    let s = setup_with("toploc-half", fast(), Some(true)).await;
+    let s = setup_with("toploc-half", fast(), Some((true, false))).await;
     let reply = call(&s, &s.gateway, &infer(MODEL, "a b c", 10))
         .await
         .unwrap();
@@ -549,4 +550,28 @@ async fn incomplete_candidates_give_no_proof() {
     assert!(toploc.is_none());
     assert_eq!(s.service.toploc_missing(), 1);
     ac_market_proto::toploc::check(&body, None).unwrap();
+}
+
+// m6-toploc-async-stop 2.3, scenario "结束符被喂回": an engine that feeds the end token back
+// (one decode segment more, as vLLM under asynchronous scheduling) gets the proofs, and the
+// commitment, of one that does not, byte for byte; they pass the gateway's check. (The
+// auditor's re-check of such an answer: services/auditor/tests/recheck.rs.)
+#[tokio::test]
+async fn an_end_token_fed_back_gives_the_same_proofs() {
+    let mut got = Vec::new();
+    for (label, fed_back) in [("toploc-plain", false), ("toploc-fed-back", true)] {
+        let s = setup_with(label, fast(), Some((false, fed_back))).await;
+        let reply = call(&s, &s.gateway, &infer(MODEL, "a b c d", 20))
+            .await
+            .unwrap();
+        let Some((_, ProviderMsg::Receipt { body, toploc, .. })) = reply.last().cloned() else {
+            panic!("no receipt");
+        };
+        let proofs = toploc.expect("the receipt comes with proofs");
+        assert_ne!(body.toploc_commit, [0; 32]);
+        ac_market_proto::toploc::check(&body, Some(&proofs)).unwrap();
+        assert_eq!(s.service.toploc_missing(), 0);
+        got.push((body.toploc_commit, proofs));
+    }
+    assert_eq!(got[0], got[1]);
 }

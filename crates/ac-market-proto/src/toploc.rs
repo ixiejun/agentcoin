@@ -3,7 +3,7 @@
 //! comparison of recomputed activations with them (spec `market/toploc` "复核判定规则与阈值").
 
 use ac_primitives::market::ReceiptBody;
-use ac_toploc::{Comparison, Params, ProofPoly};
+use ac_toploc::{Comparison, Params, Phase, ProofPoly, Segment};
 use parity_scale_codec::{Decode, Encode};
 
 /// The proof parameters of the market: top-k 128, decode batches of 32, a prefill chunk.
@@ -76,6 +76,93 @@ pub fn expected_chunks(out_tokens: u32) -> usize {
     let steps = out_tokens.saturating_sub(1);
     let batches = steps.div_ceil(MARKET_PARAMS.decode_batching_size);
     usize::try_from(batches).map_or(usize::MAX, |b| b.saturating_add(1))
+}
+
+/// Why an engine's segments for a request do not make proofs (spec `market/provider-agent`
+/// "接收引擎插件的候选并构造证明"). Never carries request content.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SegmentsError {
+    /// No segments, or the prefill values are not the prompt tokens times the hidden size.
+    Prefill,
+    /// A prefill segment after decode segments: the engine recomputed the request.
+    Recomputed,
+    /// A decode segment is not exactly one row.
+    DecodeRow,
+    /// The decode segments are neither the output tokens − 1 nor one more.
+    DecodeCount {
+        /// Decode segments the output tokens call for.
+        expected: usize,
+        /// Decode segments given.
+        got: usize,
+    },
+}
+
+impl core::fmt::Display for SegmentsError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Prefill => f.write_str("the prefill segments do not cover the prompt"),
+            Self::Recomputed => f.write_str("prefill segments after decode segments"),
+            Self::DecodeRow => f.write_str("a decode segment is not one row"),
+            Self::DecodeCount { expected, got } => {
+                write!(
+                    f,
+                    "{got} decode segments where the output calls for {expected}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for SegmentsError {}
+
+/// The segments an engine's plugin sent for a request (in order; a recomputed request already
+/// started over, D71), fitted to the request's usage for [`ac_toploc::build_proofs_from_candidates`]:
+/// the prefill segments hold the prompt tokens times `hidden` values, then one decode segment
+/// of `hidden` values per output token but the last, which is never fed back. An engine that
+/// computed one step more before it knew the request had ended (asynchronous scheduling feeding
+/// the end token back, I-022) sent exactly one decode segment more: it is the last output
+/// token's row, which no proof covers, and is dropped, so the proofs are those of an engine
+/// that did not compute it. Any other count is refused.
+///
+/// # Errors
+///
+/// The [`SegmentsError`] describing the first rule the segments break.
+pub fn fit_segments(
+    mut segments: Vec<Segment>,
+    prompt_tokens: u32,
+    completion_tokens: u32,
+    hidden: u32,
+) -> Result<Vec<Segment>, SegmentsError> {
+    let prefill_count = segments
+        .iter()
+        .take_while(|s| s.phase == Phase::Prefill)
+        .count();
+    let (prefill, decode) = segments.split_at(prefill_count);
+    // Sums of u32 lengths in u64 cannot overflow for any realistic count; saturate regardless.
+    let prefill_values = prefill
+        .iter()
+        .fold(0u64, |a, s| a.saturating_add(u64::from(s.len)));
+    if prefill.is_empty()
+        || prefill_values != u64::from(prompt_tokens).saturating_mul(u64::from(hidden))
+    {
+        return Err(SegmentsError::Prefill);
+    }
+    if decode.iter().any(|s| s.phase == Phase::Prefill) {
+        return Err(SegmentsError::Recomputed);
+    }
+    if decode.iter().any(|s| s.len != hidden) {
+        return Err(SegmentsError::DecodeRow);
+    }
+    let expected = usize::try_from(completion_tokens.saturating_sub(1)).unwrap_or(usize::MAX);
+    let got = decode.len();
+    if got == expected.saturating_add(1) && completion_tokens > 0 {
+        // The last output token was fed back: drop its row.
+        segments.pop();
+    } else if got != expected {
+        return Err(SegmentsError::DecodeCount { expected, got });
+    }
+    Ok(segments)
 }
 
 /// Why a receipt's proofs are refused. Never carries request content.
@@ -291,7 +378,8 @@ pub fn judge(comparisons: &[Comparison], t: &Thresholds) -> Judgement {
 mod tests {
     use super::*;
     use ac_primitives::market::{JobKind, MicroUsd, ModelId};
-    use ac_toploc::{Bf16, build_proofs};
+    use ac_toploc::{Bf16, build_proofs, build_proofs_from_candidates, top_k_candidates};
+    use proptest::prelude::*;
     use sp_core::H256;
     use sp_runtime::AccountId32;
 
@@ -543,5 +631,123 @@ mod tests {
     fn encoding_round_trips() {
         let p = proofs(&MARKET_PARAMS, 5);
         assert_eq!(ToplocProofs::decode(&mut &p.encode()[..]), Ok(p));
+    }
+
+    // At least top-k (128) values per row, so that a chunk of one decode row makes a proof.
+    const HIDDEN: u32 = 256;
+
+    /// A segment of `rows` rows of distinct, seed-dependent values.
+    fn seg(phase: Phase, rows: u32, seed: u16) -> Segment {
+        let len = rows.saturating_mul(HIDDEN);
+        let values: Vec<Bf16> = (0..len)
+            .map(|i| {
+                Bf16(
+                    u16::try_from(i)
+                        .unwrap()
+                        .wrapping_mul(97)
+                        .wrapping_add(seed.wrapping_mul(13))
+                        % 0x7f00,
+                )
+            })
+            .collect();
+        Segment {
+            phase,
+            len,
+            candidates: top_k_candidates(&values, 128),
+        }
+    }
+
+    /// A prompt of `prompt` tokens in two prefill segments, then `decode` decode segments.
+    fn request(prompt: u32, decode: u32) -> Vec<Segment> {
+        let half = prompt / 2;
+        let mut out = vec![
+            seg(Phase::Prefill, half, 1),
+            seg(Phase::Prefill, prompt.saturating_sub(half), 2),
+        ];
+        out.extend((0..decode).map(|d| {
+            seg(
+                Phase::Decode,
+                1,
+                u16::try_from(d).unwrap().saturating_add(3),
+            )
+        }));
+        out
+    }
+
+    // Spec market/provider-agent "带证明的收据": n − 1 decode segments are kept as they are.
+    #[test]
+    fn output_tokens_minus_one_decode_segments_are_kept() {
+        let segs = request(10, 19);
+        assert_eq!(fit_segments(segs.clone(), 10, 20, HIDDEN), Ok(segs));
+    }
+
+    // Spec market/provider-agent "结束符被喂回": exactly one decode segment more drops the last.
+    #[test]
+    fn one_decode_segment_more_drops_the_last() {
+        let segs = request(10, 20);
+        let fitted = fit_segments(segs.clone(), 10, 20, HIDDEN).unwrap();
+        assert_eq!(fitted.len(), segs.len() - 1);
+        assert_eq!(fitted.as_slice(), &segs[..segs.len() - 1]);
+        let proofs = build_proofs_from_candidates(&fitted, &MARKET_PARAMS).unwrap();
+        assert_eq!(proofs.len(), expected_chunks(20));
+    }
+
+    // Spec market/provider-agent "多出不止一个解码段" and "步骤数不符".
+    #[test]
+    fn other_decode_counts_are_refused() {
+        assert_eq!(
+            fit_segments(request(10, 11), 10, 10, HIDDEN),
+            Err(SegmentsError::DecodeCount {
+                expected: 9,
+                got: 11
+            })
+        );
+        assert_eq!(
+            fit_segments(request(10, 5), 10, 10, HIDDEN),
+            Err(SegmentsError::DecodeCount {
+                expected: 9,
+                got: 5
+            })
+        );
+    }
+
+    #[test]
+    fn prefill_rows_and_order_are_checked() {
+        assert_eq!(
+            fit_segments(request(10, 9), 11, 10, HIDDEN),
+            Err(SegmentsError::Prefill)
+        );
+        assert_eq!(
+            fit_segments(Vec::new(), 0, 1, HIDDEN),
+            Err(SegmentsError::Prefill)
+        );
+        let mut recomputed = request(10, 3);
+        recomputed.push(seg(Phase::Prefill, 10, 9));
+        assert_eq!(
+            fit_segments(recomputed, 10, 4, HIDDEN),
+            Err(SegmentsError::Recomputed)
+        );
+        let mut wide = request(10, 3);
+        wide.push(seg(Phase::Decode, 2, 9));
+        assert_eq!(
+            fit_segments(wide, 10, 5, HIDDEN),
+            Err(SegmentsError::DecodeRow)
+        );
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(32))]
+        // m6-toploc-async-stop 1.2: with the end token's row fed back, the fitted segments make
+        // the proofs of an engine that did not compute it, byte for byte.
+        #[test]
+        fn a_fed_back_row_changes_no_proof(prompt in 1u32..40, out in 1u32..80) {
+            let plain = request(prompt.max(2), out.saturating_sub(1));
+            let mut fed = plain.clone();
+            fed.push(seg(Phase::Decode, 1, 999));
+            let a = build_proofs_from_candidates(&fit_segments(plain, prompt.max(2), out, HIDDEN).unwrap(), &MARKET_PARAMS).unwrap();
+            let b = build_proofs_from_candidates(&fit_segments(fed, prompt.max(2), out, HIDDEN).unwrap(), &MARKET_PARAMS).unwrap();
+            prop_assert_eq!(a.len(), expected_chunks(out));
+            prop_assert_eq!(a, b);
+        }
     }
 }

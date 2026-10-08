@@ -192,15 +192,19 @@ async fn toploc_receiver(
 }
 
 // m5-engine-toploc 6.1: the engine plays the TOPLOC plugin: a prefill of prompt × 256 values,
-// one decode segment per output token but the last, the end marker, all under vLLM's request
+// one decode segment per output token but the last (or per output token, with the end token
+// fed back), the end marker, all under vLLM's request
 // ID derived from X-Request-Id.
 #[tokio::test]
 async fn the_engine_plays_the_toploc_plugin() {
     use ac_market_proto::engine::{EngineMsg, market_request_id};
     use ac_toploc::Phase;
-    for (half, decode) in [(false, 4), (true, 2)] {
-        let dir =
-            std::env::temp_dir().join(format!("ac-mock-toploc-{}-{half}", std::process::id()));
+    // m6-toploc-async-stop 2.2: with the end token fed back, one decode segment per output token.
+    for (half, fed_back, decode) in [(false, false, 4), (true, false, 2), (false, true, 5)] {
+        let dir = std::env::temp_dir().join(format!(
+            "ac-mock-toploc-{}-{half}-{fed_back}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("t.sock");
@@ -214,6 +218,7 @@ async fn the_engine_plays_the_toploc_plugin() {
                     socket,
                     half_decode: half,
                     preempt_after: None,
+                    end_fed_back: fed_back,
                     mode: ac_market_proto::engine::EngineMode::Prove,
                 }),
                 ..Config::default()
@@ -288,6 +293,7 @@ async fn the_engine_plays_a_preemption() {
                 socket,
                 half_decode: false,
                 preempt_after: Some(2),
+                end_fed_back: false,
                 mode: ac_market_proto::engine::EngineMode::Prove,
             }),
             ..Config::default()
@@ -359,6 +365,7 @@ async fn engine_with(
                 socket,
                 half_decode: false,
                 preempt_after: None,
+                end_fed_back: false,
                 mode,
             }),
             model_seed: seed,

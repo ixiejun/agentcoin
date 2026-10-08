@@ -50,6 +50,13 @@ chunk, so an inference with `n` output tokens has `1 + ⌈(n − 1) / 32⌉` pro
 goes with no proofs; otherwise the parameters, the number of proofs, their encodings and the
 recomputed commitment must all match the receipt.
 
+`toploc::fit_segments` fits a plugin's segments for a request to its usage before the proofs are
+built (spec `market/provider-agent`): the prefill holds the prompt tokens times the hidden size,
+then one one-row decode segment per output token but the last. Exactly one decode segment more
+is an engine that fed the last token back before it knew the answer ended (asynchronous
+scheduling, I-022): that row is dropped. Any other count is a `SegmentsError`. Providers and the
+calibration's cases both use it.
+
 ## Engine plugin protocol
 
 `engine` is the local protocol between an inference engine plugin and its receiver (spec

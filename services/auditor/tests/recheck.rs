@@ -95,6 +95,7 @@ fn mock(socket: PathBuf, mode: EngineMode, seed: u64) -> Config {
             socket,
             half_decode: false,
             preempt_after: None,
+            end_fed_back: false,
             mode,
         }),
         model_seed: seed,

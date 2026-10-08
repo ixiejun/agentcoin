@@ -58,6 +58,14 @@ row, and a prefill segment that arrives after decode segments starts the request
 over, so the proofs are those of a request that was never preempted. Requests asking for several
 choices (`n > 1`) never reach the provider: the gateway refuses them.
 
+An engine may compute one step more than the answer needs: vLLM schedules asynchronously on GPUs
+by default, and feeds an answer's end token back before it knows the answer ended
+(m6-toploc-async-stop, I-022). The plugin then sends one decode segment per output token. The
+provider drops that last segment, the end token's row, which no proof covers (an auditor never
+recomputes it), so the proofs and the commitment are those of an engine that did not compute it.
+Any other count (two segments more, or too few) gives no proof. The rule is shared with the
+calibration (`ac_market_proto::toploc::fit_segments`), so that its cases are the provider's proofs.
+
 Without the socket, when the plugin sends no end marker in time, or when the candidates do not
 fit, the receipt carries an all-zero commitment and no proofs, and a `toploc_missing` line is
 logged with the request ID prefix and the reason. Receipts without proofs stay valid for users,

@@ -20,8 +20,8 @@ pub use msg::{
 pub use openai::ChatRequest;
 pub use route::{Candidate, PriceThenLatency, RouteScore, max_fee};
 pub use toploc::{
-    AUDIT_THRESHOLDS, ChunkBounds, Judgement, MARKET_PARAMS, Metric, Thresholds, ToplocError,
-    ToplocProofs,
+    AUDIT_THRESHOLDS, ChunkBounds, Judgement, MARKET_PARAMS, Metric, SegmentsError, Thresholds,
+    ToplocError, ToplocProofs, fit_segments,
 };
 
 /// Protocol errors. None of them carries request content.

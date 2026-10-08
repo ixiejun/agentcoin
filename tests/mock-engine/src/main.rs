@@ -32,6 +32,10 @@ struct Args {
     /// With --toploc-socket: after this many decode steps, play a preemption and recomputation.
     #[arg(long)]
     toploc_preempt_after: Option<usize>,
+    /// With --toploc-socket: send one decode segment more, the last token's row (the end token
+    /// fed back under asynchronous scheduling).
+    #[arg(long)]
+    toploc_end_fed_back: bool,
     /// With --toploc-socket: `prove` (a provider's engine) or `verify` (an auditor's).
     #[arg(long, default_value = "prove", value_parser = ["prove", "verify"])]
     toploc_mode: String,
@@ -60,6 +64,7 @@ async fn main() -> anyhow::Result<()> {
                 socket,
                 half_decode: a.toploc_half_decode,
                 preempt_after: a.toploc_preempt_after,
+                end_fed_back: a.toploc_end_fed_back,
                 mode: if a.toploc_mode == "verify" {
                     EngineMode::Verify
                 } else {
