@@ -36,6 +36,10 @@ use store::EvidenceStore;
 /// Attempts of one audit request (the first and up to two retries through other routes).
 pub const ATTEMPTS: u32 = 3;
 
+/// Prompt token counts per generated audit prompt before the audit gives up (design D9 of
+/// m6-toploc-gpu-calibration).
+pub const PROMPT_ATTEMPTS: u32 = 20;
+
 /// Counters the agent reports (numbers only).
 #[derive(Debug, Default)]
 pub struct Counters {
@@ -49,6 +53,8 @@ pub struct Counters {
     pub verdicts: AtomicU64,
     /// Votes cast.
     pub votes: AtomicU64,
+    /// Audits given up for want of a prompt in the audit length band.
+    pub skipped_no_prompt: AtomicU64,
 }
 
 fn bump(c: &AtomicU64) {
@@ -218,10 +224,11 @@ impl Agent {
             Ok(None) => return Audited::Missed("the model is not registered".into()),
             Err(e) => return Audited::Missed(format!("model lookup: {e:#}")),
         };
-        let (messages, max_tokens) = {
-            let mut rng = self.rng.lock().await;
-            self.prompts.next(rng.as_mut())
+        let (messages, max_tokens, tokens) = match self.prompt(model).await {
+            Ok(p) => p,
+            Err(why) => return Audited::Missed(why),
         };
+        log::info!(target: TARGET, "round {round}: audit prompt of {tokens} tokens");
         let body = json!({
             "model": format!("0x{}", hex::encode(model.0)),
             "messages": messages,
@@ -261,6 +268,52 @@ impl Agent {
             Ok(false) => Audited::Missed("the chain refused the verdict".into()),
             Err(e) => Audited::Missed(format!("submission: {e:#}")),
         }
+    }
+
+    /// An audit prompt for `model` whose token count is in the audit length band (spec
+    /// "审计 prompt"): a screened bank entry, or a generated prompt that is lengthened while
+    /// below the band and generated anew when above it, counted at most [`PROMPT_ATTEMPTS`]
+    /// times. Returns the messages, the `max_tokens` and the prompt token count.
+    async fn prompt(&self, model: ModelId) -> Result<(Value, u32, u32), String> {
+        let band = AUDIT_THRESHOLDS.band;
+        let draw = {
+            let mut rng = self.rng.lock().await;
+            self.prompts.next(rng.as_mut(), model)
+        };
+        if let Some(tokens) = draw.tokens {
+            return Ok((draw.messages, draw.max_tokens, tokens));
+        }
+        let mut messages = draw.messages;
+        // Aim at the band's middle; a word is at least about one token in common tokenizers,
+        // so three words in four of the missing tokens rarely overshoot.
+        let target = band
+            .min
+            .saturating_add(band.max.saturating_sub(band.min) / 2);
+        for _ in 0..PROMPT_ATTEMPTS {
+            let tokens = self
+                .engines
+                .prompt_tokens(model, &messages)
+                .await
+                .map_err(|e| format!("counting the prompt: {e:#}"))?;
+            if band.contains(tokens) {
+                return Ok((messages, draw.max_tokens, tokens));
+            }
+            let mut rng = self.rng.lock().await;
+            if tokens > band.max {
+                messages = prompts::generate(rng.as_mut());
+            } else {
+                let missing = usize::try_from(target.saturating_sub(tokens)).unwrap_or(0);
+                prompts::lengthen(&mut messages, rng.as_mut(), missing.saturating_mul(3) / 4);
+            }
+        }
+        bump(&self.counters.skipped_no_prompt);
+        log::warn!(
+            target: TARGET,
+            "no audit prompt of {}–{} tokens after {PROMPT_ATTEMPTS} counts",
+            band.min,
+            band.max
+        );
+        Err("no prompt in the audit length band".into())
     }
 
     /// Stores a failing case's evidence and returns its commitment.
@@ -330,6 +383,40 @@ pub async fn preflight(
         if chain.model_quant(*m).await?.is_none() {
             anyhow::bail!("model 0x{} is not registered on chain", hex::encode(m.0));
         }
+    }
+    Ok(())
+}
+
+/// Screens the prompt bank for every re-checkable model (spec "审计 prompt" / "题库条目不在区间
+/// 内"): counts each entry with the model's re-check engine and keeps those in the audit length
+/// band. Logs the numbers skipped, never the content.
+///
+/// # Errors
+///
+/// A count that fails, or a model for which no entry is in the band.
+pub async fn screen_bank(
+    prompts: &mut Prompts,
+    engines: &dyn Recheck,
+    models: &[ModelId],
+) -> anyhow::Result<()> {
+    if prompts.bank().is_empty() {
+        return Ok(());
+    }
+    let band = AUDIT_THRESHOLDS.band;
+    for m in models {
+        let mut counts = Vec::with_capacity(prompts.bank().len());
+        for entry in prompts.bank() {
+            counts.push(engines.prompt_tokens(*m, entry).await?);
+        }
+        let skipped = prompts.screen(*m, &counts, band)?;
+        log::info!(
+            target: TARGET,
+            "model 0x{}: {skipped} of {} bank prompts are outside {}–{} tokens and are skipped",
+            hex::encode(m.0),
+            counts.len(),
+            band.min,
+            band.max
+        );
     }
     Ok(())
 }

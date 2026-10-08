@@ -29,6 +29,7 @@ use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use pallet_audit::AuditorEndpoint;
 use parity_scale_codec::{Decode, Encode};
+use serde_json::Value;
 use sp_runtime::AccountId32;
 use tokio::sync::Mutex;
 
@@ -37,7 +38,7 @@ use super::ports::{AuditCall, AuditChain, Dispute, FetchEvidence, Recheck, Shop}
 use super::prompts::{OutputRange, Prompts};
 use super::rand::OsRand;
 use super::store::EvidenceStore;
-use super::{Agent, Counters, plan, preflight, short, sync_endpoint};
+use super::{Agent, Counters, plan, preflight, screen_bank, short, sync_endpoint};
 use crate::case::{RecheckCase, Report};
 use crate::engine::EngineClient;
 use crate::logging::TARGET;
@@ -237,6 +238,20 @@ impl Recheck for Engines {
             },
         }
     }
+
+    async fn prompt_tokens(&self, model: ModelId, messages: &Value) -> Result<u32> {
+        let (name, verifier) = self
+            .engines
+            .get(&model)
+            .context("no re-check engine for the model")?;
+        let tokens = verifier
+            .lock()
+            .await
+            .engine
+            .chat_tokens(name, messages)
+            .await?;
+        u32::try_from(tokens.len()).context("too many prompt tokens")
+    }
 }
 
 /// Evidence requests over sealed HTTP, signed by the auditor's key.
@@ -411,6 +426,9 @@ pub async fn run(cfg: Config) -> Result<()> {
     if let Some(bank) = &cfg.prompts.bank {
         prompts = prompts.with_bank(bank, cfg.prompts.bank_percent)?;
     }
+    let engines = Engines { engines };
+    let screened: Vec<ModelId> = engines.engines.keys().copied().collect();
+    screen_bank(&mut prompts, &engines, &screened).await?;
     let store = EvidenceStore::open(&cfg.data_dir.join("evidence"))?;
 
     // The evidence endpoint (spec "审计员代理服务" / "自动登记证据地址").
@@ -432,7 +450,7 @@ pub async fn run(cfg: Config) -> Result<()> {
         me: me.clone(),
         chain: chain.clone(),
         shop: Arc::new(ProxyShop { routes }),
-        engines: Arc::new(Engines { engines }),
+        engines: Arc::new(engines),
         fetch: Arc::new(SealedFetch {
             http: Client::new()?,
             account: me.clone(),

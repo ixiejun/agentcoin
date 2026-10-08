@@ -249,12 +249,16 @@ async fn agents_find_a_provider_that_starts_cheating() {
     );
     let g = gateway.address();
 
-    // A prompt bank whose every prompt carries the marker (spec "日志中没有审计 prompt").
+    // A prompt bank whose every prompt carries the marker (spec "日志中没有审计 prompt"). The
+    // mock engine counts a token per word: the entries are of 120–320 words, so some are below
+    // and some above the audit length band, which the agents skip (m6-toploc-gpu-calibration
+    // 6.2, spec "题库条目不在区间内").
     let bank = base.join("bank.jsonl");
     let lines: Vec<String> = (0..20)
         .map(|i| {
-            json!([{"role": "user", "content": format!("question {i} about {MARKER} and tides")}])
-                .to_string()
+            let filler: Vec<String> = (0..120 + 10 * i).map(|w| format!("tide{w}")).collect();
+            let content = format!("question {i} about {MARKER} and tides {}", filler.join(" "));
+            json!([{"role": "user", "content": content}]).to_string()
         })
         .collect();
     std::fs::write(&bank, lines.join("\n")).unwrap();
@@ -411,6 +415,25 @@ async fn agents_find_a_provider_that_starts_cheating() {
         );
     }
     assert!(fails.len() >= 2 && fails.iter().all(|v| v.evidence.is_some()));
+
+    // Every audit prompt was in the audit length band (spec "审计 prompt 落在审计长度区间内"),
+    // by the mock engine's count each agent logs.
+    let band = ac_market_proto::toploc::AUDIT_THRESHOLDS.band;
+    let mut counted = 0;
+    for i in 0..auditors.len() {
+        let text = std::fs::read_to_string(base.join(format!("auditor{i}.log"))).unwrap();
+        for line in text.lines() {
+            if let Some(rest) = line.split("audit prompt of ").nth(1) {
+                let n: u32 = rest.split(' ').next().unwrap().parse().unwrap();
+                assert!(
+                    band.contains(n),
+                    "auditor {i}: an audit prompt of {n} tokens"
+                );
+                counted += 1;
+            }
+        }
+    }
+    assert!(counted > 0, "no audit prompt logged");
 
     // Nothing of the prompts in any log.
     tokio::time::sleep(Duration::from_secs(2)).await;

@@ -105,6 +105,9 @@ pub trait Recheck: Send + Sync {
     fn engine_model(&self, model: ModelId) -> Option<String>;
     /// Re-checks `case`.
     async fn recheck(&self, case: &RecheckCase, quant: QuantType) -> Report;
+    /// The prompt tokens of `messages` under `model`'s chat template, as the re-check counts
+    /// them (m6-toploc-gpu-calibration design D9).
+    async fn prompt_tokens(&self, model: ModelId, messages: &serde_json::Value) -> Result<u32>;
 }
 
 /// Fetching evidence from an accuser's endpoint.

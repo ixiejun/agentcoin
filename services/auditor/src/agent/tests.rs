@@ -37,11 +37,13 @@ use sp_runtime::AccountId32;
 use tokio::sync::Mutex;
 
 use super::ports::{AuditCall, AuditChain, Dispute, FetchEvidence, Recheck, Shop};
-use super::prompts::{OutputRange, Prompts};
+use super::prompts::{OutputRange, Prompts, words};
 use super::rand::tests::Seeded;
 use super::review::Progress;
 use super::store::EvidenceStore;
-use super::{Agent, Audited, Counters, Planned, plan, preflight, sync_endpoint};
+use super::{
+    Agent, Audited, Counters, PROMPT_ATTEMPTS, Planned, plan, preflight, screen_bank, sync_endpoint,
+};
 use crate::case::{FailReason, Outcome, RecheckCase, Report};
 
 const MODEL: ModelId = ModelId([0x44; 32]);
@@ -254,16 +256,32 @@ impl Shop for FakeShop {
 }
 
 /// Engines whose outcome is set by the test; they remember the cases they saw.
+/// Prompt token counting of the stand-in engines.
+type CountFn = Box<dyn Fn(&serde_json::Value) -> u32 + Send + Sync>;
+
 struct FakeEngines {
     outcome: StdMutex<Outcome>,
     seen: StdMutex<Vec<RecheckCase>>,
+    /// Counts prompt tokens; by default a token per word, plus four per message.
+    count: CountFn,
+}
+
+/// The default count: like a chat template, a few tokens per message around its words.
+fn template_count(messages: &serde_json::Value) -> u32 {
+    let per_message = messages.as_array().map_or(0, Vec::len) * 4;
+    u32::try_from(words(messages) + per_message).unwrap()
 }
 
 impl FakeEngines {
     fn new(outcome: Outcome) -> Self {
+        Self::counting(outcome, Box::new(template_count))
+    }
+
+    fn counting(outcome: Outcome, count: CountFn) -> Self {
         Self {
             outcome: StdMutex::new(outcome),
             seen: StdMutex::new(Vec::new()),
+            count,
         }
     }
 }
@@ -285,6 +303,9 @@ impl Recheck for FakeEngines {
             chunks: Vec::new(),
             verdict,
         }
+    }
+    async fn prompt_tokens(&self, _model: ModelId, messages: &serde_json::Value) -> Result<u32> {
+        Ok((self.count)(messages))
     }
 }
 
@@ -565,6 +586,140 @@ async fn a_chain_still_on_version_2_gets_no_verdicts() {
     ));
     assert!(s.bought.lock().unwrap().is_empty());
     assert!(chain.sent.lock().unwrap().is_empty());
+}
+
+/// A bank file of `entries` user prompts, entry `i` of `words(i)` words.
+fn bank_file(name: &str, entries: usize, words: impl Fn(usize) -> usize) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("ac-auditor-{name}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("bank.jsonl");
+    let lines: Vec<String> = (0..entries)
+        .map(|i| {
+            let text: Vec<String> = (0..words(i)).map(|w| format!("b{i}w{w}")).collect();
+            serde_json::json!([{"role": "user", "content": text.join(" ")}]).to_string()
+        })
+        .collect();
+    std::fs::write(&path, lines.join("\n")).unwrap();
+    path
+}
+
+// Spec "审计 prompt" / "审计 prompt 落在审计长度区间内": 200 requests mixing the generator and a
+// bank (half of whose entries are outside the band) all fall in the band, and the generated ones
+// stay diverse (spec "prompt 多样").
+#[tokio::test]
+async fn audit_prompts_fall_in_the_band() {
+    let band = AUDIT_THRESHOLDS.band;
+    let lengths = [
+        band.min as usize - 60,
+        band.min as usize,
+        200,
+        band.max as usize + 20,
+    ];
+    let bank = bank_file("mixed-bank", 8, |i| lengths[i % 4]);
+    let me = acc(1);
+    let engines = Arc::new(FakeEngines::new(Outcome::Pass));
+    let mut a = agent_with(
+        me.clone(),
+        Arc::new(chain_for(me)),
+        shop(1),
+        engines.clone(),
+        Arc::default(),
+    );
+    a.prompts = Prompts::generator(OutputRange { min: 8, max: 16 })
+        .with_bank(&bank, 30)
+        .unwrap();
+    screen_bank(&mut a.prompts, engines.as_ref(), &[MODEL])
+        .await
+        .unwrap();
+    let mut generated = Vec::new();
+    let mut from_bank = 0;
+    for _ in 0..200 {
+        let (m, _, counted) = a.prompt(MODEL).await.unwrap();
+        let n = template_count(&m);
+        assert!(band.contains(n), "{n} prompt tokens");
+        assert_eq!(counted, n);
+        let text: Vec<&str> = m
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x["content"].as_str().unwrap())
+            .collect();
+        let text = text.join("\n");
+        if text.starts_with("b") {
+            from_bank += 1;
+        } else {
+            generated.push(text);
+        }
+    }
+    assert!((30..=100).contains(&from_bank), "{from_bank} from the bank");
+    let distinct: std::collections::BTreeSet<&String> = generated.iter().collect();
+    assert!(
+        distinct.len() * 100 >= generated.len() * 99,
+        "{} distinct",
+        distinct.len()
+    );
+    let first: Vec<char> = generated[0].chars().collect();
+    for w in first.windows(16) {
+        let s: String = w.iter().collect();
+        assert!(
+            generated.iter().any(|p| !p.contains(&s)),
+            "{s:?} is in every prompt"
+        );
+    }
+    assert_eq!(
+        a.counters
+            .skipped_no_prompt
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0
+    );
+}
+
+// Spec "审计 prompt" / "题库条目不在区间内": with no bank entry in the band the agent refuses
+// to start.
+#[tokio::test]
+async fn a_bank_outside_the_band_is_refused() {
+    let bank = bank_file("short-bank", 5, |i| 10 + i);
+    let mut p = Prompts::generator(OutputRange::default())
+        .with_bank(&bank, 20)
+        .unwrap();
+    let engines = FakeEngines::new(Outcome::Pass);
+    let e = screen_bank(&mut p, &engines, &[MODEL]).await.unwrap_err();
+    assert!(e.to_string().contains("audit length band"), "{e}");
+}
+
+// Design D9: a prompt that never fits is given up after the attempts, before paying.
+#[tokio::test]
+async fn an_audit_without_a_prompt_in_the_band_is_skipped() {
+    let me = acc(1);
+    let calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let counted = calls.clone();
+    let engines = Arc::new(FakeEngines::counting(
+        Outcome::Pass,
+        Box::new(move |_| {
+            counted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            AUDIT_THRESHOLDS.band.max + 1
+        }),
+    ));
+    let s = shop(1);
+    let a = agent_with(
+        me.clone(),
+        Arc::new(chain_for(me)),
+        s.clone(),
+        engines,
+        Arc::default(),
+    );
+    assert!(matches!(a.audit(4, &acc(10)).await, Audited::Missed(_)));
+    assert_eq!(
+        calls.load(std::sync::atomic::Ordering::Relaxed),
+        PROMPT_ATTEMPTS
+    );
+    assert_eq!(
+        a.counters
+            .skipped_no_prompt
+            .load(std::sync::atomic::Ordering::Relaxed),
+        1
+    );
+    assert!(s.bought.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

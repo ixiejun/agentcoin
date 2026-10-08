@@ -2,9 +2,17 @@
 //! built-in generator that combines task types, topics and phrasings at random, and an optional
 //! bank of operator-supplied conversations mixed in at a configured ratio. Nothing marks a
 //! prompt as an audit.
+//!
+//! Only prompts whose token count is in the thresholds' audit length band are sent
+//! (m6-toploc-gpu-calibration design D9): bank entries are screened per model at start-up, and a
+//! generated prompt below the band is lengthened with background sentences drawn at random
+//! ([`lengthen`]); the agent counts with its re-check engine.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
+use ac_market_proto::toploc::PromptBand;
+use ac_primitives::market::ModelId;
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
@@ -120,6 +128,45 @@ const FOLLOW_UPS: &[&str] = &[
     "Could you turn that into a numbered list?",
 ];
 
+// Background sentences that lengthen a prompt: each one filled at random like the tasks, so no
+// text recurs across audit prompts (spec "审计 prompt": nothing repeated to make up length).
+const BACKGROUND: &[&str] = &[
+    "Last spring {name} read {n} books about {topic}.",
+    "A museum near {name}'s home opened an exhibit on {topic} in {year}.",
+    "Our club meets every {n} weeks and we often end up discussing {other}.",
+    "My cousin, who is {age}, keeps asking me about {topic}.",
+    "I once watched a documentary that connected {topic} and {other}.",
+    "The local paper ran a story on {other} dated {date}.",
+    "{name} says that {topic} is underrated, and I partly agree.",
+    "We visited a place famous for {other} about {n} years ago.",
+    "In class we spent {n} lessons on {topic}, but it went by quickly.",
+    "There was a heated debate about {other} at dinner yesterday.",
+    "I keep a notebook with {n}0 pages of notes on {topic}.",
+    "A friend of mine, {name}, works on projects involving {other}.",
+    "Some people I know think {topic} will matter more by {year}.",
+    "Our neighbour {name} started a small hobby around {other}.",
+    "I tried explaining {topic} to {name} and got confused myself.",
+    "The library has a shelf on {other} that I have not finished.",
+    "On a trip in {year} I saw a talk where {topic} came up {n} times.",
+    "My grandmother remembers when {other} was a new idea.",
+    "I am writing an essay of about {n}00 words that touches on {topic}.",
+    "{name} and I disagree about how {other} relates to everyday life.",
+    "A podcast episode from {date} mentioned {topic} in passing.",
+    "Back in school I made a poster about {other} with {n} drawings.",
+    "Lately I have been reading forum threads about {topic}.",
+    "Someone at work, {name}, brought up {other} over lunch.",
+];
+
+const LEADS: &[&str] = &[
+    "",
+    "Some context: ",
+    "A bit about me: ",
+    "Background: ",
+    "First, ",
+    "For what it's worth, ",
+    "To explain why I ask: ",
+];
+
 const SYLLABLES: &[&str] = &[
     "ka", "lo", "mi", "ren", "sa", "tor", "vi", "el", "na", "dor", "lin", "ma", "ra", "zu", "ket",
     "an",
@@ -191,6 +238,57 @@ pub fn generate(rng: &mut dyn Rand) -> Value {
     Value::Array(messages)
 }
 
+/// Words of a conversation's texts: the yardstick [`lengthen`] adds by.
+#[must_use]
+pub fn words(messages: &Value) -> usize {
+    messages.as_array().map_or(0, |a| {
+        a.iter()
+            .filter_map(|m| m.get("content").and_then(Value::as_str))
+            .map(|c| c.split_whitespace().count())
+            .sum()
+    })
+}
+
+/// Puts random background sentences of at least `words` words in front of the last user
+/// message (design D9), behind a lead-in drawn at random.
+pub fn lengthen(messages: &mut Value, rng: &mut dyn Rand, words: usize) {
+    let mut background = pick(rng, LEADS).to_owned();
+    let mut added = 0;
+    while added < words {
+        let template = pick(rng, BACKGROUND);
+        let sentence = fill(rng, template);
+        added = added.saturating_add(sentence.split_whitespace().count());
+        if !background.is_empty() && !background.ends_with(' ') {
+            background.push(' ');
+        }
+        background.push_str(&sentence);
+    }
+    let last_user = messages.as_array_mut().and_then(|a| {
+        a.iter_mut()
+            .rev()
+            .find(|m| m.get("role").and_then(Value::as_str) == Some("user"))
+    });
+    if let Some(m) = last_user {
+        let content = m.get("content").and_then(Value::as_str).unwrap_or_default();
+        let joined = format!("{background}\n\n{content}");
+        if let Some(c) = m.get_mut("content") {
+            *c = Value::String(joined);
+        }
+    }
+}
+
+/// The next prompt and where it came from.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Draw {
+    /// Chat Completions `messages`.
+    pub messages: Value,
+    /// The `max_tokens` to ask for.
+    pub max_tokens: u32,
+    /// For a bank entry, its prompt token count (screened at start-up); `None` for a generated
+    /// prompt, which the caller counts.
+    pub tokens: Option<u32>,
+}
+
 /// Where prompts come from.
 #[derive(Clone, Debug, Default)]
 pub struct Prompts {
@@ -198,6 +296,9 @@ pub struct Prompts {
     /// Share of bank prompts in percent (0–100).
     bank_percent: u8,
     output: OutputRange,
+    /// Per model, the bank entries in the audit length band and their prompt token counts
+    /// (spec "题库条目不在区间内").
+    in_band: BTreeMap<ModelId, Vec<(usize, u32)>>,
 }
 
 impl Prompts {
@@ -208,6 +309,7 @@ impl Prompts {
             bank: Vec::new(),
             bank_percent: 0,
             output,
+            in_band: BTreeMap::new(),
         }
     }
 
@@ -246,18 +348,75 @@ impl Prompts {
         Ok(self)
     }
 
-    /// The next conversation and the `max_tokens` to ask for.
-    pub fn next(&self, rng: &mut dyn Rand) -> (Value, u32) {
-        let from_bank = !self.bank.is_empty() && rng.below(100) < u64::from(self.bank_percent);
-        let messages = if from_bank {
-            let i = usize::try_from(rng.below(self.bank.len() as u64)).unwrap_or(0);
-            self.bank.get(i).cloned().unwrap_or_else(|| generate(rng))
+    /// The bank's conversations.
+    #[must_use]
+    pub fn bank(&self) -> &[Value] {
+        &self.bank
+    }
+
+    /// Keeps, for `model`, the bank entries whose prompt token counts (`counts`, in bank order)
+    /// are in `band`; returns how many were skipped. Only kept entries are ever drawn for the
+    /// model.
+    ///
+    /// # Errors
+    ///
+    /// A non-empty bank with no entry in the band (the agent then refuses to start), or counts
+    /// that do not match the bank.
+    pub fn screen(&mut self, model: ModelId, counts: &[u32], band: PromptBand) -> Result<usize> {
+        if counts.len() != self.bank.len() {
+            bail!(
+                "{} counts for {} bank entries",
+                counts.len(),
+                self.bank.len()
+            );
+        }
+        let kept: Vec<(usize, u32)> = counts
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|(_, c)| band.contains(*c))
+            .collect();
+        if kept.is_empty() && !self.bank.is_empty() {
+            bail!(
+                "no prompt of the bank has {}–{} prompt tokens (the audit length band) for model 0x{}",
+                band.min,
+                band.max,
+                hex::encode(model.0)
+            );
+        }
+        let skipped = self.bank.len().saturating_sub(kept.len());
+        self.in_band.insert(model, kept);
+        Ok(skipped)
+    }
+
+    /// The next conversation for `model`: a bank entry in the band for it (at the bank's share,
+    /// when it has any) or a generated one, which the caller fits into the band.
+    pub fn next(&self, rng: &mut dyn Rand, model: ModelId) -> Draw {
+        let in_band = self
+            .in_band
+            .get(&model)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let from_bank = !in_band.is_empty() && rng.below(100) < u64::from(self.bank_percent);
+        let bank_entry = if from_bank {
+            let i = usize::try_from(rng.below(in_band.len() as u64)).unwrap_or(0);
+            in_band
+                .get(i)
+                .and_then(|(i, n)| self.bank.get(*i).map(|m| (m.clone(), *n)))
         } else {
-            generate(rng)
+            None
+        };
+        let (messages, tokens) = match bank_entry {
+            Some((m, n)) => (m, Some(n)),
+            None => (generate(rng), None),
         };
         let span = u64::from(self.output.max.saturating_sub(self.output.min)) + 1;
         let extra = u32::try_from(rng.below(span)).unwrap_or(0);
-        (messages, self.output.min.saturating_add(extra))
+        Draw {
+            messages,
+            max_tokens: self.output.min.saturating_add(extra),
+            tokens,
+        }
     }
 }
 
@@ -318,19 +477,74 @@ mod tests {
             "[{\"role\":\"user\",\"content\":\"bank-only question\"}]\n\n",
         )
         .unwrap();
-        let p = Prompts::generator(OutputRange { min: 10, max: 20 })
+        let mut p = Prompts::generator(OutputRange { min: 10, max: 20 })
             .with_bank(&bank, 50)
+            .unwrap();
+        let model = ModelId([1; 32]);
+        p.screen(model, &[5], PromptBand { min: 1, max: 9 })
             .unwrap();
         let mut rng = Seeded::new(1);
         let mut from_bank = 0;
         for _ in 0..400 {
-            let (m, max) = p.next(&mut rng);
-            assert!((10..=20).contains(&max));
-            if texts(&m) == "bank-only question" {
+            let d = p.next(&mut rng, model);
+            assert!((10..=20).contains(&d.max_tokens));
+            if texts(&d.messages) == "bank-only question" {
+                assert_eq!(d.tokens, Some(5));
                 from_bank += 1;
             }
         }
         assert!((120..=280).contains(&from_bank), "{from_bank}");
+        // Another model, for which the bank was not screened, gets generated prompts only.
+        assert!((0..50).all(|_| p.next(&mut rng, ModelId([2; 32])).tokens.is_none()));
+    }
+
+    // Spec "审计 prompt" / "题库条目不在区间内": entries outside the band are never drawn and
+    // are counted; a bank with none in the band is refused.
+    #[test]
+    fn bank_entries_outside_the_band_are_skipped() {
+        let dir = std::env::temp_dir().join(format!("ac-auditor-band-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bank = dir.join("bank.jsonl");
+        let lines: Vec<String> = (0..4)
+            .map(|i| json!([{"role": "user", "content": format!("entry {i}")}]).to_string())
+            .collect();
+        std::fs::write(&bank, lines.join("\n")).unwrap();
+        let band = PromptBand { min: 10, max: 20 };
+        let model = ModelId([1; 32]);
+        let mut p = Prompts::generator(OutputRange::default())
+            .with_bank(&bank, 100)
+            .unwrap();
+        assert_eq!(p.screen(model, &[9, 10, 20, 21], band).unwrap(), 2);
+        let mut rng = Seeded::new(3);
+        let drawn: BTreeSet<String> = (0..200)
+            .map(|_| texts(&p.next(&mut rng, model).messages))
+            .collect();
+        assert_eq!(
+            drawn,
+            BTreeSet::from(["entry 1".to_owned(), "entry 2".to_owned()])
+        );
+        assert!(p.screen(model, &[9, 21, 300, 0], band).is_err());
+        assert!(p.screen(model, &[10], band).is_err());
+    }
+
+    #[test]
+    fn lengthening_adds_background_before_the_last_question() {
+        let mut rng = Seeded::new(5);
+        for _ in 0..100 {
+            let mut m = generate(&mut rng);
+            let before = words(&m);
+            let question = m.as_array().unwrap().last().unwrap()["content"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            lengthen(&mut m, &mut rng, 150);
+            assert!(words(&m) >= before + 150);
+            let last = m.as_array().unwrap().last().unwrap()["content"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            assert!(last.ends_with(&question), "{last}");
+        }
     }
 
     // Spec "审计 prompt" / "题库无效".

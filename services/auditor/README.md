@@ -147,6 +147,13 @@ Operating notes:
 - **Thresholds.** The agent judges by its built-in `AUDIT_THRESHOLDS` version. When the chain
   accepts another version, it neither audits nor votes and says why: upgrade it.
 - **Bank.** JSONL, one `messages` array per line; `bank_percent` of prompts come from it.
+- **Prompt length.** Only prompts whose token count, under the model's chat template as the
+  agent's re-check engine counts it, is in the audit length band of `AUDIT_THRESHOLDS`
+  (version 3: 150–300 tokens, both ends included) are sent. At start-up every bank entry is
+  counted per model and those outside the band are skipped (the log says how many); a bank
+  with none in the band for a model is refused. A generated prompt below the band is lengthened
+  with background sentences drawn at random, one above it is generated anew; after 20 counts
+  the audit is skipped and counted. Each audit logs its prompt's token count, never its text.
 
 ## Privacy
 
