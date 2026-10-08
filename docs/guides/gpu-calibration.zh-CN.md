@@ -118,6 +118,7 @@ scripts/gpu-calibration.sh pack
 | `verify` | `setup` 未通过；vLLM 或 PyTorch 不是固定版本；没有支持 bfloat16 的 CUDA 设备；模型快照不符；虚拟环境中的 CUDA 编译器不是 CUDA 13.0；没有 `ac-auditor` |
 | `check` | `verify` 未通过；插件检查不通过（候选不是激活值的前 k 个，由候选构造的证明与由完整激活值构造的或与参考实现不同）；快速回归不通过（在该 GPU 上诚实回答复核不通过或作弊通过） |
 | `generate`、`recheck` | 这台机器上 `verify` 或 `check` 未通过 |
+| `check`、`generate`、`recheck`、`experiment`（最先检查） | `ac-auditor` 编译失败，或它的阈值（`ac-auditor thresholds`）与当前代码不一致：这几条命令都会先重新编译它（只编译有改动的部分），因此 `git pull` 之后直接运行即可 |
 | `experiment`、复核 `exp-…` 案例包 | 这台机器上 `verify` 或 `check` 中的插件检查未通过 |
 
 `scripts/gpu-calibration.sh --self-test` 在没有 GPU 的机器上检验这些停止条件（CI 运行它）。

@@ -184,6 +184,7 @@ stays, to measure the same on another engine or vLLM version.
 | `verify` | `setup` has not passed; vLLM or PyTorch is not the pinned version; no CUDA device with bfloat16; a model snapshot differs; the environment's CUDA compiler is not CUDA 13.0; no `ac-auditor` |
 | `check` | `verify` has not passed; the plugin check fails (candidates are not the activations' top k, proofs from candidates differ from the whole activations' or from the reference); the quick regression fails (an honest answer does not pass or a cheat passes its re-check, on this GPU) |
 | `generate`, `recheck` | `verify` or `check` has not passed on this machine |
+| `check`, `generate`, `recheck`, `experiment` (before anything else) | `ac-auditor` does not build, or its thresholds (`ac-auditor thresholds`) are not this checkout's: each of them rebuilds it first (only what changed), so a `git pull` is enough |
 | `experiment`, `recheck` of an `exp-…` bundle | `verify` or the plugin check of `check` has not passed on this machine |
 
 `scripts/gpu-calibration.sh --self-test` exercises these stops without a GPU (CI runs it).

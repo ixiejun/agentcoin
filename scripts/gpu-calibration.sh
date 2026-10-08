@@ -261,8 +261,25 @@ PY
   echo "verify: ok"
 }
 
+# ac-auditor as of this checkout: after a `git pull` the binary `setup` built would judge by
+# older thresholds, or lack `ac-auditor thresholds` (calibration-results/gpu-check-v3-2026-10-09).
+# Cargo rebuilds only what changed; with AC_AUDITOR the binary built elsewhere is copied again.
+# The calibration script then checks that the binary's thresholds are this checkout's.
+fresh_auditor() {
+  export PATH="$HOME/.cargo/bin:$PATH"
+  if [ -n "${AC_AUDITOR:-}" ]; then
+    mkdir -p "$repo_root/target/debug"
+    cp "$AC_AUDITOR" "$repo_root/target/debug/ac-auditor"
+  else
+    (cd "$repo_root" && SKIP_WASM_BUILD=1 cargo build -q -p ac-auditor) || die "building ac-auditor failed"
+  fi
+  "$repo_root/target/debug/ac-auditor" thresholds >/dev/null 2>&1 ||
+    die "target/debug/ac-auditor has no 'thresholds' command: it is older than this checkout (set AC_AUDITOR to a current build)"
+}
+
 cmd_check() {
   require verify
+  fresh_auditor
   engine_env
   rm -f "$state/check.ok" "$state/plugin.ok"
   local logs="$WORK/check-$(gpu_slug)"
@@ -300,6 +317,7 @@ seed_for() {
 cmd_generate() {
   require verify
   require check
+  fresh_auditor
   engine_env
   local slug seed
   slug="$(gpu_slug)"
@@ -318,6 +336,7 @@ cmd_generate() {
 cmd_experiment() {
   require verify
   require plugin check
+  fresh_auditor
   engine_env
   local slug seed words out
   slug="$(gpu_slug)"
@@ -355,6 +374,7 @@ cmd_recheck() {
   [ -f "$bundle/prover.json" ] || die "$bundle is not a case bundle (no prover.json)"
   # An experiment's bundle needs the plugin check; a calibration bundle the whole check.
   if [ -f "$bundle/EXPERIMENT" ]; then require plugin check; else require check; fi
+  fresh_auditor
   engine_env
   local out="$WORK/recheck-$(basename "$bundle")-on-$(gpu_slug)"
   echo "re-checking $bundle into $out"

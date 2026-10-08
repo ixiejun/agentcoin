@@ -130,12 +130,24 @@ def prompt_set(variant: str, count: int, seed: int, min_words: int = 0,
 SHORTEST, LONGEST, SENTENCE = 20, 600, 16
 
 
-def auditor_band() -> tuple[int, int]:
-    """The audit length band of the thresholds `ac-auditor` judges by (`ac-auditor thresholds`):
-    one source for the band, the crate's constant."""
+def auditor_thresholds() -> dict:
+    """The thresholds `ac-auditor` judges by (`ac-auditor thresholds`), as `THRESHOLDS` holds
+    them: one source for the band, the crate's constant."""
     made = subprocess.run([str(AUDITOR), "thresholds"], capture_output=True, check=True)
-    lo, hi = json.loads(made.stdout)["band"]
-    return int(lo), int(hi)
+    t = json.loads(made.stdout)
+    return {k: (tuple(v) if isinstance(v, list) else v) for k, v in t.items()}
+
+
+def stale_auditor() -> str | None:
+    """Why the `ac-auditor` binary does not judge by this checkout's thresholds, or None: a binary
+    built before a `git pull` judges by older ones (calibration-results/gpu-check-v3-2026-10-09)."""
+    try:
+        t = auditor_thresholds()
+    except (OSError, subprocess.CalledProcessError, ValueError) as e:
+        return f"{AUDITOR} cannot print its thresholds ({e}): rebuild it (cargo build -p ac-auditor)"
+    if t != CURRENT:
+        return f"{AUDITOR} judges by {t}, this checkout by {CURRENT}: rebuild it (cargo build -p ac-auditor)"
+    return None
 
 
 def prompt_targets(variant: str, count: int, seed: int, band: tuple[int, int]) -> list[int]:
@@ -1043,10 +1055,11 @@ def shard_of(names: list[str], shard: str | None) -> list[str]:
 def generate_bundle(out: Path, honest: int, cheat: int, seed: int, min_words: int = 0) -> int:
     """Generates every variant into the bundle `out` (`cases/`, `prover.json`,
     `MANIFEST.sha256`; logs in `out/logs`)."""
-    band = auditor_band()
-    if CURRENT["band"] != band:
-        print(f"ac-auditor judges by the band {band}, this script by {CURRENT['band']}: update THRESHOLDS")
+    stale = stale_auditor()
+    if stale:
+        print(stale)
         return 1
+    band = CURRENT["band"]
     cases = out / "cases"
     cases.mkdir(parents=True, exist_ok=True)
     for f in cases.glob("*.json"):
@@ -1103,6 +1116,10 @@ def recheck_bundle(bundle: Path, out: Path, shard: str | None = None) -> dict | 
     """Re-checks the bundle's cases (or one shard of them) on this machine; the report, or None
     when cases listed in the manifest are missing."""
     prover = json.loads((bundle / "prover.json").read_text())
+    stale = stale_auditor()
+    if stale:
+        print(stale)
+        return None
     found = check_manifest(bundle)
     if found["missing"]:
         print(f"{len(found['missing'])} cases of the manifest are missing, e.g. {found['missing'][:3]}")

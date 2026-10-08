@@ -402,6 +402,24 @@ class PromptLengthTests(unittest.TestCase):
         again = cal.fit_prompt(prompts[0][0], 250, count, cal.random.Random(0))
         self.assertEqual(again, cal.fit_prompt(prompts[0][0], 250, count, cal.random.Random(0)))
 
+    def test_a_stale_auditor_is_refused(self):
+        # A binary built before a pull: without `thresholds`, or with other thresholds.
+        with tempfile.TemporaryDirectory() as d:
+            fake = pathlib.Path(d) / "ac-auditor"
+            saved = cal.AUDITOR
+            try:
+                cal.AUDITOR = fake
+                current = {k: list(v) if isinstance(v, tuple) else v for k, v in cal.CURRENT.items()}
+                for printed, stale in ((current, False), (dict(current, prefill=[2, 50, 1]), True),
+                                       (dict(current, version=2), True)):
+                    fake.write_text(f"#!/bin/sh\necho '{json.dumps(printed)}'\n")
+                    fake.chmod(0o755)
+                    self.assertEqual(cal.stale_auditor() is not None, stale, printed)
+                fake.write_text("#!/bin/sh\necho 'unrecognized subcommand' >&2\nexit 2\n")
+                self.assertIn("cannot print its thresholds", cal.stale_auditor())
+            finally:
+                cal.AUDITOR = saved
+
     def test_buckets(self):
         samples = [dict(sample("honest-0.json", [chunk(total=128)]), prompt_tokens=20, prover="A", auditor="B"),
                    dict(sample("honest-1.json", [chunk(total=64)]), prompt_tokens=300, prover="A", auditor="B"),
