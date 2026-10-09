@@ -181,7 +181,10 @@ python scripts/calibrate-toploc.py --merge recheck-*/calibration.json --summary-
   answers listed under I-023.
 - **Statistics.** The merge also gives, per cell, side of the band and variant (honest and int8),
   histograms of the statistics a verdict carries (the prefill chunk's mean and the decode
-  chunks' means averaged, in hundredths): the input of the statistical judgment's parameters.
+  chunks' means averaged, in hundredths) and their joint counts (`pairs`): the input of the
+  statistical judgment's parameters. `scripts/export-audit-stats.py` derives them from one or
+  more merged reports and, with `--simulate`, checks the honest `E[e^λ]` of every cell against
+  the gate (0.8) and simulates how many audits find int8.
 - **Condensed report.** `--summary-out` writes what the repository keeps: fingerprints, cells,
   distributions, thresholds, conclusion and the chunk metrics of every sample that did not go
   as it should; case names and numbers only, never prompts or answers.

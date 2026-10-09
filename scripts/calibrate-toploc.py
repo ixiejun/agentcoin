@@ -690,8 +690,9 @@ def audit_stats(x: dict) -> dict | None:
 
 def statistics(samples: list[dict]) -> dict:
     """Per cell, side of the band and variant (honest and int8), histograms of the prefill and decode
-    statistics in bins of STAT_BIN hundredths ({bin start: count}), the input of the statistical
-    judgment's parameters (m6-audit-sprt design D9)."""
+    statistics in bins of STAT_BIN hundredths ({bin start: count}) and their joint counts ("pairs",
+    {"prefill bin,decode bin": count}, "-" for no decode chunk), the input of the statistical
+    judgment's parameters and of its simulation (m6-audit-sprt design D9)."""
     out: dict = {}
     for x in samples:
         v = variant_of(x["case"])
@@ -699,18 +700,24 @@ def statistics(samples: list[dict]) -> dict:
         if v not in ("honest", "int8") or st is None:
             continue
         g = out.setdefault(f'{x["prover"]} → {x["auditor"]}', {}).setdefault(side(x), {}).setdefault(
-            v, {"samples": 0, "prefill": {}, "decode": {}})
+            v, {"samples": 0, "prefill": {}, "decode": {}, "pairs": {}})
         g["samples"] += 1
+        bins = {}
         for k in ("prefill", "decode"):
             if k == "decode" and not st["decode_chunks"]:
+                bins[k] = "-"
                 continue
-            b = str(st[k] // STAT_BIN * STAT_BIN)
-            g[k][b] = g[k].get(b, 0) + 1
+            bins[k] = str(st[k] // STAT_BIN * STAT_BIN)
+            g[k][bins[k]] = g[k].get(bins[k], 0) + 1
+        pair = f'{bins["prefill"]},{bins["decode"]}'
+        g["pairs"][pair] = g["pairs"].get(pair, 0) + 1
+    def order(kv):
+        return tuple(-1 if b == "-" else int(b) for b in kv[0].split(","))
     for sides in out.values():
         for variants in sides.values():
             for g in variants.values():
-                for k in ("prefill", "decode"):
-                    g[k] = dict(sorted(g[k].items(), key=lambda kv: int(kv[0])))
+                for k in ("prefill", "decode", "pairs"):
+                    g[k] = dict(sorted(g[k].items(), key=order))
     return dict(sorted(out.items()))
 
 

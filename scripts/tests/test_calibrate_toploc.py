@@ -363,8 +363,10 @@ class ConclusionTests(unittest.TestCase):
               [self.honest(self.IN, chunk(total=64), chunk(total=128), chunk(total=256)),
                self.honest(self.OUT, chunk(total=64)), dict(self.cheats()[-1])]]
         st = cal.statistics(xs)["A → B"]
-        self.assertEqual(st["inside"]["honest"], {"samples": 1, "prefill": {"50": 1}, "decode": {"150": 1}})
-        self.assertEqual(st["outside"]["honest"], {"samples": 1, "prefill": {"50": 1}, "decode": {}})
+        self.assertEqual(st["inside"]["honest"], {"samples": 1, "prefill": {"50": 1}, "decode": {"150": 1},
+                                                  "pairs": {"50,150": 1}})
+        self.assertEqual(st["outside"]["honest"], {"samples": 1, "prefill": {"50": 1}, "decode": {},
+                                                   "pairs": {"50,-": 1}})
         self.assertEqual(st["inside"]["int8"]["samples"], 1)
         self.assertEqual(cal.audit_stats(xs[0]), {"prompt_tokens": self.IN, "prefill": 50, "decode": 150,
                                                   "decode_chunks": 2})
