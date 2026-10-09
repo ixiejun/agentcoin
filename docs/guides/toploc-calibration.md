@@ -77,6 +77,28 @@ fail a decode chunk under any bounds; the generation records it per case (`token
 the merge lists them apart (`token_mismatch`), out of the cells and the conclusion. Their root
 cause (the provider returning the output token IDs) is a separate change.
 
+## Statistical judgment parameters
+
+The statistical judgment (OpenSpec change `m6-audit-sprt`) takes its parameters from the
+calibration. `scripts/export-audit-stats.py` reads the merged reports' statistics histograms
+(inside the band only, since auditors send only prompts there) and derives one version:
+
+- **Bins** of each statistic (prefill mean, decode means averaged, in hundredths), with a
+  log-likelihood ratio per bin in thousandths of a nat, rounded down. The alternative is int8,
+  pooled over the cells. The null is, bin by bin, the largest honest frequency of any cell, with
+  pseudo-counts 5 (honest) and 0.5 (int8).
+- **Clamp** −0.5 / +3.0 nats per verdict, **bound** 24.7 nats (52,560 audits a year, 10⁻⁶),
+  **per-auditor cap** a third of the bound, at most 128 verdicts per state.
+
+With `--simulate` it checks every cell's honest `E[e^λ]` on the joint counts and simulates the
+audits a CUSUM needs to cross by share of int8 requests. **Gate:** the worst cell's `E[e^λ]` must
+be at most 0.8 for the parameters to cover a hardware class, and only then may a live chain
+enable the judgment. Version 1 (provisional, the GPU cells of `gpu-cal-v3-2026-10-09`) gives a
+worst `E[e^λ]` of 0.616. False disputes are then at most 9.9 × 10⁻⁷ per provider and year, and
+crossing takes 9 / 19 / 45 / 103 audits (median) at 100 / 50 / 30 / 20% int8. The CPU cells and
+the final report fix the published values; a test checks that the Rust constant equals what the
+committed report exports.
+
 The calibration's prompts are fitted to target lengths with the engine's own tokenizer: about
 80% in the band, 10% shorter (from 20 tokens) and 10% longer (up to 600), deterministic per
 seed. The band comes from the crate (`ac-auditor thresholds` prints it), so the script cannot
