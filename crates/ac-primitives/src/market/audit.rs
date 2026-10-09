@@ -42,8 +42,11 @@ pub const MAX_AUDITORS: u32 = 1_000;
 pub const MAX_ASSIGN: u8 = 8;
 /// Most reviewers of a dispute (guardrail of `reviewers`).
 pub const MAX_REVIEWERS: u8 = 15;
-/// Most accusers of a dispute: the failing verdicts of two rounds.
+/// Most accusers of a failure dispute: the failing verdicts of two rounds.
 pub const MAX_ACCUSERS: u32 = 2 * MAX_ASSIGN as u32;
+/// Most accusers a dispute record holds: a statistical dispute lists every verdict of the
+/// provider's state (m6-audit-sprt design D7).
+pub const MAX_DISPUTE_ACCUSERS: u32 = MAX_SPRT_ENTRIES;
 
 /// Lowest and highest auditor stake an administration may set, in micro-dollars.
 pub const STAKE_USD_BOUNDS: (MicroUsd, MicroUsd) = (
@@ -401,6 +404,40 @@ impl AdjustableParams {
     }
 }
 
+/// The statistics of a verdict and the parameter version they were submitted under
+/// (m6-audit-sprt design D1).
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    MaxEncodedLen,
+    TypeInfo,
+)]
+pub struct VerdictStats {
+    /// The statistical judgment's parameter version.
+    pub version: u16,
+    /// The statistics.
+    pub stats: AuditStats,
+}
+
+impl VerdictOutcome {
+    /// `true` for an outcome judged by the thresholds: a pass, or a chunk out of bounds. Such a
+    /// verdict carries statistics and an evidence commitment (m6-audit-sprt design D1).
+    #[must_use]
+    pub fn judged_by_thresholds(&self) -> bool {
+        match self {
+            Self::Pass => true,
+            Self::Fail(FailReason::Threshold { metric, .. }) => *metric != AuditMetric::NoChunks,
+            Self::Fail(_) | Self::Inconclusive(_) => false,
+        }
+    }
+}
+
 /// A verdict as the chain keeps it.
 #[derive(
     Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo,
@@ -412,7 +449,7 @@ pub struct VerdictRecord<AccountId> {
     pub outcome: VerdictOutcome,
     /// Thresholds version used.
     pub thresholds_version: u16,
-    /// Commitment to the evidence (failures only).
+    /// Commitment to the evidence (failures and verdicts judged by the thresholds).
     pub evidence: Option<[u8; 32]>,
     /// BLAKE3 of the SCALE-encoded signed receipt.
     pub receipt_hash: H256,
@@ -420,9 +457,12 @@ pub struct VerdictRecord<AccountId> {
     pub request_id: [u8; 32],
     /// The receipt's gateway.
     pub gateway: AccountId,
+    /// The statistics (verdicts judged by the thresholds only).
+    pub stats: Option<VerdictStats>,
 }
 
-/// One accuser of a dispute: an auditor and the round of its failing verdict.
+/// One accuser of a dispute: an auditor and the round of its failing verdict (for a
+/// statistical dispute, of a verdict in the provider's state).
 #[derive(
     Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo,
 )]
@@ -431,6 +471,33 @@ pub struct Accuser<AccountId> {
     pub auditor: AccountId,
     /// Round of its failing verdict.
     pub round: RoundIndex,
+}
+
+/// What opened a dispute.
+///
+/// Wire-format enum: variant indices are explicit and never reused.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    MaxEncodedLen,
+    TypeInfo,
+)]
+pub enum DisputeKind {
+    /// Failing verdicts of two auditors.
+    #[codec(index = 0)]
+    Fail,
+    /// The provider's statistical state crossed the bound (m6-audit-sprt design D7).
+    #[codec(index = 1)]
+    Statistical {
+        /// The parameter version reviewers replay the state with.
+        stats_version: u16,
+    },
 }
 
 /// A dispute, open or closed.
@@ -442,8 +509,9 @@ pub struct DisputeRecord<AccountId, BlockNumber> {
     pub provider: AccountId,
     /// Round the dispute was opened in.
     pub round: RoundIndex,
-    /// The auditors whose failing verdicts opened it.
-    pub accusers: BoundedVec<Accuser<AccountId>, ConstU32<MAX_ACCUSERS>>,
+    /// The auditors whose failing verdicts opened it, or the verdicts of a statistical
+    /// dispute's state.
+    pub accusers: BoundedVec<Accuser<AccountId>, ConstU32<MAX_DISPUTE_ACCUSERS>>,
     /// Drawn reviewers and their votes, in draw order.
     pub reviewers: BoundedVec<(AccountId, Option<Vote>), ConstU32<{ MAX_REVIEWERS as u32 }>>,
     /// Last block votes are accepted in.
@@ -452,6 +520,8 @@ pub struct DisputeRecord<AccountId, BlockNumber> {
     pub outcome: Option<DisputeOutcome>,
     /// Block it was closed in; `None` while open.
     pub closed_at: Option<BlockNumber>,
+    /// What opened it.
+    pub kind: DisputeKind,
 }
 
 /// Verdict counts of a provider.
@@ -903,5 +973,23 @@ mod tests {
             [2, 2]
         );
         assert_eq!(Vote::Reject.encode(), [1]);
+        assert_eq!(DisputeKind::Fail.encode(), [0]);
+        assert_eq!(
+            DisputeKind::Statistical { stats_version: 2 }.encode(),
+            [1, 2, 0]
+        );
+    }
+
+    // m6-audit-sprt design D1: passes and chunks out of bounds carry statistics, nothing else.
+    #[test]
+    fn outcomes_judged_by_the_thresholds() {
+        let threshold = |metric| VerdictOutcome::Fail(FailReason::Threshold { chunk: 1, metric });
+        assert!(VerdictOutcome::Pass.judged_by_thresholds());
+        assert!(threshold(AuditMetric::MantissaMean).judged_by_thresholds());
+        assert!(threshold(AuditMetric::NoMatchingExponent).judged_by_thresholds());
+        assert!(!threshold(AuditMetric::NoChunks).judged_by_thresholds());
+        assert!(!VerdictOutcome::Fail(FailReason::NoProof).judged_by_thresholds());
+        assert!(!VerdictOutcome::Fail(FailReason::CommitmentMismatch).judged_by_thresholds());
+        assert!(!VerdictOutcome::Inconclusive(InconclusiveReason::Tokens).judged_by_thresholds());
     }
 }

@@ -123,7 +123,8 @@ ac-wallet market work --epoch 12                                          # 某�
 ac-wallet audit register --wallet a.json                   # 质押：当前门槛
 ac-wallet audit assignments --wallet a.json                # 本轮被分配的提供者
 ac-wallet audit verdict --wallet a.json --report r.json --case c.json
-ac-wallet audit disputes --provider atc1…                   # 未关闭的争议、复核人、计数
+ac-wallet audit verdicts --provider atc1… [--round 12]     # 裁决及其统计量
+ac-wallet audit disputes --provider atc1…                   # 未关闭的争议、复核人、计数、累计状态
 ac-wallet audit vote --wallet a.json --provider atc1… --id 0 --vote confirm
 ac-wallet audit close --wallet any.json --provider atc1… --id 0   # 期满后
 ac-wallet audit status --address atc1…
@@ -134,11 +135,12 @@ ac-wallet audit pot && ac-wallet audit params
 |---|---|
 | `audit register [--stake]`、`bond`、`unbond`、`exit`、`withdraw` | 审计员质押，与提供者相同 |
 | `audit assignments` | 当前轮次与本账户被分配的提供者（已提交或待提交） |
-| `audit verdict --report --case` | 提交一行 `ac-auditor recheck` 结果对某案例的裁决：结果与阈值版本取自该行，收据取自案例，不通过时附证据承诺（并打印）；本账户未被分配时在签名前拒绝 |
-| `audit disputes --provider` | 提供者的裁决计数、未关闭的争议、提出者与复核人的投票 |
+| `audit verdict --report --case` | 提交一行 `ac-auditor recheck` 结果对某案例的裁决：结果与阈值版本取自该行，收据取自案例，不通过或由阈值判定时附证据承诺（并打印）；由阈值判定的裁决还附该行的统计量（OpenSpec 变更 `m6-audit-sprt`）；本账户未被分配时在签名前拒绝 |
+| `audit verdicts --provider [--round]` | 提供者在某轮（默认当前轮）的裁决及各自的统计量 |
+| `audit disputes --provider` | 提供者的裁决计数、相对判定界的累计状态、未关闭的争议及其种类（不通过争议或统计争议）、提出者与复核人的投票 |
 | `audit vote --provider --id --vote confirm\|reject`、`audit close` | 以复核人身份投票；期满后关闭未决的争议 |
 | `audit endpoint --set URL --kem-key KEY` / `--clear` | 登记（或删除）审计员向复核人交付证据的地址；`ac-auditor run` 会自动登记 |
-| `audit status`、`audit pot`、`audit params` | 审计员记录、计数与证据地址；资金池；参数 |
+| `audit status`、`audit pot`、`audit params` | 审计员记录、计数与证据地址；资金池；参数（含统计判定的版本、开关、判定界与单条上下限） |
 
 ## 公共任务
 

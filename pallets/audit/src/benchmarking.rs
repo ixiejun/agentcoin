@@ -1,5 +1,6 @@
 //! Benchmarks: every call at its worst case under the guardrails, the round start by number of
-//! auditors and one pruning step by number of removed entries.
+//! auditors, one pruning step by number of verdict lists handled, and one step clearing
+//! statistical states of an older version by number of states.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)] // Benchmark setup.
 
 use frame_benchmarking::v2::benchmarks;
@@ -10,13 +11,16 @@ use crate::{Config, Pallet};
 mod benchmarks {
     use super::{Config, Pallet};
     use crate::{
-        Adjustable, AuditorEndpoints, BenchmarkHelper, Call, Disputes, OpenDispute, Params,
-        PruneNext, RoundRequests, UsedRequests, VerdictSubmission,
+        Adjustable, AuditorEndpoints, BenchmarkHelper, Call, ClearCursor, Disputes, OpenDispute,
+        Params, PruneNext, RetainedVerdicts, SprtStates, StaleClearing, StatsSettings, VerdictList,
+        VerdictSubmission, Verdicts,
     };
     use ac_crypto::SigAlg;
     use ac_crypto::sig::SigningKey;
     use ac_primitives::market::audit::{
-        AuditMetric, FailReason, MAX_AUDITORS, RoundIndex, VerdictOutcome, Vote, round_start,
+        AuditMetric, AuditStats, CURRENT_STATS, DisputeKind, FailReason, MAX_AUDITORS,
+        MAX_SPRT_ENTRIES, RoundIndex, SprtEntry, SprtState, StatsConfig, VerdictOutcome,
+        VerdictRecord, VerdictStats, Vote, round_start,
     };
     use ac_primitives::market::receipt::{RECEIPT_CONTEXT, fee_for};
     use ac_primitives::market::work::JobKind;
@@ -43,6 +47,13 @@ mod benchmarks {
         chunk: 0,
         metric: AuditMetric::MantissaMean,
     });
+    /// Statistics contributing the largest amount (+3.0 nats under version 1).
+    const INT8: AuditStats = AuditStats {
+        prompt_tokens: 200,
+        prefill_mean_centi: 125,
+        decode_mean_centi: 250,
+        decode_chunks: 4,
+    };
 
     /// ML-DSA-87: the largest keys and signatures, the slowest verification.
     fn signer(name: &str) -> SigningKey {
@@ -70,6 +81,10 @@ mod benchmarks {
         T::BenchmarkHelper::set_key(&provider(), &signer("bench-provider").public_key().unwrap());
         T::BenchmarkHelper::set_key(&gateway(), &signer("bench-gateway").public_key().unwrap());
         T::Currency::set_balance(&Pallet::<T>::pot(), 1_000_000 * ATC);
+        StatsSettings::<T>::put(StatsConfig {
+            version: CURRENT_STATS.version,
+            enabled: true,
+        });
         for i in 0..n {
             let a = auditor(i);
             T::Currency::set_balance(&a, 10_000 * ATC);
@@ -125,9 +140,60 @@ mod benchmarks {
             round,
             outcome,
             thresholds_version: Adjustable::<T>::get().unwrap().thresholds_version,
-            evidence: matches!(outcome, VerdictOutcome::Fail(_)).then_some([1; 32]),
+            evidence: Some([1; 32]),
             receipt: receipt::<T>(id),
+            stats: Some(VerdictStats {
+                version: CURRENT_STATS.version,
+                stats: INT8,
+            }),
         })
+    }
+
+    /// A full statistical state of `who` (MAX_SPRT_ENTRIES verdicts of distinct auditors in
+    /// rounds `first..`), just below the bound, with the verdict lists it refers to stored in
+    /// `store` (`true`: retained past their retention; `false`: still in `Verdicts`).
+    fn full_state<T: Config>(who: &AccountId32, first: RoundIndex, retained: bool) {
+        let per = i32::try_from(
+            CURRENT_STATS
+                .bound
+                .checked_div(i64::from(MAX_SPRT_ENTRIES))
+                .unwrap()
+                .saturating_sub(3),
+        )
+        .unwrap();
+        let mut state = SprtState::default();
+        for i in 0..MAX_SPRT_ENTRIES {
+            let entry_auditor: AccountId32 = account("entry", i, 0);
+            let round = first.saturating_add(i);
+            state
+                .entries
+                .try_push(SprtEntry {
+                    auditor: entry_auditor.clone(),
+                    round,
+                    contribution: per,
+                })
+                .unwrap();
+            let list = VerdictList::truncate_from(alloc::vec![VerdictRecord {
+                auditor: entry_auditor,
+                outcome: VerdictOutcome::Pass,
+                thresholds_version: 4,
+                evidence: Some([1; 32]),
+                receipt_hash: H256([2; 32]),
+                request_id: [3; 32],
+                gateway: account("entry-gateway", i, 0),
+                stats: Some(VerdictStats {
+                    version: CURRENT_STATS.version,
+                    stats: INT8,
+                }),
+            }]);
+            if retained {
+                RetainedVerdicts::<T>::insert(round, who, list);
+            } else {
+                Verdicts::<T>::insert(round, who, list);
+            }
+        }
+        state.cumulative = i64::from(per).saturating_mul(i64::from(MAX_SPRT_ENTRIES));
+        SprtStates::<T>::insert(who, (CURRENT_STATS.version, state));
     }
 
     /// Every assigned auditor fails the provider: the last verdict opens a dispute. Returns the
@@ -191,26 +257,24 @@ mod benchmarks {
         assert!(Pallet::<T>::auditor(&auditor(0)).is_none());
     }
 
-    /// The worst verdict: a failure that opens a dispute (draws the reviewers), with the
-    /// largest receipt, a full roster and a payment.
+    /// The worst verdict: a lone failure judged by the thresholds (looks for a failure
+    /// dispute in two rounds), with the largest receipt, a full roster and a payment, whose
+    /// statistics fill a full state (the oldest entry dropped, the rest replayed) past the
+    /// bound and open a statistical dispute on all its verdicts (drawing the reviewers).
     #[benchmark]
     fn submit_verdict() {
         world::<T>(MAX_AUDITORS);
         let r = next_round::<T>();
-        let assigned = Pallet::<T>::assignment(r, &provider());
-        let (last, before) = assigned.split_last().unwrap();
-        for (i, a) in before.iter().enumerate() {
-            let id = u32::try_from(i).unwrap();
-            Pallet::<T>::submit_verdict(
-                RawOrigin::Signed(a.clone()).into(),
-                verdict::<T>(r, id, FAIL),
-            )
-            .unwrap();
-        }
+        full_state::<T>(&provider(), 0, true);
+        let last = Pallet::<T>::assignment(r, &provider())[0].clone();
         let v = verdict::<T>(r, 1_000, FAIL);
         #[extrinsic_call]
-        _(RawOrigin::Signed(last.clone()), v);
-        assert!(OpenDispute::<T>::get(provider()).is_some());
+        _(RawOrigin::Signed(last), v);
+        let id = OpenDispute::<T>::get(provider()).unwrap();
+        assert!(matches!(
+            Disputes::<T>::get(id).unwrap().kind,
+            DisputeKind::Statistical { .. }
+        ));
     }
 
     /// The deciding vote of a rejection: every accuser is slashed and made to exit, the
@@ -253,6 +317,44 @@ mod benchmarks {
         assert!(OpenDispute::<T>::get(provider()).is_none());
     }
 
+    /// Enabling the statistical judgment.
+    #[benchmark]
+    fn set_stats_config() {
+        world::<T>(0);
+        StatsSettings::<T>::put(StatsConfig {
+            version: CURRENT_STATS.version,
+            enabled: false,
+        });
+        #[extrinsic_call]
+        _(
+            RawOrigin::Root,
+            StatsConfig {
+                version: CURRENT_STATS.version,
+                enabled: true,
+            },
+        );
+        assert!(StatsSettings::<T>::get().unwrap().enabled);
+    }
+
+    /// One clearing step removing `n` full states of an older version, each releasing the
+    /// MAX_SPRT_ENTRIES verdict lists it retained.
+    #[benchmark]
+    fn clear_stale(n: Linear<1, { crate::STALE_CLEAR_LIMIT }>) {
+        world::<T>(0);
+        for i in 0..n {
+            let who: AccountId32 = account("stale", i, 0);
+            full_state::<T>(&who, 0, true);
+            let (_, state) = SprtStates::<T>::get(&who).unwrap();
+            SprtStates::<T>::insert(&who, (CURRENT_STATS.version.saturating_sub(1), state));
+        }
+        StaleClearing::<T>::put(ClearCursor::new());
+        #[block]
+        {
+            Pallet::<T>::clear_stale_step();
+        }
+        assert_eq!(SprtStates::<T>::iter().count(), 0);
+    }
+
     #[benchmark]
     fn set_params() {
         world::<T>(0);
@@ -288,15 +390,14 @@ mod benchmarks {
         }
     }
 
-    /// One pruning step removing `n` used request IDs of an old round.
+    /// One pruning step handling `n` verdict lists of an old round, each one that a full
+    /// statistical state still refers to and so moves to the retained lists (heavier per entry
+    /// than removing a used request ID).
     #[benchmark]
     fn prune(n: Linear<1, { T::PruneLimit::get() }>) {
         world::<T>(0);
         for i in 0..n {
-            let mut id = [0xbb; 32];
-            id[..4].copy_from_slice(&i.to_le_bytes());
-            UsedRequests::<T>::insert(id, 0);
-            RoundRequests::<T>::insert(0, id, ());
+            full_state::<T>(&account("pruned", i, 0), 0, false);
         }
         PruneNext::<T>::put(0);
         let current = T::RetentionRounds::get().saturating_add(1);
@@ -304,7 +405,10 @@ mod benchmarks {
         {
             Pallet::<T>::prune_step(current);
         }
-        assert_eq!(RoundRequests::<T>::iter_key_prefix(0).count(), 0);
+        assert_eq!(
+            RetainedVerdicts::<T>::iter_key_prefix(0).count(),
+            usize::try_from(n).unwrap()
+        );
     }
 
     frame_benchmarking::impl_benchmark_test_suite!(

@@ -183,10 +183,11 @@ fn staking_and_switch_parameters() {
 }
 
 // m6-audit-chain, spec node/chain-spec "审计参数": test presets use short rounds and three
-// reviewers deciding by two; a live chain spec starts from the draft live values.
+// reviewers deciding by two, with the statistical judgment on; a live chain spec starts from the
+// draft live values, with it off.
 #[test]
 fn audit_parameters() {
-    use ac_primitives::market::audit::AuditParams;
+    use ac_primitives::market::audit::{AuditParams, CURRENT_STATS, StatsConfig};
     use ac_runtime::Runtime;
     use sp_runtime::Perbill;
 
@@ -199,6 +200,14 @@ fn audit_parameters() {
             assert!(p.round_blocks <= 50 && p.vote_blocks <= 50 && p.unbond_blocks <= 100);
             assert_eq!((p.reviewers, p.quorum, p.assign), (3, 2, 2));
             assert_eq!(p.check(), Ok(()));
+            // m6-audit-sprt, scenario "本地链开启统计判定".
+            assert_eq!(
+                pallet_audit::StatsSettings::<Runtime>::get(),
+                Some(StatsConfig {
+                    version: CURRENT_STATS.version,
+                    enabled: true
+                })
+            );
         });
     }
     // Scenario "导出正式链审计参数".
@@ -216,6 +225,14 @@ fn audit_parameters() {
     assert_eq!(
         adjustable.thresholds_version,
         ac_market_proto::AUDIT_THRESHOLDS.version
+    );
+    // The statistical judgment is off, at the latest built-in parameter version.
+    assert_eq!(
+        live.stats(),
+        StatsConfig {
+            version: CURRENT_STATS.version,
+            enabled: false
+        }
     );
 }
 

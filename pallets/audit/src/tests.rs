@@ -13,19 +13,20 @@ use sp_runtime::{AccountId32, Perbill};
 
 use ac_primitives::market::MicroUsd;
 use ac_primitives::market::audit::{
-    AdjustableParams, AuditMetric, AuditorStatus, DisputeOutcome, Draw, FailReason,
+    AdjustableParams, AuditMetric, AuditorStatus, DisputeKind, DisputeOutcome, Draw, FailReason,
     InconclusiveReason, Pool, VerdictOutcome, Vote, sample,
 };
 
 use crate::mock::{
-    ATC, Audit, Balances, GATEWAY, PROVIDER, PROVIDER2, ROUND, RuntimeOrigin, System, Test, acc,
-    burned, current_round, jailed, new_test_ext, penalties, receipt, run_to, set_randomness,
-    set_rate, submission,
+    ATC, Audit, Balances, GATEWAY, HONEST_STATS, PROVIDER, PROVIDER2, ROUND, RuntimeOrigin, System,
+    Test, acc, burned, current_round, jailed, new_test_ext, penalties, receipt, run_to,
+    set_randomness, set_rate, submission,
 };
 use crate::{
     Activity, AuditGenesis, Disputes, Error, Event, HoldReason, OpenDispute, ProviderStats,
     Rosters, Seeds, UsedRequests, Verdicts,
 };
+use ac_primitives::market::audit::{CURRENT_STATS, VerdictStats};
 
 const FAIL: VerdictOutcome = VerdictOutcome::Fail(FailReason::Threshold {
     chunk: 2,
@@ -191,7 +192,8 @@ fn no_randomness_means_no_assignments() {
 
 #[test]
 fn assigned_auditor_submits_a_pass() {
-    // "裁决" / "被分配的审计员提交通过"; "审计资金池与支付" / "裁决获得支付".
+    // "裁决" / "被分配的审计员提交通过"; "审计证据与承诺" / "通过的裁决也有证据承诺";
+    // "审计资金池与支付" / "裁决获得支付".
     new_test_ext(6).execute_with(|| {
         let a = assigned(PROVIDER)[0].clone();
         let (pot, mine) = (Balances::balance(&Audit::pot()), Balances::balance(&a));
@@ -207,7 +209,14 @@ fn assigned_auditor_submits_a_pass() {
         assert_eq!(Balances::total_issuance(), issuance);
         let v = &Verdicts::<Test>::get(current_round(), acc(PROVIDER))[0];
         assert_eq!(v.auditor, a);
-        assert_eq!(v.evidence, None);
+        assert_eq!(v.evidence, Some([1; 32]));
+        assert_eq!(
+            v.stats,
+            Some(VerdictStats {
+                version: CURRENT_STATS.version,
+                stats: HONEST_STATS
+            })
+        );
     });
 }
 
@@ -300,7 +309,9 @@ fn outdated_thresholds_version_is_refused() {
 }
 
 #[test]
-fn evidence_goes_with_failures_only() {
+fn evidence_goes_with_failures_and_judged_verdicts() {
+    // "审计证据与承诺": failures and verdicts judged by the thresholds carry a commitment,
+    // inconclusive ones do not.
     new_test_ext(6).execute_with(|| {
         let a = assigned(PROVIDER)[0].clone();
         let mut s = submission(PROVIDER, 1, FAIL);
@@ -310,6 +321,16 @@ fn evidence_goes_with_failures_only() {
             Error::<Test>::BadEvidence
         );
         let mut s = submission(PROVIDER, 1, VerdictOutcome::Pass);
+        s.evidence = None;
+        assert_noop!(
+            Audit::submit_verdict(RuntimeOrigin::signed(a.clone()), s),
+            Error::<Test>::BadEvidence
+        );
+        let mut s = submission(
+            PROVIDER,
+            1,
+            VerdictOutcome::Inconclusive(InconclusiveReason::Tokens),
+        );
         s.evidence = Some([1; 32]);
         assert_noop!(
             Audit::submit_verdict(RuntimeOrigin::signed(a), s),
@@ -398,8 +419,10 @@ fn two_failures_open_a_dispute() {
         assert_eq!(accused, accusers);
         assert!(has_event(Event::DisputeOpened {
             id,
-            provider: acc(PROVIDER)
+            provider: acc(PROVIDER),
+            kind: DisputeKind::Fail,
         }));
+        assert_eq!(d.kind, DisputeKind::Fail);
     });
 }
 
@@ -630,7 +653,9 @@ fn administration_cannot_punish() {
             "close_dispute",
             "set_params",
             // m6-auditor-agent: an auditor's own evidence endpoint; moves no funds.
-            "set_endpoint"
+            "set_endpoint",
+            // m6-audit-sprt: the statistical judgment's version and switch; decides nothing.
+            "set_stats_config"
         ]
     );
     new_test_ext(8).execute_with(|| {

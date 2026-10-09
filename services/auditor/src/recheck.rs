@@ -11,7 +11,9 @@ use ac_primitives::market::{ModelId, SignedReceipt};
 use ac_toploc::{Phase, ProofPoly, compare_from_candidates};
 use rand_core::TryRng;
 
-use crate::case::{ChunkMetrics, FailReason, Inconclusive, Outcome, RecheckCase, Report};
+use crate::case::{
+    ChunkMetrics, FailReason, Inconclusive, Outcome, RecheckCase, Report, StatsReport,
+};
 use crate::engine::EngineClient;
 use crate::logging::TARGET;
 use crate::socket::Rows;
@@ -63,6 +65,7 @@ impl Verifier {
             reason: outcome.reason(),
             request,
             thresholds_version: self.thresholds.version,
+            stats: StatsReport::of(&outcome, prompt_tokens, &chunks),
             prompt_tokens,
             chunks,
             verdict: outcome,

@@ -3,12 +3,20 @@
 //! is the verdict's, and re-check it by the verdict's thresholds version. Two distinct accusers
 //! whose evidence fails confirm; anything else rejects. An unavailable engine of this agent is
 //! not the accusers' fault: the agent retries and, if it never recovers, does not vote.
+//!
+//! A statistical dispute (m6-audit-sprt design D7) is reviewed verdict by verdict: the
+//! statistics are recomputed from each verdict's evidence on this agent's engine; a verdict whose
+//! evidence is missing or does not hold keeps only a non-positive contribution. The provider's
+//! state is replayed with them under the dispute's parameter version: at the bound it confirms,
+//! below it rejects.
 
 use std::collections::BTreeMap;
 
 use ac_market_proto::audit::{AuditEvidence, EvidenceResponse};
 use ac_market_proto::toploc::AUDIT_THRESHOLDS;
-use ac_primitives::market::audit::Vote;
+use ac_primitives::market::audit::{
+    DisputeKind, RoundIndex, SprtEntry, SprtState, StatsParams, Vote, stats_params,
+};
 use parity_scale_codec::Encode;
 use sp_runtime::AccountId32;
 
@@ -31,12 +39,15 @@ pub enum Finding {
     EngineDown,
     /// This agent cannot judge it at all (unknown thresholds version or model).
     CannotJudge,
+    /// A statistical dispute's verdict counts for this contribution (thousandths of a nat).
+    Counted(i32),
 }
 
-/// Review state of one dispute: the definitive findings so far, by accuser.
+/// Review state of one dispute: the definitive findings so far, by accuser and round, with the
+/// contribution the chain recorded for the verdict (statistical disputes).
 #[derive(Clone, Debug, Default)]
 pub struct Progress {
-    findings: BTreeMap<AccountId32, Finding>,
+    findings: BTreeMap<(AccountId32, RoundIndex), (Finding, i32)>,
 }
 
 /// The decision about a dispute for now.
@@ -70,6 +81,55 @@ pub fn decide(findings: &[Finding], final_try: bool) -> Decision {
     }
     // Evidence still unreachable at the deadline counts as missing.
     Decision::Vote(Vote::Reject)
+}
+
+/// One verdict of a statistical dispute as reviewed: its auditor and round, what its evidence
+/// showed, and the contribution the chain recorded for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Reviewed {
+    /// The verdict's auditor.
+    pub auditor: AccountId32,
+    /// The verdict's round.
+    pub round: RoundIndex,
+    /// What its evidence showed.
+    pub finding: Finding,
+    /// The contribution the chain recorded for it.
+    pub recorded: i32,
+}
+
+/// The vote on a statistical dispute (spec "升级复核与投票" / "确认统计争议", "驳回虚报统计
+/// 量"): the state replayed from the recomputed contributions, in order, where missing or
+/// unreachable evidence (at the deadline) keeps only a non-positive recorded contribution.
+#[must_use]
+pub fn decide_statistical(
+    reviewed: &[Reviewed],
+    params: &StatsParams,
+    final_try: bool,
+) -> Decision {
+    let has = |f: fn(&Finding) -> bool| reviewed.iter().any(|r| f(&r.finding));
+    if has(|f| *f == Finding::CannotJudge) {
+        return Decision::Abstain("cannot judge the evidence (model)");
+    }
+    let engine_down = has(|f| *f == Finding::EngineDown);
+    if !final_try && (engine_down || has(|f| *f == Finding::Unreachable)) {
+        return Decision::Wait;
+    }
+    if engine_down {
+        return Decision::Abstain("the re-check engine is unavailable");
+    }
+    let entries = reviewed.iter().map(|r| SprtEntry {
+        auditor: r.auditor.clone(),
+        round: r.round,
+        contribution: match r.finding {
+            Finding::Counted(c) => c,
+            _ => r.recorded.min(0),
+        },
+    });
+    if SprtState::replay(params, entries).crossed(params) {
+        Decision::Vote(Vote::Confirm)
+    } else {
+        Decision::Vote(Vote::Reject)
+    }
 }
 
 impl Agent {
@@ -122,37 +182,122 @@ impl Agent {
 
     /// Reviews one dispute.
     pub async fn review(&self, id: u64, d: &Dispute, final_try: bool) -> Decision {
-        let mut findings = Vec::new();
+        let params = match d.kind {
+            DisputeKind::Fail => None,
+            DisputeKind::Statistical { stats_version } => match stats_params(stats_version) {
+                Some(p) => Some(p),
+                None => return Decision::Abstain("unknown statistical parameter version"),
+            },
+        };
+        let mut reviewed = Vec::new();
         for accuser in &d.accusers {
+            let key = (accuser.auditor.clone(), accuser.round);
             let known = self
                 .reviews
                 .lock()
                 .await
                 .get(&id)
-                .and_then(|p| p.findings.get(&accuser.auditor).copied());
-            let f = match known {
+                .and_then(|p| p.findings.get(&key).copied());
+            let (finding, recorded) = match known {
                 Some(f) => f,
                 None => {
-                    let f = self.examine(id, d, &accuser.auditor, accuser.round).await;
+                    let f = match params {
+                        None => (
+                            self.examine(id, d, &accuser.auditor, accuser.round).await,
+                            0,
+                        ),
+                        Some(p) => {
+                            self.examine_statistical(id, d, (&accuser.auditor, accuser.round), p)
+                                .await
+                        }
+                    };
                     // Only definitive findings are kept; the others are tried again.
-                    if matches!(
-                        f,
-                        Finding::Fails | Finding::DoesNotFail | Finding::CannotJudge
-                    ) {
+                    if !matches!(f.0, Finding::Unreachable | Finding::EngineDown) {
                         self.reviews
                             .lock()
                             .await
                             .entry(id)
                             .or_default()
                             .findings
-                            .insert(accuser.auditor.clone(), f);
+                            .insert(key, f);
                     }
                     f
                 }
             };
-            findings.push(f);
+            reviewed.push(Reviewed {
+                auditor: accuser.auditor.clone(),
+                round: accuser.round,
+                finding,
+                recorded,
+            });
         }
-        decide(&findings, final_try)
+        match params {
+            None => {
+                let findings: Vec<Finding> = reviewed.iter().map(|r| r.finding).collect();
+                decide(&findings, final_try)
+            }
+            Some(p) => decide_statistical(&reviewed, p, final_try),
+        }
+    }
+
+    /// One verdict of a statistical dispute: its recomputed contribution, or why there is none,
+    /// with the contribution the chain recorded for it.
+    async fn examine_statistical(
+        &self,
+        id: u64,
+        d: &Dispute,
+        (auditor, round): (&AccountId32, RoundIndex),
+        params: &StatsParams,
+    ) -> (Finding, i32) {
+        let Ok(verdicts) = self.chain.verdicts(round, &d.provider).await else {
+            return (Finding::Unreachable, 0);
+        };
+        let Some(v) = verdicts.into_iter().find(|v| v.auditor == *auditor) else {
+            return (Finding::Counted(0), 0);
+        };
+        let recorded = v.stats.map_or(0, |s| params.contribution(&s.stats));
+        // Spec "统计争议中重算不过界": evidence that does not hold keeps no positive part.
+        let not_held = (Finding::Counted(recorded.min(0)), recorded);
+        let Some(commitment) = v.evidence else {
+            return not_held;
+        };
+        let Ok(Some(endpoint)) = self.chain.endpoint(auditor).await else {
+            return (Finding::Unreachable, recorded);
+        };
+        let bytes = match self.fetch.fetch(&endpoint, id, commitment).await {
+            Ok(EvidenceResponse::Evidence(b)) => b,
+            Ok(EvidenceResponse::Refused) | Err(_) => return (Finding::Unreachable, recorded),
+        };
+        let Ok(evidence) = AuditEvidence::open(&bytes, &commitment) else {
+            return not_held;
+        };
+        let hash = ac_crypto::hash::blake3_256(&evidence.receipt.encode());
+        if hash != v.receipt_hash.0 || evidence.receipt.body.provider != d.provider {
+            return not_held;
+        }
+        let model = evidence.receipt.body.model;
+        let Some(engine_model) = self.engines.engine_model(model) else {
+            return (Finding::CannotJudge, recorded);
+        };
+        let Ok(case) = case_of(&evidence, &engine_model) else {
+            return not_held;
+        };
+        let quant = match self.chain.model_quant(model).await {
+            Ok(Some(q)) => q,
+            Ok(None) => return not_held,
+            Err(_) => return (Finding::Unreachable, recorded),
+        };
+        let report = self.engines.recheck(&case, quant).await;
+        if report.verdict == Outcome::Inconclusive(Inconclusive::Engine) {
+            return (Finding::EngineDown, recorded);
+        }
+        match report.stats {
+            Some(s) => (
+                Finding::Counted(params.contribution(&s.onchain().stats)),
+                recorded,
+            ),
+            None => not_held,
+        }
     }
 
     async fn examine(

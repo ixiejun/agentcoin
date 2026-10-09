@@ -2,6 +2,7 @@
 
 use ac_market_proto::toploc::{Judgement, Metric, ToplocProofs};
 use ac_primitives::market::SignedReceipt;
+use ac_primitives::market::audit::{AuditStats, CURRENT_STATS, ChunkMantissa, VerdictStats};
 use ac_toploc::Comparison;
 use anyhow::{Context, Result};
 use parity_scale_codec::Decode;
@@ -176,6 +177,17 @@ pub struct ChunkMetrics {
     pub median: Option<u8>,
 }
 
+impl ChunkMetrics {
+    /// The chunk's mantissa errors, as the statistics read them.
+    #[must_use]
+    pub const fn mantissa(&self) -> ChunkMantissa {
+        ChunkMantissa {
+            err_sum: self.mant_err_sum,
+            count: self.mant_count,
+        }
+    }
+}
+
 impl From<&Comparison> for ChunkMetrics {
     fn from(c: &Comparison) -> Self {
         Self {
@@ -187,8 +199,68 @@ impl From<&Comparison> for ChunkMetrics {
     }
 }
 
-/// A re-check's result: the outcome, the thresholds' version and every chunk's metrics (empty
-/// when no comparison ran). Numbers only, never content.
+/// The statistics of a re-check judged by the thresholds (OpenSpec change m6-audit-sprt design
+/// D1), with the parameter version they are submitted under.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatsReport {
+    /// The statistical judgment's parameter version.
+    pub version: u16,
+    /// Prompt tokens the re-check rebuilt.
+    pub prompt_tokens: u32,
+    /// The prefill chunk's mean mantissa error, in hundredths.
+    pub prefill_mean_centi: u16,
+    /// The decode chunks' means averaged, in hundredths.
+    pub decode_mean_centi: u16,
+    /// Decode chunks.
+    pub decode_chunks: u16,
+}
+
+impl StatsReport {
+    /// The statistics of a re-check with `outcome`, `prompt_tokens` and `chunks`, under the
+    /// current parameter version: `None` unless the outcome was judged by the thresholds (a
+    /// pass, or a chunk out of bounds) on at least one chunk.
+    #[must_use]
+    pub fn of(
+        outcome: &Outcome,
+        prompt_tokens: Option<u32>,
+        chunks: &[ChunkMetrics],
+    ) -> Option<Self> {
+        let judged = matches!(
+            outcome,
+            Outcome::Pass | Outcome::Fail(FailReason::Threshold { .. })
+        );
+        if !judged {
+            return None;
+        }
+        let mantissas: Vec<ChunkMantissa> = chunks.iter().map(ChunkMetrics::mantissa).collect();
+        let s = AuditStats::from_chunks(prompt_tokens?, &mantissas)?;
+        Some(Self {
+            version: CURRENT_STATS.version,
+            prompt_tokens: s.prompt_tokens,
+            prefill_mean_centi: s.prefill_mean_centi,
+            decode_mean_centi: s.decode_mean_centi,
+            decode_chunks: s.decode_chunks,
+        })
+    }
+
+    /// The statistics as a verdict carries them.
+    #[must_use]
+    pub const fn onchain(&self) -> VerdictStats {
+        VerdictStats {
+            version: self.version,
+            stats: AuditStats {
+                prompt_tokens: self.prompt_tokens,
+                prefill_mean_centi: self.prefill_mean_centi,
+                decode_mean_centi: self.decode_mean_centi,
+                decode_chunks: self.decode_chunks,
+            },
+        }
+    }
+}
+
+/// A re-check's result: the outcome, the thresholds' version, every chunk's metrics (empty
+/// when no comparison ran) and, when judged by the thresholds, the statistics. Numbers only,
+/// never content.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Report {
     /// `pass`, `fail` or `inconclusive`.
@@ -204,6 +276,8 @@ pub struct Report {
     pub prompt_tokens: Option<u32>,
     /// Per-chunk metrics.
     pub chunks: Vec<ChunkMetrics>,
+    /// The statistics a verdict on it carries; none unless judged by the thresholds.
+    pub stats: Option<StatsReport>,
     #[serde(skip)]
     /// The outcome itself.
     pub verdict: Outcome,

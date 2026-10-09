@@ -20,8 +20,8 @@ use ac_market_proto::ErrorCode;
 use ac_market_proto::audit::{AuditEvidence, EvidenceRequest, EvidenceResponse};
 use ac_market_proto::toploc::AUDIT_THRESHOLDS;
 use ac_primitives::market::audit::{
-    Accuser, AdjustableParams, AuditParams, FailReason as ChainFail, RoundIndex, VerdictOutcome,
-    VerdictRecord, Vote,
+    Accuser, AdjustableParams, AuditParams, CURRENT_STATS, DisputeKind, FailReason as ChainFail,
+    RoundIndex, SprtEntry, SprtState, StatsConfig, VerdictOutcome, VerdictRecord, Vote,
 };
 use ac_primitives::market::model::QuantType;
 use ac_primitives::market::receipt::RECEIPT_CONTEXT;
@@ -40,11 +40,11 @@ use super::ports::{AuditCall, AuditChain, Dispute, FetchEvidence, Recheck, Shop}
 use super::prompts::{OutputRange, Prompts, words};
 use super::rand::tests::Seeded;
 use super::review::Progress;
-use super::store::EvidenceStore;
+use super::store::{EvidenceStore, Stored};
 use super::{
     Agent, Audited, Counters, PROMPT_ATTEMPTS, Planned, plan, preflight, screen_bank, sync_endpoint,
 };
-use crate::case::{FailReason, Outcome, RecheckCase, Report};
+use crate::case::{ChunkMetrics, FailReason, Outcome, RecheckCase, Report, StatsReport};
 
 const MODEL: ModelId = ModelId([0x44; 32]);
 const OTHER_MODEL: ModelId = ModelId([0x45; 32]);
@@ -104,6 +104,8 @@ struct FakeChain {
     verdicts: StdMutex<Verdicts>,
     disputes: StdMutex<BTreeMap<u64, Dispute>>,
     endpoints: StdMutex<BTreeMap<AccountId32, AuditorEndpoint>>,
+    stats: Option<StatsConfig>,
+    states: StdMutex<BTreeMap<AccountId32, SprtState<AccountId32>>>,
     sent: StdMutex<Vec<String>>,
     /// The account the next transactions are signed by.
     me: StdMutex<Option<AccountId32>>,
@@ -170,6 +172,18 @@ impl AuditChain for FakeChain {
     async fn is_active_auditor(&self, _who: &AccountId32) -> Result<bool> {
         Ok(self.active)
     }
+    async fn stats_config(&self) -> Result<Option<StatsConfig>> {
+        Ok(self.stats)
+    }
+    async fn sprt_state(&self, provider: &AccountId32) -> Result<SprtState<AccountId32>> {
+        Ok(self
+            .states
+            .lock()
+            .unwrap()
+            .get(provider)
+            .cloned()
+            .unwrap_or_default())
+    }
     async fn submit(&self, call: AuditCall) -> Result<bool> {
         let line = match &call {
             AuditCall::Verdict(v) => {
@@ -182,6 +196,7 @@ impl AuditChain for FakeChain {
                     receipt_hash: H256(ac_crypto::hash::blake3_256(&v.receipt.encode())),
                     request_id: v.receipt.body.request_id,
                     gateway: v.receipt.body.gateway.clone(),
+                    stats: v.stats,
                 };
                 self.verdicts
                     .lock()
@@ -255,12 +270,29 @@ impl Shop for FakeShop {
     }
 }
 
+/// The prompt token count of the stand-in re-checks (inside the audit length band).
+const PROMPT_TOKENS: u32 = 200;
+
+/// Chunk metrics of a re-check: a prefill chunk with mean mantissa error `prefill` and three
+/// decode chunks with mean `decode`, in hundredths.
+fn chunks(prefill: u32, decode: u32) -> Vec<ChunkMetrics> {
+    let chunk = |mean: u32| ChunkMetrics {
+        exp_mismatches: 0,
+        mant_err_sum: mean,
+        mant_count: 100,
+        median: Some(0),
+    };
+    vec![chunk(prefill), chunk(decode), chunk(decode), chunk(decode)]
+}
+
 /// Engines whose outcome is set by the test; they remember the cases they saw.
 /// Prompt token counting of the stand-in engines.
 type CountFn = Box<dyn Fn(&serde_json::Value) -> u32 + Send + Sync>;
 
 struct FakeEngines {
     outcome: StdMutex<Outcome>,
+    /// The chunk metrics the re-checks report (honest-looking by default).
+    chunks: StdMutex<Vec<ChunkMetrics>>,
     seen: StdMutex<Vec<RecheckCase>>,
     /// Counts prompt tokens; by default a token per word, plus four per message.
     count: CountFn,
@@ -280,6 +312,7 @@ impl FakeEngines {
     fn counting(outcome: Outcome, count: CountFn) -> Self {
         Self {
             outcome: StdMutex::new(outcome),
+            chunks: StdMutex::new(chunks(50, 100)),
             seen: StdMutex::new(Vec::new()),
             count,
         }
@@ -294,13 +327,15 @@ impl Recheck for FakeEngines {
     async fn recheck(&self, case: &RecheckCase, _quant: QuantType) -> Report {
         self.seen.lock().unwrap().push(case.clone());
         let verdict = *self.outcome.lock().unwrap();
+        let chunks = self.chunks.lock().unwrap().clone();
         Report {
             outcome: verdict.kind(),
             reason: verdict.reason(),
             request: None,
             thresholds_version: AUDIT_THRESHOLDS.version,
-            prompt_tokens: None,
-            chunks: Vec::new(),
+            stats: StatsReport::of(&verdict, Some(PROMPT_TOKENS), &chunks),
+            prompt_tokens: Some(PROMPT_TOKENS),
+            chunks,
             verdict,
         }
     }
@@ -384,6 +419,10 @@ fn chain_for(me: AccountId32) -> FakeChain {
     FakeChain {
         active: true,
         version: AUDIT_THRESHOLDS.version,
+        stats: Some(StatsConfig {
+            version: CURRENT_STATS.version,
+            enabled: true,
+        }),
         round: (4, 81, 101),
         block: 85,
         models,
@@ -468,8 +507,10 @@ fn audits_are_spread_over_the_round_and_done_ones_are_left_out() {
 }
 
 #[tokio::test]
-async fn honest_providers_get_a_pass_without_stored_evidence() {
-    // "诚实的提供者"; the request is pinned and asks for the provider's re-checkable model.
+async fn honest_providers_get_a_pass_with_statistics() {
+    // "诚实的提供者" (m6-audit-sprt): the pass carries the statistics and the commitment to the
+    // evidence stored first; the request is pinned and asks for the provider's re-checkable
+    // model.
     let me = acc(1);
     let chain = Arc::new(chain_for(me.clone()));
     let s = shop(2);
@@ -488,8 +529,68 @@ async fn honest_providers_get_a_pass_without_stored_evidence() {
     assert_eq!(bought.len(), 1);
     assert_eq!(bought[0].1, acc(10));
     assert!(bought[0].2.contains(&hex::encode(MODEL.0)));
-    assert!(a.store.list().is_empty());
     assert_eq!(chain.sent.lock().unwrap().as_slice(), ["verdict Pass"]);
+    let v = chain.verdicts.lock().unwrap()[&(4, acc(10))][0].clone();
+    let s = v.stats.unwrap();
+    assert_eq!(s.version, CURRENT_STATS.version);
+    assert_eq!(
+        (
+            s.stats.prompt_tokens,
+            s.stats.prefill_mean_centi,
+            s.stats.decode_mean_centi
+        ),
+        (PROMPT_TOKENS, 50, 100)
+    );
+    let c = v.evidence.unwrap();
+    assert!(a.store.get(&c).is_some());
+}
+
+#[tokio::test]
+async fn inconclusive_verdicts_keep_no_evidence() {
+    // "无法判定不保存证据".
+    let me = acc(1);
+    let chain = Arc::new(chain_for(me.clone()));
+    let tokens = Outcome::Inconclusive(crate::case::Inconclusive::Tokens);
+    let a = agent_with(
+        me,
+        chain.clone(),
+        shop(1),
+        Arc::new(FakeEngines::new(tokens)),
+        Arc::default(),
+    );
+    assert!(matches!(
+        a.audit(4, &acc(10)).await,
+        Audited::Submitted(VerdictOutcome::Inconclusive(_))
+    ));
+    let v = chain.verdicts.lock().unwrap()[&(4, acc(10))][0].clone();
+    assert_eq!((v.evidence, v.stats), (None, None));
+    assert!(a.store.list().is_empty());
+}
+
+#[tokio::test]
+async fn another_statistics_version_stops_the_audit_before_paying() {
+    // "统计参数版本不符".
+    let me = acc(1);
+    let mut c = chain_for(me.clone());
+    c.stats = Some(StatsConfig {
+        version: CURRENT_STATS.version + 1,
+        enabled: true,
+    });
+    let chain = Arc::new(c);
+    let s = shop(1);
+    let a = agent_with(
+        me,
+        chain.clone(),
+        s.clone(),
+        Arc::new(FakeEngines::new(Outcome::Pass)),
+        Arc::default(),
+    );
+    assert!(matches!(
+        a.audit(4, &acc(10)).await,
+        Audited::StatsVersion { .. }
+    ));
+    assert!(s.bought.lock().unwrap().is_empty());
+    assert!(chain.sent.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -513,7 +614,14 @@ async fn cheats_get_a_failure_whose_evidence_is_stored_first() {
     let stored = a.store.get(&c).unwrap();
     let e = AuditEvidence::open(&stored, &c).unwrap();
     assert_eq!(e.receipt.body.provider, acc(10));
-    assert_eq!(a.store.list(), vec![(4, c)]);
+    assert_eq!(
+        a.store.list(),
+        vec![Stored {
+            round: 4,
+            provider: Some(acc(10)),
+            commitment: c
+        }]
+    );
 }
 
 #[tokio::test]
@@ -814,6 +922,7 @@ async fn disputed(accuser_outcome: Outcome) -> (Arc<FakeChain>, Vec<Arc<Agent>>)
             deadline: 120,
             outcome: None,
             closed_at: None,
+            kind: DisputeKind::Fail,
         },
     );
     (chain, accusers)
@@ -830,7 +939,8 @@ fn reviewer(
         requester: Some(acc(n)),
         ..FakeFetch::default()
     };
-    for (a, e) in accusers.iter().zip([2u8, 3]) {
+    for a in accusers {
+        let e = <AccountId32 as AsRef<[u8]>>::as_ref(&a.me)[0];
         fetch
             .by_endpoint
             .lock()
@@ -1009,7 +1119,14 @@ async fn evidence_goes_once_no_dispute_can_use_it() {
         Arc::default(),
     );
     let stored = a.store.list();
-    view.store.put(stored[0].0, &stored[0].1, b"x").unwrap();
+    view.store
+        .put(
+            stored[0].round,
+            stored[0].provider.as_ref().unwrap(),
+            &stored[0].commitment,
+            b"x",
+        )
+        .unwrap();
     view.tidy().await;
     assert_eq!(view.store.list().len(), 1);
     // Round 6, the dispute still open and its deadline (120) not passed: kept.
@@ -1042,4 +1159,171 @@ async fn evidence_goes_once_no_dispute_can_use_it() {
     assert!(r7.sent.lock().unwrap().contains(&"close 1".to_owned()));
     v7.tidy().await;
     assert!(v7.store.list().is_empty());
+}
+
+// ---- 统计争议（m6-audit-sprt）----
+
+/// Nine accusers (20..=28) whose passes on provider 10 in round 4 carry the statistics of
+/// `claimed` chunk metrics, and the statistical dispute 2 on them, reviewed by 5, 6 and 7.
+async fn statistically_disputed(claimed: (u32, u32)) -> (Arc<FakeChain>, Vec<Arc<Agent>>) {
+    let chain = Arc::new(chain_for(acc(20)));
+    let mut accusers = Vec::new();
+    for n in 20u8..=28 {
+        let engines = FakeEngines::new(Outcome::Pass);
+        *engines.chunks.lock().unwrap() = chunks(claimed.0, claimed.1);
+        let a = Arc::new(agent_with(
+            acc(n),
+            chain.clone(),
+            shop(1),
+            Arc::new(engines),
+            Arc::default(),
+        ));
+        *chain.me.lock().unwrap() = Some(acc(n));
+        assert!(matches!(a.audit(4, &acc(10)).await, Audited::Submitted(_)));
+        chain.endpoints.lock().unwrap().insert(acc(n), endpoint(n));
+        accusers.push(a);
+    }
+    let accused: Vec<Accuser<AccountId32>> = (20u8..=28)
+        .map(|n| Accuser {
+            auditor: acc(n),
+            round: 4,
+        })
+        .collect();
+    chain.disputes.lock().unwrap().insert(
+        2,
+        Dispute {
+            provider: acc(10),
+            round: 4,
+            accusers: frame_support::BoundedVec::truncate_from(accused),
+            reviewers: frame_support::BoundedVec::truncate_from(vec![
+                (acc(5), None),
+                (acc(6), None),
+                (acc(7), None),
+            ]),
+            deadline: 120,
+            outcome: None,
+            closed_at: None,
+            kind: DisputeKind::Statistical {
+                stats_version: CURRENT_STATS.version,
+            },
+        },
+    );
+    (chain, accusers)
+}
+
+/// int8-looking chunk means: +3.0 nats per verdict under version 1, so nine cross the bound.
+const INT8_MEANS: (u32, u32) = (125, 250);
+/// Honest-looking chunk means.
+const HONEST_MEANS: (u32, u32) = (50, 100);
+
+#[tokio::test]
+async fn reviewers_of_a_statistical_dispute_get_the_evidence() {
+    // "证据保存与交付" / "统计争议的复核人取得证据".
+    let (chain, accusers) = statistically_disputed(INT8_MEANS).await;
+    let mine = chain.verdicts.lock().unwrap()[&(4, acc(10))]
+        .iter()
+        .find(|v| v.auditor == acc(20))
+        .unwrap()
+        .evidence
+        .unwrap();
+    let req = EvidenceRequest {
+        dispute: 2,
+        commitment: mine,
+    };
+    assert!(matches!(
+        accusers[0].answer(&acc(6), req).await,
+        EvidenceResponse::Evidence(_)
+    ));
+    assert_eq!(
+        accusers[0].answer(&acc(9), req).await,
+        EvidenceResponse::Refused
+    );
+}
+
+#[tokio::test]
+async fn a_statistical_dispute_is_confirmed_when_the_evidence_holds() {
+    // "升级复核与投票" / "确认统计争议": the reviewer recomputes every verdict's statistics.
+    let (chain, accusers) = statistically_disputed(INT8_MEANS).await;
+    let (r, engines) = reviewer(5, &chain, &accusers, Outcome::Pass);
+    *engines.chunks.lock().unwrap() = chunks(INT8_MEANS.0, INT8_MEANS.1);
+    r.review_all().await;
+    assert!(
+        chain
+            .sent
+            .lock()
+            .unwrap()
+            .contains(&"vote 2 Confirm".to_owned())
+    );
+    assert_eq!(engines.seen.lock().unwrap().len(), 9);
+}
+
+#[tokio::test]
+async fn overstated_statistics_are_rejected() {
+    // "升级复核与投票" / "驳回虚报统计量": the evidence re-checks honest-looking.
+    let (chain, accusers) = statistically_disputed(INT8_MEANS).await;
+    let (r, engines) = reviewer(6, &chain, &accusers, Outcome::Pass);
+    *engines.chunks.lock().unwrap() = chunks(HONEST_MEANS.0, HONEST_MEANS.1);
+    r.review_all().await;
+    assert!(
+        chain
+            .sent
+            .lock()
+            .unwrap()
+            .contains(&"vote 2 Reject".to_owned())
+    );
+}
+
+#[tokio::test]
+async fn missing_evidence_keeps_no_positive_part() {
+    // "统计争议中重算不过界": with three accusers unreachable, the six others stay below the
+    // bound at the deadline.
+    let (chain, accusers) = statistically_disputed(INT8_MEANS).await;
+    let (r, engines) = reviewer(7, &chain, &accusers[3..], Outcome::Pass);
+    *engines.chunks.lock().unwrap() = chunks(INT8_MEANS.0, INT8_MEANS.1);
+    let d = chain.disputes.lock().unwrap()[&2].clone();
+    assert_eq!(r.review(2, &d, false).await, super::review::Decision::Wait);
+    assert_eq!(
+        r.review(2, &d, true).await,
+        super::review::Decision::Vote(Vote::Reject)
+    );
+}
+
+#[tokio::test]
+async fn evidence_in_a_statistical_state_is_kept_until_it_leaves() {
+    // "证据保存与交付" / "累计归零后删除".
+    let me = acc(2);
+    let mut c = chain_for(me.clone());
+    c.round = (8, 161, 181);
+    c.block = 165;
+    let chain = Arc::new(c);
+    let a = agent_with(
+        me.clone(),
+        chain.clone(),
+        shop(0),
+        Arc::new(FakeEngines::new(Outcome::Pass)),
+        Arc::default(),
+    );
+    a.store.put(4, &acc(10), &[7; 32], b"x").unwrap();
+    a.store.put(4, &acc(11), &[8; 32], b"y").unwrap();
+    let mut state = SprtState::<AccountId32> {
+        cumulative: 3_000,
+        ..Default::default()
+    };
+    state
+        .entries
+        .try_push(SprtEntry {
+            auditor: me.clone(),
+            round: 4,
+            contribution: 3_000,
+        })
+        .unwrap();
+    chain.states.lock().unwrap().insert(acc(10), state);
+    a.tidy().await;
+    // Provider 10's state holds the round-4 verdict; provider 11 has no state.
+    let left: Vec<[u8; 32]> = a.store.list().iter().map(|s| s.commitment).collect();
+    assert_eq!(left, vec![[7; 32]]);
+    // Back at 0, the state lets it go.
+    chain.states.lock().unwrap().clear();
+    a.tidy().await;
+    assert!(a.store.list().is_empty());
 }

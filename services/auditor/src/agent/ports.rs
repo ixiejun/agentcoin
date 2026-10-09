@@ -6,7 +6,8 @@ use ac_market_proto::ErrorCode;
 use ac_market_proto::audit::EvidenceResponse;
 use ac_primitives::market::ModelId;
 use ac_primitives::market::audit::{
-    AdjustableParams, AuditParams, DisputeRecord, RoundIndex, VerdictRecord, Vote,
+    AdjustableParams, AuditParams, DisputeRecord, RoundIndex, SprtState, StatsConfig,
+    VerdictRecord, Vote,
 };
 use ac_primitives::market::model::QuantType;
 use ac_wallet::proxy::Completed;
@@ -78,6 +79,10 @@ pub trait AuditChain: Send + Sync {
     async fn endpoint(&self, who: &AccountId32) -> Result<Option<AuditorEndpoint>>;
     /// Whether `who` is a registered, not exiting auditor.
     async fn is_active_auditor(&self, who: &AccountId32) -> Result<bool>;
+    /// The statistical judgment's parameter version and switch.
+    async fn stats_config(&self) -> Result<Option<StatsConfig>>;
+    /// `provider`'s statistical state under the current parameter version.
+    async fn sprt_state(&self, provider: &AccountId32) -> Result<SprtState<AccountId32>>;
     /// Sends an audit transaction; `Ok(false)` when it was included but failed.
     async fn submit(&self, call: AuditCall) -> Result<bool>;
 }

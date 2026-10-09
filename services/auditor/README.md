@@ -93,6 +93,15 @@ engine is involved; otherwise the evidence is re-checked like its case. Every re
 carries `onchain`: the outcome as the chain encodes it (hex), which `ac-wallet audit verdict`
 submits.
 
+A pass, or a failure on a chunk out of bounds, is judged by the thresholds: its verdict also
+commits to the evidence and carries `stats` (OpenSpec change `m6-audit-sprt`, design D1). The
+statistics are the prompt token count, the prefill chunk's mean mantissa error, the decode
+chunks' means averaged and the number of decode chunks. They are integers, means in
+hundredths, under the parameter version the agent was built with. Re-checking the evidence gives
+the same statistics as the case. The chain adds each verdict's statistics to the provider's
+statistical state. Reviewers of a statistical dispute recompute them from every verdict's
+evidence.
+
 ### The agent (`ac-auditor run`)
 
 The service mode is the mystery shopper of MVP plan §5.5 (m6-auditor-agent; spec
@@ -104,15 +113,23 @@ The service mode is the mystery shopper of MVP plan §5.5 (m6-auditor-agent; spe
   (`X-AgentCoin-Provider`, open to every user), through a random gateway with a random payment
   account, with a prompt from the built-in generator or the operator's bank, for a model of the
   provider it has an engine for. It re-checks the answer and submits the verdict before the
-  round ends. A failure's evidence is stored before the verdict is sent.
+  round ends. The evidence of a failure or of a verdict judged by the thresholds is stored
+  before the verdict is sent; an inconclusive verdict keeps none. If the chain accepts another
+  thresholds or statistical parameter version than the agent's, it does not audit.
 - **serves evidence** at its endpoint (registered on chain at start-up with its X-Wing key). It
   hands over a verdict's evidence, over a sealed channel, only to a reviewer of an open dispute
-  this auditor accused in. A refusal says nothing more. Evidence is deleted once no dispute can
-  use it, and expired disputes it is party to are closed.
+  that names this auditor's verdict: as an accuser, or as one of a statistical dispute's
+  verdicts. A refusal says nothing more. Evidence is kept while its verdict can still open a
+  failure dispute (its round and the next), while an open dispute names it, and while the
+  provider's statistical state holds it; then it is deleted. Expired disputes it is party to
+  are closed.
 - **reviews** the disputes it is drawn for. It fetches every accuser's evidence, checks it
   against the commitment and the receipt on chain, and re-checks it. It votes *confirm* only
-  when two distinct accusers' evidence fails, otherwise *reject*. If its own engine is down it
-  retries and, failing that, does not vote.
+  when two distinct accusers' evidence fails, otherwise *reject*. For a statistical dispute, it
+  recomputes every verdict's statistics from its evidence. A verdict whose evidence is missing or
+  does not hold keeps only a non-positive contribution. The agent then replays the provider's
+  state under the dispute's parameter version: *confirm* at the bound, *reject* below it. If its
+  own engine is down it retries and, failing that, does not vote.
 
 ```bash
 ac-auditor keygen --out auditor-kem.json --password-file auditor.pass

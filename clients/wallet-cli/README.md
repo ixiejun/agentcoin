@@ -147,7 +147,8 @@ the account is assigned to the receipt's provider in the current round.
 ac-wallet audit register --wallet a.json                   # stake: the current threshold
 ac-wallet audit assignments --wallet a.json                # this round's providers
 ac-wallet audit verdict --wallet a.json --report r.json --case c.json
-ac-wallet audit disputes --provider atc1…                   # open dispute, reviewers, counts
+ac-wallet audit verdicts --provider atc1… [--round 12]     # verdicts with their statistics
+ac-wallet audit disputes --provider atc1…                   # open dispute, reviewers, counts, state
 ac-wallet audit vote --wallet a.json --provider atc1… --id 0 --vote confirm
 ac-wallet audit close --wallet any.json --provider atc1… --id 0   # after the deadline
 ac-wallet audit status --address atc1…
@@ -158,11 +159,12 @@ ac-wallet audit pot && ac-wallet audit params
 |---|---|
 | `audit register [--stake]`, `bond`, `unbond`, `exit`, `withdraw` | auditor stake, as for providers |
 | `audit assignments` | the current round and the providers the account is assigned to (submitted or pending) |
-| `audit verdict --report --case` | submits the verdict of an `ac-auditor recheck` line on a case: outcome and thresholds version from the line, receipt from the case and, for a failure, the evidence commitment (printed); refuses before signing if the account is not assigned |
-| `audit disputes --provider` | a provider's verdict counts, open dispute, accusers and reviewers' votes |
+| `audit verdict --report --case` | submits the verdict of an `ac-auditor recheck` line on a case: outcome and thresholds version from the line, receipt from the case and, for a failure or a verdict judged by the thresholds, the evidence commitment (printed); a judged verdict also carries the line's statistics (OpenSpec change `m6-audit-sprt`); refuses before signing if the account is not assigned |
+| `audit verdicts --provider [--round]` | a provider's verdicts in a round (default: the current one), each with its statistics |
+| `audit disputes --provider` | a provider's verdict counts, statistical state against the bound, open dispute with its kind (failing verdicts or statistical), accusers and reviewers' votes |
 | `audit vote --provider --id --vote confirm\|reject`, `audit close` | votes as a reviewer; closes an undecided dispute after its deadline |
 | `audit endpoint --set URL --kem-key KEY` / `--clear` | publishes (or removes) where the auditor serves evidence to reviewers; `ac-auditor run` does it by itself |
-| `audit status`, `audit pot`, `audit params` | an auditor's record, counts and evidence endpoint; the pot; the parameters |
+| `audit status`, `audit pot`, `audit params` | an auditor's record, counts and evidence endpoint; the pot; the parameters, with the statistical judgment's version, switch, bound and clamps |
 
 ## Public jobs
 

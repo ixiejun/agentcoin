@@ -14,7 +14,7 @@ use ac_market_proto::ErrorCode;
 use ac_market_proto::audit::{EvidenceRequest, EvidenceResponse};
 use ac_market_proto::toploc::AUDIT_THRESHOLDS;
 use ac_primitives::market::audit::{
-    AdjustableParams, AuditParams, AuditorStatus, RoundIndex, VerdictRecord,
+    AdjustableParams, AuditParams, AuditorStatus, RoundIndex, SprtState, StatsConfig, VerdictRecord,
 };
 use ac_primitives::market::model::QuantType;
 use ac_primitives::market::{MicroUsd, ModelId};
@@ -133,6 +133,14 @@ impl AuditChain for NodeChain {
             .is_some_and(|a| a.status == AuditorStatus::Active))
     }
 
+    async fn stats_config(&self) -> Result<Option<StatsConfig>> {
+        self.node.audit_stats_config().await
+    }
+
+    async fn sprt_state(&self, provider: &AccountId32) -> Result<SprtState<AccountId32>> {
+        self.node.audit_sprt_state(provider).await
+    }
+
     async fn submit(&self, call: AuditCall) -> Result<bool> {
         let call = match call {
             AuditCall::Verdict(verdict) => pallet_audit::Call::submit_verdict { verdict },
@@ -234,6 +242,7 @@ impl Recheck for Engines {
                 thresholds_version: AUDIT_THRESHOLDS.version,
                 prompt_tokens: None,
                 chunks: Vec::new(),
+                stats: None,
                 verdict: crate::case::Outcome::Inconclusive(crate::case::Inconclusive::Engine),
             },
         }

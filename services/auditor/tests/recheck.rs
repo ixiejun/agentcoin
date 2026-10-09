@@ -230,6 +230,21 @@ async fn an_honest_provider_passes() {
             .iter()
             .all(|c| c.exp_mismatches == 0 && c.mant_err_sum == 0)
     );
+    // m6-audit-sprt design D1: a pass carries its statistics (all zero here, two decode chunks).
+    let stats = report.stats.expect("judged by the thresholds");
+    assert_eq!(
+        stats.version,
+        ac_primitives::market::audit::CURRENT_STATS.version
+    );
+    assert_eq!(Some(stats.prompt_tokens), report.prompt_tokens);
+    assert_eq!(
+        (
+            stats.prefill_mean_centi,
+            stats.decode_mean_centi,
+            stats.decode_chunks
+        ),
+        (0, 0, 2)
+    );
     let logs = LOGS.lock().unwrap().join("\n");
     assert!(logs.contains("re-check"), "{logs}");
     assert!(!logs.contains(MARKER));
@@ -481,6 +496,9 @@ async fn evidence_rechecks_as_its_case() {
     let again = v.recheck(&rebuilt, QuantType::Bf16).await;
     assert_eq!(again.verdict, original.verdict);
     assert_eq!(again.chunks, original.chunks);
+    // m6-audit-sprt, spec market/auditor-agent "审计证据" / "从证据得到统计量".
+    assert!(original.stats.is_some(), "{original:?}");
+    assert_eq!(again.stats, original.stats);
 
     let case_file = d.join("case.json");
     std::fs::write(&case_file, serde_json::to_string(&case).unwrap()).unwrap();

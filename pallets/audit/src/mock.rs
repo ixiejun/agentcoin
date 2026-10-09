@@ -20,7 +20,9 @@ use sp_runtime::{AccountId32, BuildStorage, DispatchResult, Perbill};
 
 use ac_crypto::SigAlg;
 use ac_crypto::sig::SigningKey;
-use ac_primitives::market::audit::{RoundIndex, VerdictOutcome};
+use ac_primitives::market::audit::{
+    AuditStats, CURRENT_STATS, RoundIndex, VerdictOutcome, VerdictStats,
+};
 use ac_primitives::market::receipt::RECEIPT_CONTEXT;
 use ac_primitives::market::traits::{
     AccountKeys, GatewayLookup, PriceSource, ProviderAudit, ProviderPenalty,
@@ -250,7 +252,8 @@ pub const PRICE: PricePerMTok = PricePerMTok {
 pub const ROUND: u64 = 10;
 
 /// Test parameters: rounds of 10 blocks, 2 auditors per provider, 3 reviewers deciding by 2,
-/// votes within 5 blocks, 20-block unbonding, $1,000 stake, $0.05 payments, thresholds v4.
+/// votes within 5 blocks, 20-block unbonding, $1,000 stake, $0.05 payments, thresholds v4,
+/// statistical judgment version 1 enabled.
 pub fn genesis() -> AuditGenesis {
     AuditGenesis {
         round_blocks: 10,
@@ -259,6 +262,7 @@ pub fn genesis() -> AuditGenesis {
         quorum: 2,
         vote_blocks: 5,
         unbond_blocks: 20,
+        stats_enabled: true,
         ..AuditGenesis::LIVE
     }
 }
@@ -317,15 +321,49 @@ pub fn receipt(provider: u8, gateway: u8, id: u8) -> SignedReceipt {
     }
 }
 
-/// A verdict submission on `provider` in the current round.
+/// Statistics of an honest-looking audit: a prompt in the band, low means (contribution
+/// −0.5 nats under version 1).
+pub const HONEST_STATS: AuditStats = AuditStats {
+    prompt_tokens: 200,
+    prefill_mean_centi: 50,
+    decode_mean_centi: 100,
+    decode_chunks: 4,
+};
+
+/// Statistics of an int8-looking audit: contribution +3.0 nats under version 1.
+pub const INT8_STATS: AuditStats = AuditStats {
+    prompt_tokens: 200,
+    prefill_mean_centi: 125,
+    decode_mean_centi: 250,
+    decode_chunks: 4,
+};
+
+/// A verdict submission on `provider` in the current round; one judged by the thresholds
+/// carries honest-looking statistics.
 pub fn submission(provider: u8, id: u8, outcome: VerdictOutcome) -> Box<VerdictSubmission> {
+    let stats = outcome.judged_by_thresholds().then_some(HONEST_STATS);
+    submission_with(provider, id, outcome, stats)
+}
+
+/// A verdict submission with the given statistics (under the current parameter version).
+pub fn submission_with(
+    provider: u8,
+    id: u8,
+    outcome: VerdictOutcome,
+    stats: Option<AuditStats>,
+) -> Box<VerdictSubmission> {
+    let evidence = outcome.judged_by_thresholds() || matches!(outcome, VerdictOutcome::Fail(_));
     Box::new(VerdictSubmission {
         provider: acc(provider),
         round: current_round(),
         outcome,
         thresholds_version: 4,
-        evidence: matches!(outcome, VerdictOutcome::Fail(_)).then_some([id; 32]),
+        evidence: evidence.then_some([id; 32]),
         receipt: receipt(provider, GATEWAY, id),
+        stats: stats.map(|stats| VerdictStats {
+            version: CURRENT_STATS.version,
+            stats,
+        }),
     })
 }
 

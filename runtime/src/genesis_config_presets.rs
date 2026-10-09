@@ -211,6 +211,9 @@ fn testnet_genesis(preset: &Preset<'_>) -> Result<Value, ac_crypto::Error> {
                 quorum: 2,
                 vote_blocks: DEV_AUDIT_VOTE,
                 unbond_blocks: DEV_AUDIT_UNBOND,
+                // The statistical judgment opens disputes on the test presets (m6-audit-sprt
+                // design D10); live chains keep it off until calibration covers their hardware.
+                stats_enabled: true,
                 ..pallet_audit::AuditGenesis::LIVE
             }
         },

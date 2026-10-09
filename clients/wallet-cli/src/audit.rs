@@ -4,8 +4,9 @@
 use ac_market_proto::audit::evidence_from_case;
 use ac_primitives::market::PriceError;
 use ac_primitives::market::audit::{
-    AdjustableParams, AuditParams, AuditorRecord, AuditorStats, DisputeRecord, ProviderAuditStats,
-    RoundIndex, VerdictOutcome, VerdictRecord,
+    AdjustableParams, AuditParams, AuditorRecord, AuditorStats, DisputeKind, DisputeRecord,
+    ProviderAuditStats, RoundIndex, SprtState, StatsConfig, StatsParams, VerdictOutcome,
+    VerdictRecord, VerdictStats,
 };
 use anyhow::{Context, Result, bail};
 use pallet_audit::VerdictSubmission;
@@ -169,15 +170,35 @@ impl NodeClient {
     pub async fn audit_pot(&self) -> Result<(AccountId32, u128)> {
         self.audit_api("pot", &()).await
     }
+
+    /// The statistical judgment's parameter version and switch (`AuditApi` version 3).
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn audit_stats_config(&self) -> Result<Option<StatsConfig>> {
+        self.audit_api("stats_config", &()).await
+    }
+
+    /// `provider`'s statistical state under the current parameter version (`AuditApi`
+    /// version 3).
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn audit_sprt_state(&self, provider: &AccountId32) -> Result<SprtState<AccountId32>> {
+        self.audit_api("sprt_state", provider).await
+    }
 }
 
 /// The verdict of `report` (one `ac-auditor recheck` output line) on the inference of `case`
-/// (its case file), for `round`; with the commitment to the evidence for a failure.
+/// (its case file), for `round`; with the commitment to the evidence for a failure or a verdict
+/// judged by the thresholds, and the latter's statistics (m6-audit-sprt).
 ///
 /// # Errors
 ///
-/// A report without an on-chain outcome or a thresholds version (a `mismatch` line, for one), or
-/// a case whose receipt or proofs do not decode.
+/// A report without an on-chain outcome or a thresholds version (a `mismatch` line, for one), a
+/// judged report without statistics, or a case whose receipt or proofs do not decode.
 pub fn verdict_from(report: &Value, case: &Value, round: RoundIndex) -> Result<VerdictSubmission> {
     let onchain = report
         .get("onchain")
@@ -196,9 +217,16 @@ pub fn verdict_from(report: &Value, case: &Value, round: RoundIndex) -> Result<V
     {
         bail!("the report is about another request than the case's receipt");
     }
-    let commitment = match outcome {
-        VerdictOutcome::Fail(_) => Some(evidence.commitment().map_err(|e| anyhow::anyhow!("{e}"))?),
-        _ => None,
+    let judged = outcome.judged_by_thresholds();
+    let stats = if judged {
+        Some(stats_of(report).context("the report has no statistics (re-check it again)")?)
+    } else {
+        None
+    };
+    let commitment = if judged || matches!(outcome, VerdictOutcome::Fail(_)) {
+        Some(evidence.commitment().map_err(|e| anyhow::anyhow!("{e}"))?)
+    } else {
+        None
     };
     Ok(VerdictSubmission {
         provider: evidence.receipt.body.provider.clone(),
@@ -207,7 +235,69 @@ pub fn verdict_from(report: &Value, case: &Value, round: RoundIndex) -> Result<V
         thresholds_version,
         evidence: commitment,
         receipt: evidence.receipt,
+        stats,
     })
+}
+
+/// The statistics of a re-check report line (its `stats` object).
+fn stats_of(report: &Value) -> Option<VerdictStats> {
+    let s = report.get("stats")?;
+    let int = |k: &str| s.get(k).and_then(Value::as_u64);
+    let short = |k: &str| int(k).and_then(|v| u16::try_from(v).ok());
+    Some(VerdictStats {
+        version: short("version")?,
+        stats: ac_primitives::market::audit::AuditStats {
+            prompt_tokens: int("prompt_tokens").and_then(|v| u32::try_from(v).ok())?,
+            prefill_mean_centi: short("prefill_mean_centi")?,
+            decode_mean_centi: short("decode_mean_centi")?,
+            decode_chunks: short("decode_chunks")?,
+        },
+    })
+}
+
+/// Thousandths of a nat as nats with three decimals (`-0.500`, `24.700`).
+#[must_use]
+pub fn format_nats(milli: i64) -> String {
+    let sign = if milli < 0 { "-" } else { "" };
+    let abs = milli.unsigned_abs();
+    format!("{sign}{}.{:03}", abs / 1_000, abs % 1_000)
+}
+
+/// A verdict's statistics for showing: version, prompt tokens, the two means and the decode
+/// chunks.
+#[must_use]
+pub fn format_stats(s: &VerdictStats) -> String {
+    let centi = |v: u16| format!("{}.{:02}", v / 100, v % 100);
+    format!(
+        "stats v{}: {} prompt tokens, prefill mean {}, decode mean {} over {} chunks",
+        s.version,
+        s.stats.prompt_tokens,
+        centi(s.stats.prefill_mean_centi),
+        centi(s.stats.decode_mean_centi),
+        s.stats.decode_chunks
+    )
+}
+
+/// What opened a dispute, for showing.
+#[must_use]
+pub fn format_kind(kind: &DisputeKind) -> String {
+    match kind {
+        DisputeKind::Fail => "failing verdicts".into(),
+        DisputeKind::Statistical { stats_version } => {
+            format!("statistical (parameters v{stats_version})")
+        }
+    }
+}
+
+/// A provider's statistical state against the bound, for showing.
+#[must_use]
+pub fn format_state(state: &SprtState<AccountId32>, params: Option<&StatsParams>) -> String {
+    let bound = params.map_or_else(|| "?".to_owned(), |p| format_nats(p.bound));
+    format!(
+        "statistical state: {} of {bound} nats, {} verdicts",
+        format_nats(state.cumulative),
+        state.entries.len()
+    )
 }
 
 /// The seed of `round`, for showing.
@@ -280,7 +370,7 @@ mod tests {
         });
         let report = json!({
             "outcome": "fail", "thresholds_version": 2, "request": hex::encode([5u8; 32]),
-            "onchain": hex::encode(fail.encode()),
+            "onchain": hex::encode(fail.encode()), "stats": stats(),
         });
         let v = verdict_from(&report, &case(), 7).unwrap();
         let expected = evidence_from_case(&case()).unwrap().commitment().unwrap();
@@ -288,16 +378,70 @@ mod tests {
         assert_eq!((v.round, v.thresholds_version, v.outcome), (7, 2, fail));
         assert_eq!(v.provider, AccountId32::new([3; 32]));
         assert_eq!(v.receipt, receipt());
+        assert_eq!(v.stats.unwrap().stats.decode_mean_centi, 106);
     }
 
+    fn stats() -> Value {
+        json!({"version": 1, "prompt_tokens": 219, "prefill_mean_centi": 51,
+               "decode_mean_centi": 106, "decode_chunks": 4})
+    }
+
+    // m6-audit-sprt 6.1: statistics, states and dispute kinds as shown.
     #[test]
-    fn passes_carry_no_evidence_and_bad_reports_are_refused() {
-        let report =
-            json!({"thresholds_version": 2, "onchain": hex::encode(VerdictOutcome::Pass.encode())});
-        assert_eq!(verdict_from(&report, &case(), 1).unwrap().evidence, None);
+    fn statistics_are_shown_in_plain_units() {
+        assert_eq!(format_nats(24_700), "24.700");
+        assert_eq!(format_nats(-500), "-0.500");
+        assert_eq!(format_nats(0), "0.000");
+        let v = verdict_from(
+            &json!({"thresholds_version": 2, "onchain": hex::encode(VerdictOutcome::Pass.encode()), "stats": stats()}),
+            &case(),
+            1,
+        )
+        .unwrap();
+        assert_eq!(
+            format_stats(&v.stats.unwrap()),
+            "stats v1: 219 prompt tokens, prefill mean 0.51, decode mean 1.06 over 4 chunks"
+        );
+        assert_eq!(format_kind(&DisputeKind::Fail), "failing verdicts");
+        assert_eq!(
+            format_kind(&DisputeKind::Statistical { stats_version: 1 }),
+            "statistical (parameters v1)"
+        );
+        let state = SprtState {
+            cumulative: 6_000,
+            entries: Default::default(),
+        };
+        let p = ac_primitives::market::audit::CURRENT_STATS;
+        assert_eq!(
+            format_state(&state, Some(&p)),
+            "statistical state: 6.000 of 24.700 nats, 0 verdicts"
+        );
+        assert_eq!(
+            format_state(&state, None),
+            "statistical state: 6.000 of ? nats, 0 verdicts"
+        );
+    }
+
+    // m6-audit-sprt: a pass carries its statistics and an evidence commitment; an
+    // inconclusive verdict neither.
+    #[test]
+    fn judged_verdicts_carry_statistics_and_bad_reports_are_refused() {
+        let pass = hex::encode(VerdictOutcome::Pass.encode());
+        let report = json!({"thresholds_version": 2, "onchain": pass, "stats": stats()});
+        let v = verdict_from(&report, &case(), 1).unwrap();
+        assert!(v.evidence.is_some());
+        assert_eq!(v.stats.unwrap().version, 1);
+        let no_stats = json!({"thresholds_version": 2, "onchain": pass});
+        assert!(verdict_from(&no_stats, &case(), 1).is_err());
+        let tokens =
+            VerdictOutcome::Inconclusive(ac_primitives::market::audit::InconclusiveReason::Tokens);
+        let report = json!({"thresholds_version": 2, "onchain": hex::encode(tokens.encode())});
+        let v = verdict_from(&report, &case(), 1).unwrap();
+        assert_eq!((v.evidence, v.stats), (None, None));
         let mismatch = json!({"outcome": "mismatch"});
         assert!(verdict_from(&mismatch, &case(), 1).is_err());
-        let other = json!({"thresholds_version": 2, "request": "00", "onchain": hex::encode(VerdictOutcome::Pass.encode())});
+        let other =
+            json!({"thresholds_version": 2, "request": "00", "onchain": pass, "stats": stats()});
         assert!(verdict_from(&other, &case(), 1).is_err());
     }
 }

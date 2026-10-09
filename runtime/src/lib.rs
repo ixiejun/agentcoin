@@ -69,7 +69,8 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // 7: on-chain audits (m6-audit-chain).
     // 8: auditors' evidence endpoints and the 20-minute live round (m6-auditor-agent).
     // 9: public jobs, public work emission and unproven fees in work reports (m6-public-jobs).
-    spec_version: 9,
+    // 10: the statistical judgment of audits; audit storage version 1 (m6-audit-sprt).
+    spec_version: 10,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     // 2: `AuthorizeCall` joined the extension pipeline (m2-finality); encodings are unchanged.
@@ -79,7 +80,8 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // 6: the work settlement calls (m5-work-settlement).
     // 7: the audit calls (m6-audit-chain).
     // 8: the public jobs calls and the work report entry's unproven fees (m6-public-jobs).
-    transaction_version: 8,
+    // 9: verdicts carry statistics, `set_stats_config` (m6-audit-sprt).
+    transaction_version: 9,
     system_version: 1,
 };
 
@@ -92,10 +94,10 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     impl_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     authoring_version: 1,
-    spec_version: 10,
+    spec_version: 11,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
-    transaction_version: 8,
+    transaction_version: 9,
     system_version: 1,
 };
 
@@ -174,6 +176,10 @@ pub type TxExtension = (
 pub type UncheckedExtrinsic =
     generic::UncheckedExtrinsic<AccountId, RuntimeCall, NoClassicSignature, TxExtension>;
 
+/// Storage migrations run on the next runtime upgrade (each checks its pallet's storage
+/// version, so it runs once).
+pub type Migrations = (pallet_audit::migrations::v1::MigrateToV1<Runtime>,);
+
 /// Executive: dispatches extrinsics to the pallets.
 pub type Executive = frame_executive::Executive<
     Runtime,
@@ -181,6 +187,7 @@ pub type Executive = frame_executive::Executive<
     frame_system::ChainContext<Runtime>,
     Runtime,
     AllPalletsWithSystem,
+    Migrations,
 >;
 
 /// Opaque types for the node, which does not need to understand extrinsics.

@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ac_market_proto::toploc::AUDIT_THRESHOLDS;
 use ac_primitives::market::ModelId;
-use ac_primitives::market::audit::{RoundIndex, VerdictOutcome};
+use ac_primitives::market::audit::{CURRENT_STATS, RoundIndex, VerdictOutcome};
 use pallet_audit::VerdictSubmission;
 use serde_json::{Value, json};
 use sp_runtime::AccountId32;
@@ -133,6 +133,14 @@ pub enum Audited {
         /// This agent's.
         ours: u16,
     },
+    /// The chain accepts another statistical parameter version than this agent's
+    /// (m6-audit-sprt).
+    StatsVersion {
+        /// The chain's.
+        chain: u16,
+        /// This agent's.
+        ours: u16,
+    },
     /// No request could be bought, or the verdict was not accepted (reason, no content).
     Missed(String),
 }
@@ -174,14 +182,19 @@ impl Agent {
 
     /// Audits `provider` in `round` (spec "神秘顾客请求", "自动复核与提交裁决"): picks a model it
     /// can re-check, buys one pinned request through a random usable route, re-checks the
-    /// answer and submits the verdict; a failure's evidence is stored before the verdict is
-    /// sent. Logs only IDs, outcomes and reasons.
+    /// answer and submits the verdict; the evidence of a failure or of a verdict judged by the
+    /// thresholds is stored before the verdict is sent, and the latter carries its statistics.
+    /// Logs only IDs, outcomes and reasons.
     pub async fn audit(&self, round: RoundIndex, provider: &AccountId32) -> Audited {
         let result = self.audit_inner(round, provider).await;
         match &result {
             Audited::Submitted(_) => bump(&self.counters.verdicts),
             Audited::NoModel => bump(&self.counters.skipped_no_model),
-            Audited::ThresholdsVersion { .. } | Audited::Missed(_) => bump(&self.counters.missed),
+            Audited::ThresholdsVersion { .. }
+            | Audited::StatsVersion { .. }
+            | Audited::Missed(_) => {
+                bump(&self.counters.missed);
+            }
         }
         log::info!(target: TARGET, "round {round}: audit of {}: {result:?}", short(provider));
         result
@@ -219,6 +232,23 @@ impl Agent {
                 ours: AUDIT_THRESHOLDS.version,
             };
         }
+        // Spec "自动复核与提交裁决" / "统计参数版本不符": also checked before paying.
+        let stats_version = match self.chain.stats_config().await {
+            Ok(Some(c)) => c.version,
+            Ok(None) => return Audited::Missed("statistics are not configured".into()),
+            Err(e) => return Audited::Missed(format!("statistics configuration: {e:#}")),
+        };
+        if stats_version != CURRENT_STATS.version {
+            log::warn!(
+                target: TARGET,
+                "the chain accepts statistical parameter version {stats_version}, this agent computes version {}; not auditing",
+                CURRENT_STATS.version
+            );
+            return Audited::StatsVersion {
+                chain: stats_version,
+                ours: CURRENT_STATS.version,
+            };
+        }
         let quant = match self.chain.model_quant(model).await {
             Ok(Some(q)) => q,
             Ok(None) => return Audited::Missed("the model is not registered".into()),
@@ -244,12 +274,19 @@ impl Agent {
         let report = self.engines.recheck(&case, quant).await;
         bump(&self.counters.audited);
         let outcome = onchain_outcome(&report.verdict);
-        let evidence = match outcome {
-            VerdictOutcome::Fail(_) => match self.keep_evidence(round, &case) {
+        let judged = outcome.judged_by_thresholds();
+        let stats = report.stats.map(|s| s.onchain());
+        if judged && stats.is_none() {
+            return Audited::Missed("the re-check gave no statistics".into());
+        }
+        // Spec "无法判定不保存证据": only failures and judged verdicts keep their evidence.
+        let evidence = if judged || matches!(outcome, VerdictOutcome::Fail(_)) {
+            match self.keep_evidence(round, provider, &case) {
                 Ok(c) => Some(c),
                 Err(e) => return Audited::Missed(format!("evidence: {e:#}")),
-            },
-            _ => None,
+            }
+        } else {
+            None
         };
         let verdict = VerdictSubmission {
             provider: provider.clone(),
@@ -258,6 +295,7 @@ impl Agent {
             thresholds_version: report.thresholds_version,
             evidence,
             receipt: done.receipt,
+            stats: if judged { stats } else { None },
         };
         match self
             .chain
@@ -316,11 +354,16 @@ impl Agent {
         Err("no prompt in the audit length band".into())
     }
 
-    /// Stores a failing case's evidence and returns its commitment.
-    fn keep_evidence(&self, round: RoundIndex, case: &RecheckCase) -> anyhow::Result<[u8; 32]> {
+    /// Stores a case's evidence and returns its commitment.
+    fn keep_evidence(
+        &self,
+        round: RoundIndex,
+        provider: &AccountId32,
+        case: &RecheckCase,
+    ) -> anyhow::Result<[u8; 32]> {
         let e = evidence_of(case)?;
         let c = e.commitment().map_err(|e| anyhow::anyhow!("{e}"))?;
-        self.store.put(round, &c, &e.to_bytes())?;
+        self.store.put(round, provider, &c, &e.to_bytes())?;
         Ok(c)
     }
 

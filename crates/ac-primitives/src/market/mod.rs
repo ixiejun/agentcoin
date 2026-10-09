@@ -76,8 +76,10 @@ sp_api::decl_runtime_apis! {
     }
 
     /// Read access to audits (m6-audit-chain; version 2 adds the evidence endpoints and the
-    /// open dispute list of m6-auditor-agent).
-    #[api_version(2)]
+    /// open dispute list of m6-auditor-agent; version 3 the statistical judgment of
+    /// m6-audit-sprt: verdicts carry statistics, disputes their kind, a provider's state and the
+    /// judgment's configuration).
+    #[api_version(3)]
     pub trait AuditApi<AccountId, BlockNumber>
     where
         AccountId: parity_scale_codec::Codec,
@@ -96,7 +98,8 @@ sp_api::decl_runtime_apis! {
         /// The registered providers `auditor` is assigned to in `round`, each with whether it
         /// submitted a verdict on it.
         fn assigned_to(round: audit::RoundIndex, auditor: AccountId) -> Vec<(AccountId, bool)>;
-        /// The verdicts on `provider` in `round`.
+        /// The verdicts on `provider` in `round`, including those kept past their retention for
+        /// a statistical state or an open dispute.
         fn verdicts(round: audit::RoundIndex, provider: AccountId) -> Vec<audit::VerdictRecord<AccountId>>;
         /// `provider`'s open dispute.
         fn open_dispute(provider: AccountId) -> Option<u64>;
@@ -112,13 +115,18 @@ sp_api::decl_runtime_apis! {
         fn auditor_stats(who: AccountId) -> audit::AuditorStats;
         /// The audit pot's account and balance.
         fn pot() -> (AccountId, u128);
-        /// An auditor's evidence endpoint and X-Wing key.
-        #[api_version(2)]
+        /// An auditor's evidence endpoint and X-Wing key (since version 2).
         fn endpoint(who: AccountId) -> Option<(records::Endpoint, ac_crypto::KemPublicKey)>;
         /// Open disputes (provider, dispute) in provider order after `after`, at most `limit`
-        /// (capped at 256).
-        #[api_version(2)]
+        /// (capped at 256; since version 2).
         fn open_disputes(after: Option<AccountId>, limit: u32) -> Vec<(AccountId, u64)>;
+        /// `provider`'s statistical state under the current parameter version.
+        #[api_version(3)]
+        fn sprt_state(provider: AccountId) -> audit::SprtState<AccountId>;
+        /// The statistical judgment's parameter version and whether it opens disputes; the
+        /// parameters themselves are `audit::stats_params(version)`.
+        #[api_version(3)]
+        fn stats_config() -> Option<audit::StatsConfig>;
     }
 
     /// Read access to work settlement (m5-work-settlement).

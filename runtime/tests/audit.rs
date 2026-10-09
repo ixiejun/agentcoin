@@ -13,11 +13,14 @@
 mod common;
 
 use ac_crypto::{KemAlg, KemPublicKey, SigAlg};
-use ac_primitives::market::audit::{AuditMetric, FailReason, VerdictOutcome, Vote};
+use ac_primitives::market::audit::{
+    AuditMetric, AuditStats, CURRENT_STATS, DisputeKind, FailReason, StatsConfig, VerdictOutcome,
+    VerdictStats, Vote,
+};
 use ac_primitives::market::model::QuantType;
 use ac_primitives::market::receipt::{RECEIPT_CONTEXT, fee_for};
 use ac_primitives::market::records::{ModelPrice, ProviderStatus, Tier};
-use ac_primitives::market::runtime_decl_for_audit_api::AuditApiV2;
+use ac_primitives::market::runtime_decl_for_audit_api::AuditApiV3;
 use ac_primitives::market::voucher::VOUCHER_CONTEXT;
 use ac_primitives::market::work::JobKind;
 use ac_primitives::market::{
@@ -155,7 +158,9 @@ fn no_call_punishes_directly() {
                     "vote",
                     "close_dispute",
                     "set_params",
-                    "set_endpoint"
+                    "set_endpoint",
+                    // m6-audit-sprt: the statistical judgment's version and switch.
+                    "set_stats_config"
                 ]
             );
         }
@@ -186,7 +191,7 @@ fn the_floor_funds_the_audit_pot() {
         assert!(call.dispatch(RuntimeOrigin::root()).is_ok());
         assert_eq!(free(&pot), 10 * ATC);
         assert_eq!(ac_runtime::Balances::total_issuance(), issuance);
-        assert_eq!(<Runtime as AuditApiV2<_, _, _>>::pot(), (pot, 10 * ATC));
+        assert_eq!(<Runtime as AuditApiV3<_, _, _>>::pot(), (pot, 10 * ATC));
     });
 }
 
@@ -259,16 +264,31 @@ fn a_confirmed_dispute_jails_and_voids_unsettled_work() {
         while System::block_number() < 21 {
             next_block();
         }
-        let (round, start, _) = <Runtime as AuditApiV2<_, _, _>>::round().unwrap();
+        let (round, start, _) = <Runtime as AuditApiV3<_, _, _>>::round().unwrap();
         assert_eq!((round, start), (1, 21));
-        assert_eq!(<Runtime as AuditApiV2<_, _, _>>::roster(1).len(), 7);
-        let assigned = <Runtime as AuditApiV2<_, _, _>>::assignment(1, bob.account.clone());
+        assert_eq!(<Runtime as AuditApiV3<_, _, _>>::roster(1).len(), 7);
+        let assigned = <Runtime as AuditApiV3<_, _, _>>::assignment(1, bob.account.clone());
         assert_eq!(assigned.len(), 2);
         let signer = |who: &AccountId| auditors.iter().find(|a| a.account == *who).unwrap();
         let fail = VerdictOutcome::Fail(FailReason::Threshold {
             chunk: 1,
             metric: AuditMetric::MantissaMean,
         });
+        // m6-audit-sprt 4.1: the dev preset enables the statistical judgment.
+        assert_eq!(
+            <Runtime as AuditApiV3<_, _, _>>::stats_config(),
+            Some(StatsConfig {
+                version: CURRENT_STATS.version,
+                enabled: true
+            })
+        );
+        // int8-looking statistics: +3.0 nats each under version 1.
+        let int8 = AuditStats {
+            prompt_tokens: 200,
+            prefill_mean_centi: 125,
+            decode_mean_centi: 250,
+            decode_chunks: 4,
+        };
         for (i, who) in assigned.iter().enumerate() {
             let verdict = pallet_audit::VerdictSubmission {
                 provider: bob.account.clone(),
@@ -277,6 +297,10 @@ fn a_confirmed_dispute_jails_and_voids_unsettled_work() {
                 thresholds_version: 4,
                 evidence: Some([i as u8; 32]),
                 receipt: receipt(&bob, &charlie, model, 10 + i as u8),
+                stats: Some(VerdictStats {
+                    version: CURRENT_STATS.version,
+                    stats: int8,
+                }),
             };
             ok(
                 signer(who),
@@ -285,15 +309,25 @@ fn a_confirmed_dispute_jails_and_voids_unsettled_work() {
                 }),
             );
         }
-        let assigned_to = <Runtime as AuditApiV2<_, _, _>>::assigned_to(1, assigned[0].clone());
+        let assigned_to = <Runtime as AuditApiV3<_, _, _>>::assigned_to(1, assigned[0].clone());
         assert_eq!(assigned_to, vec![(bob.account.clone(), true)]);
-        let id = <Runtime as AuditApiV2<_, _, _>>::open_dispute(bob.account.clone()).unwrap();
-        let dispute = <Runtime as AuditApiV2<_, _, _>>::dispute(id).unwrap();
+        let id = <Runtime as AuditApiV3<_, _, _>>::open_dispute(bob.account.clone()).unwrap();
+        let dispute = <Runtime as AuditApiV3<_, _, _>>::dispute(id).unwrap();
         assert_eq!(dispute.reviewers.len(), 3);
+        assert_eq!(dispute.kind, DisputeKind::Fail);
+        // The verdicts carry their statistics and add to bob's state.
+        let verdicts = <Runtime as AuditApiV3<_, _, _>>::verdicts(1, bob.account.clone());
+        assert!(
+            verdicts
+                .iter()
+                .all(|v| v.stats.map(|s| s.stats) == Some(int8))
+        );
+        let state = <Runtime as AuditApiV3<_, _, _>>::sprt_state(bob.account.clone());
+        assert_eq!((state.cumulative, state.entries.len()), (6_000, 2));
 
         // m6-auditor-agent 4.2 (spec market/audit "未关闭争议列表" / "列出未关闭争议").
         assert_eq!(
-            <Runtime as AuditApiV2<_, _, _>>::open_disputes(None, 10),
+            <Runtime as AuditApiV3<_, _, _>>::open_disputes(None, 10),
             vec![(bob.account.clone(), id)]
         );
 
@@ -317,10 +351,10 @@ fn a_confirmed_dispute_jails_and_voids_unsettled_work() {
         // The report has not matured: bob's work leaves epoch 2.
         assert_eq!(Work::epoch_work(2).verified, 0);
         assert_eq!(
-            <Runtime as AuditApiV2<_, _, _>>::provider_stats(bob.account.clone()).confirmed,
+            <Runtime as AuditApiV3<_, _, _>>::provider_stats(bob.account.clone()).confirmed,
             1
         );
-        assert!(<Runtime as AuditApiV2<_, _, _>>::open_disputes(None, 10).is_empty());
+        assert!(<Runtime as AuditApiV3<_, _, _>>::open_disputes(None, 10).is_empty());
     });
 }
 
@@ -345,7 +379,7 @@ fn auditors_publish_their_evidence_endpoint() {
             }),
         );
         assert_eq!(
-            <Runtime as AuditApiV2<_, _, _>>::endpoint(a.account.clone()),
+            <Runtime as AuditApiV3<_, _, _>>::endpoint(a.account.clone()),
             Some((url, kem))
         );
     });

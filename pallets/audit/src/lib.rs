@@ -21,11 +21,19 @@
 //! - **Payments**: each accepted verdict and each winning vote is paid a fixed dollar amount
 //!   (live: $0.05, rounded down) from the audit pot, which the treasury floor funds ("audit"
 //!   spends). The pot never mints; an empty pot skips the payment.
+//! - **Statistical judgment** (m6-audit-sprt): verdicts judged by the thresholds carry
+//!   [`AuditStats`]; each adds its log-likelihood ratio to the provider's CUSUM
+//!   ([`SprtState`]). When enabled, a state at the bound opens a statistical dispute, decided
+//!   like the others; a rejected one slashes no auditor. Verdicts a state or an open dispute
+//!   still refers to outlive their retention until it lets them go.
 //!
 //! No call slashes, jails or decides a dispute directly, and the administration only adjusts
-//! the stake threshold, the payment and the accepted thresholds version, within guardrails (D6).
+//! the stake threshold, the payment, the accepted thresholds version and the statistical
+//! judgment's version and switch, within guardrails (D6).
 //!
 //! [`sample`]: ac_primitives::market::audit::sample
+//! [`AuditStats`]: ac_primitives::market::audit::AuditStats
+//! [`SprtState`]: ac_primitives::market::audit::SprtState
 //! [`ProviderPenalty`]: ac_primitives::market::traits::ProviderPenalty
 
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -43,10 +51,13 @@ pub struct ReadmeDoctests;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
+pub mod migrations;
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_stats;
 pub mod weights;
 
 pub use weights::WeightInfo;
@@ -60,7 +71,13 @@ pub type AuditorEndpoint = (
 /// Most open disputes one `open_disputes` query returns.
 pub const MAX_OPEN_DISPUTES_PAGE: u32 = 256;
 
-use ac_primitives::market::audit::{AdjustableParams, AuditParams};
+/// Most statistical states of an older version removed per block after a version change: each
+/// may release up to `MAX_SPRT_ENTRIES` retained verdict lists, so a few fill a block's share.
+pub const STALE_CLEAR_LIMIT: u32 = 2;
+
+use ac_primitives::market::audit::{
+    AdjustableParams, AuditParams, CURRENT_STATS, StatsConfig, VerdictStats,
+};
 use ac_primitives::market::{MicroUsd, SignedReceipt};
 use parity_scale_codec::{Decode, DecodeWithMemTracking, Encode};
 use scale_info::TypeInfo;
@@ -94,6 +111,14 @@ pub struct AuditGenesis {
     pub payment_usd: MicroUsd,
     /// Re-check thresholds version verdicts must use.
     pub thresholds_version: u16,
+    /// The statistical judgment's parameter version verdicts must use (m6-audit-sprt design
+    /// D10).
+    #[serde(default = "AuditGenesis::current_stats_version")]
+    pub stats_version: u16,
+    /// Whether the statistical judgment opens disputes (live chains: off until calibrated
+    /// hardware covers them).
+    #[serde(default)]
+    pub stats_enabled: bool,
 }
 
 impl AuditGenesis {
@@ -111,7 +136,22 @@ impl AuditGenesis {
         payment_usd: MicroUsd(50_000),
         // ac_market_proto::AUDIT_THRESHOLDS (m6-toploc-gpu-calibration: calibrated single-audit bounds).
         thresholds_version: 4,
+        stats_version: CURRENT_STATS.version,
+        stats_enabled: false,
     };
+
+    fn current_stats_version() -> u16 {
+        CURRENT_STATS.version
+    }
+
+    /// The statistical judgment's configuration.
+    #[must_use]
+    pub fn stats(&self) -> StatsConfig {
+        StatsConfig {
+            version: self.stats_version,
+            enabled: self.stats_enabled,
+        }
+    }
 
     /// The fixed and the adjustable parameters.
     #[must_use]
@@ -157,6 +197,8 @@ pub struct VerdictSubmission {
     pub evidence: Option<[u8; 32]>,
     /// The receipt of the audited request, signed by provider and gateway.
     pub receipt: SignedReceipt,
+    /// The statistics: required for a verdict judged by the thresholds, absent otherwise.
+    pub stats: Option<VerdictStats>,
 }
 
 /// What the benchmarks need from the runtime: a rate, account keys, providers with prices and
@@ -192,15 +234,16 @@ pub trait AuditRandomness {
 #[frame_support::pallet]
 pub mod pallet {
     use super::{
-        AuditGenesis, AuditRandomness, AuditorEndpoint, MAX_OPEN_DISPUTES_PAGE, VerdictSubmission,
-        WeightInfo,
+        AuditGenesis, AuditRandomness, AuditorEndpoint, MAX_OPEN_DISPUTES_PAGE, STALE_CLEAR_LIMIT,
+        VerdictSubmission, WeightInfo,
     };
     use ac_crypto::KemAlg;
     use ac_primitives::market::audit::{
         Accuser, AdjustableParams, AuditParams, AuditorRecord, AuditorStats, AuditorStatus,
-        DisputeOutcome, DisputeRecord, Draw, MAX_ACCUSERS, MAX_ASSIGN, MAX_AUDITORS, MAX_REVIEWERS,
-        Pool, ProviderAuditStats, ROUND_SEED_SUBJECT, RoundIndex, VerdictOutcome, VerdictRecord,
-        Vote, round_of, round_start, sample,
+        DisputeKind, DisputeOutcome, DisputeRecord, Draw, MAX_ASSIGN, MAX_AUDITORS,
+        MAX_DISPUTE_ACCUSERS, MAX_REVIEWERS, Pool, ProviderAuditStats, ROUND_SEED_SUBJECT,
+        RoundIndex, SprtEntry, SprtState, StatsConfig, VerdictOutcome, VerdictRecord, VerdictStats,
+        Vote, round_of, round_start, sample, stats_params,
     };
     use ac_primitives::market::receipt::{ReceiptContext, check_receipt};
     use ac_primitives::market::records::{
@@ -215,7 +258,7 @@ pub mod pallet {
     use frame_support::PalletId;
     use frame_support::pallet_prelude::{
         BuildGenesisConfig, ConstU32, DispatchResult, Hooks, IsType, OptionQuery, StorageDoubleMap,
-        StorageMap, StorageValue, ValueQuery, Weight, ensure,
+        StorageMap, StorageValue, StorageVersion, ValueQuery, Weight, ensure,
     };
     use frame_support::traits::fungible::{
         BalancedHold, Credit, Inspect, InspectHold, Mutate, MutateHold,
@@ -237,13 +280,22 @@ pub mod pallet {
     pub type DisputeOf<T> = DisputeRecord<AccountId32, BlockNumberFor<T>>;
     /// A round's roster.
     pub type Roster = BoundedVec<AccountId32, ConstU32<MAX_AUDITORS>>;
+    /// A provider's statistical state and the parameter version it was built with.
+    pub type VersionedSprt = (u16, SprtState<AccountId32>);
+    /// Where [`clear_stale_step`](Pallet::clear_stale_step) resumes: a raw storage key.
+    pub type ClearCursor = BoundedVec<u8, ConstU32<128>>;
     /// The verdicts on one provider in one round.
     pub type VerdictList = BoundedVec<VerdictRecord<AccountId32>, ConstU32<{ MAX_ASSIGN as u32 }>>;
 
     /// The audit pot's identifier: its account is derived from it.
     pub const POT_ID: PalletId = PalletId(*b"ac/audit");
 
+    /// Storage version 1 adds the statistics to verdicts and the kind to disputes
+    /// (m6-audit-sprt, [`crate::migrations::v1`]).
+    pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+
     #[pallet::pallet]
+    #[pallet::storage_version(STORAGE_VERSION)]
     pub struct Pallet<T>(_);
 
     #[pallet::config]
@@ -382,6 +434,34 @@ pub mod pallet {
     pub type AuditorEndpoints<T: Config> =
         StorageMap<_, Identity, AccountId32, AuditorEndpoint, OptionQuery>;
 
+    /// The statistical judgment's parameter version and switch (m6-audit-sprt design D10).
+    #[pallet::storage]
+    pub type StatsSettings<T: Config> = StorageValue<_, StatsConfig, OptionQuery>;
+
+    /// Each provider's statistical state, with the parameter version it was built with; a state
+    /// of another version than the current one counts as empty (design D6).
+    #[pallet::storage]
+    pub type SprtStates<T: Config> =
+        StorageMap<_, Identity, AccountId32, VersionedSprt, OptionQuery>;
+
+    /// Verdict lists past their retention that a statistical state or an open dispute still
+    /// refers to, by round and provider; removed once nothing does.
+    #[pallet::storage]
+    pub type RetainedVerdicts<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        RoundIndex,
+        Identity,
+        AccountId32,
+        VerdictList,
+        OptionQuery,
+    >;
+
+    /// While set, states of an older parameter version are being removed, from this key on
+    /// (empty: from the start).
+    #[pallet::storage]
+    pub type StaleClearing<T: Config> = StorageValue<_, ClearCursor, OptionQuery>;
+
     #[pallet::genesis_config]
     pub struct GenesisConfig<T: Config> {
         /// Parameters.
@@ -406,7 +486,8 @@ pub mod pallet {
             let (fixed, adjustable) = self.params.split();
             let percents_ok = self.params.provider_slash_percent <= 100
                 && self.params.auditor_slash_percent <= 100;
-            if fixed.check().is_err() || !percents_ok || !adjustable.within_bounds() {
+            let stats_ok = stats_params(self.params.stats_version).is_some();
+            if fixed.check().is_err() || !percents_ok || !adjustable.within_bounds() || !stats_ok {
                 // Genesis is built once, off chain: a bad parameter must stop the chain from
                 // being created at all (spec "参数与护栏", "创世参数不满足护栏").
                 #[allow(clippy::panic)]
@@ -416,6 +497,7 @@ pub mod pallet {
             }
             Params::<T>::put(fixed);
             Adjustable::<T>::put(adjustable);
+            StatsSettings::<T>::put(self.params.stats());
         }
     }
 
@@ -500,8 +582,11 @@ pub mod pallet {
             id: u64,
             /// The accused provider.
             provider: AccountId32,
+            /// What opened it.
+            kind: DisputeKind,
         },
-        /// Two auditors failed a provider but too few auditors are eligible to review.
+        /// Two auditors failed a provider, or its statistical state reached the bound, but too
+        /// few auditors are eligible to review.
         DisputeNotOpened {
             /// The provider.
             provider: AccountId32,
@@ -547,6 +632,11 @@ pub mod pallet {
             who: AccountId32,
             /// Whether an endpoint is now set.
             set: bool,
+        },
+        /// The administration set the statistical judgment's version and switch.
+        StatsConfigSet {
+            /// The new configuration.
+            config: StatsConfig,
         },
     }
 
@@ -624,6 +714,13 @@ pub mod pallet {
         InvalidEndpoint,
         /// Only X-Wing encryption keys are accepted.
         UnsupportedKem,
+        /// A verdict judged by the thresholds needs valid statistics and others must not have
+        /// any.
+        BadStats,
+        /// The statistics' parameter version is not the accepted one.
+        WrongStatsVersion,
+        /// The runtime does not know this parameter version, or it decreases.
+        UnknownStatsVersion,
     }
 
     impl<T> From<PriceError> for Error<T> {
@@ -661,7 +758,12 @@ pub mod pallet {
                 weight = weight.saturating_add(T::WeightInfo::start_round(auditors));
             }
             let pruned = Self::prune_step(round);
-            weight.saturating_add(T::WeightInfo::prune(pruned))
+            weight = weight.saturating_add(T::WeightInfo::prune(pruned));
+            if StaleClearing::<T>::exists() {
+                let cleared = Self::clear_stale_step();
+                weight = weight.saturating_add(T::WeightInfo::clear_stale(cleared));
+            }
+            weight
         }
     }
 
@@ -789,6 +891,7 @@ pub mod pallet {
                 thresholds_version,
                 evidence,
                 receipt,
+                stats,
             } = *verdict;
             ensure!(
                 round == Self::current_round(&params),
@@ -807,10 +910,19 @@ pub mod pallet {
                 thresholds_version == adjustable.thresholds_version,
                 Error::<T>::WrongThresholdsVersion
             );
+            let judged = outcome.judged_by_thresholds();
             ensure!(
-                matches!(outcome, VerdictOutcome::Fail(_)) == evidence.is_some(),
+                (judged || matches!(outcome, VerdictOutcome::Fail(_))) == evidence.is_some(),
                 Error::<T>::BadEvidence
             );
+            let settings = StatsSettings::<T>::get().ok_or(Error::<T>::NotConfigured)?;
+            match stats {
+                Some(s) => {
+                    ensure!(judged && s.stats.is_valid(), Error::<T>::BadStats);
+                    ensure!(s.version == settings.version, Error::<T>::WrongStatsVersion);
+                }
+                None => ensure!(!judged, Error::<T>::BadStats),
+            }
             let body = &receipt.body;
             ensure!(body.provider == provider, Error::<T>::ReceiptProvider);
             ensure!(
@@ -838,6 +950,7 @@ pub mod pallet {
                 receipt_hash,
                 request_id,
                 gateway,
+                stats,
             })
             .map_err(|_| Error::<T>::AlreadySubmitted)?;
             Verdicts::<T>::insert(round, &provider, list);
@@ -858,6 +971,9 @@ pub mod pallet {
             Self::pay(&who, adjustable.payment_usd);
             if matches!(outcome, VerdictOutcome::Fail(_)) {
                 Self::maybe_open_dispute(&params, round, &provider);
+            }
+            if let Some(s) = stats {
+                Self::record_stats(&params, settings, (round, &provider), &who, s);
             }
             Ok(())
         }
@@ -975,6 +1091,26 @@ pub mod pallet {
                 None => AuditorEndpoints::<T>::remove(&who),
             }
             Self::deposit_event(Event::EndpointSet { who, set });
+            Ok(())
+        }
+
+        /// Sets the statistical judgment's parameter version and switch (spec `market/audit`
+        /// "参数与护栏"). The version never decreases and must be built into the runtime;
+        /// changing it empties every provider's state (removed over the next blocks).
+        #[pallet::call_index(10)]
+        #[pallet::weight(T::WeightInfo::set_stats_config())]
+        pub fn set_stats_config(origin: OriginFor<T>, config: StatsConfig) -> DispatchResult {
+            T::AdminOrigin::ensure_origin(origin)?;
+            let old = StatsSettings::<T>::get().ok_or(Error::<T>::NotConfigured)?;
+            ensure!(
+                config.version >= old.version && stats_params(config.version).is_some(),
+                Error::<T>::UnknownStatsVersion
+            );
+            if config.version != old.version {
+                StaleClearing::<T>::put(ClearCursor::new());
+            }
+            StatsSettings::<T>::put(config);
+            Self::deposit_event(Event::StatsConfigSet { config });
             Ok(())
         }
     }
@@ -1125,7 +1261,9 @@ pub mod pallet {
         }
 
         /// Removes at most [`Config::PruneLimit`] entries of the oldest round past retention:
-        /// first its used request IDs, then its verdicts. Returns the number removed.
+        /// first its used request IDs, then its verdicts. A verdict list a statistical state or
+        /// an open dispute still refers to moves to [`RetainedVerdicts`] instead (spec "计数与
+        /// 查询"). Returns the number of entries handled.
         pub(crate) fn prune_step(current: RoundIndex) -> u32 {
             let next = PruneNext::<T>::get();
             if next.saturating_add(T::RetentionRounds::get()) >= current {
@@ -1142,12 +1280,158 @@ pub mod pallet {
                 }
                 return u32::try_from(ids.len()).unwrap_or(u32::MAX);
             }
-            let result = Verdicts::<T>::clear_prefix(next, T::PruneLimit::get().max(1), None);
-            if result.maybe_cursor.is_none() {
+            let mut handled = 0u32;
+            for (provider, list) in Verdicts::<T>::drain_prefix(next).take(limit.max(1)) {
+                handled = handled.saturating_add(1);
+                if Self::referenced(next, &provider) {
+                    RetainedVerdicts::<T>::insert(next, &provider, list);
+                }
+            }
+            if Verdicts::<T>::iter_key_prefix(next).next().is_none() {
                 RoundVerdicts::<T>::remove(next);
                 PruneNext::<T>::put(next.saturating_add(1));
             }
-            result.unique
+            handled
+        }
+
+        /// Whether `provider`'s statistical state (of the current version) or its open dispute
+        /// refers to a verdict of `round`.
+        fn referenced(round: RoundIndex, provider: &AccountId32) -> bool {
+            let current = StatsSettings::<T>::get().map(|c| c.version);
+            let in_state = SprtStates::<T>::get(provider).is_some_and(|(v, s)| {
+                Some(v) == current && s.entries.iter().any(|e| e.round == round)
+            });
+            in_state
+                || OpenDispute::<T>::get(provider)
+                    .and_then(Disputes::<T>::get)
+                    .is_some_and(|d| d.accusers.iter().any(|a| a.round == round))
+        }
+
+        /// Removes the retained verdict lists of `provider` in `rounds` that nothing refers to
+        /// any more.
+        fn release(provider: &AccountId32, rounds: impl IntoIterator<Item = RoundIndex>) {
+            let mut seen: Vec<RoundIndex> = Vec::new();
+            for r in rounds {
+                if seen.contains(&r) {
+                    continue;
+                }
+                seen.push(r);
+                if RetainedVerdicts::<T>::contains_key(r, provider)
+                    && !Self::referenced(r, provider)
+                {
+                    RetainedVerdicts::<T>::remove(r, provider);
+                }
+            }
+        }
+
+        /// Removes at most [`STALE_CLEAR_LIMIT`] states of an older parameter version after a
+        /// version change (design D10), releasing the verdicts they kept. Returns the number of
+        /// states read.
+        pub(crate) fn clear_stale_step() -> u32 {
+            let Some(cursor) = StaleClearing::<T>::get() else {
+                return 0;
+            };
+            let current = StatsSettings::<T>::get().map(|c| c.version);
+            let limit = usize::try_from(STALE_CLEAR_LIMIT).unwrap_or(1);
+            let mut iter = if cursor.is_empty() {
+                SprtStates::<T>::iter()
+            } else {
+                SprtStates::<T>::iter_from(cursor.into_inner())
+            };
+            let seen: Vec<(AccountId32, VersionedSprt)> = iter.by_ref().take(limit).collect();
+            let last = iter.last_raw_key().to_vec();
+            for (provider, (version, state)) in &seen {
+                if Some(*version) != current {
+                    SprtStates::<T>::remove(provider);
+                    Self::release(provider, state.entries.iter().map(|e| e.round));
+                }
+            }
+            if seen.len() < limit {
+                StaleClearing::<T>::kill();
+            } else {
+                // A map key (prefix and account) is 64 bytes, within the cursor's bound.
+                StaleClearing::<T>::put(ClearCursor::truncate_from(last));
+            }
+            u32::try_from(seen.len()).unwrap_or(u32::MAX)
+        }
+
+        /// Adds a verdict's statistics to `provider`'s state (spec "统计判定") and opens a
+        /// statistical dispute when the state reaches the bound, the judgment is enabled and
+        /// no dispute is open.
+        fn record_stats(
+            params: &AuditParams,
+            settings: StatsConfig,
+            (round, provider): (RoundIndex, &AccountId32),
+            auditor: &AccountId32,
+            stats: VerdictStats,
+        ) {
+            let Some(sp) = stats_params(stats.version) else {
+                return;
+            };
+            let (mut state, mut released) = match SprtStates::<T>::take(provider) {
+                Some((v, s)) if v == stats.version => (s, Vec::new()),
+                // A state of an older version counts as empty.
+                Some((_, s)) => (
+                    SprtState::default(),
+                    s.entries.iter().map(|e| e.round).collect(),
+                ),
+                None => (SprtState::default(), Vec::new()),
+            };
+            released.extend(state.entries.iter().map(|e| e.round));
+            state.record(
+                sp,
+                SprtEntry {
+                    auditor: auditor.clone(),
+                    round,
+                    contribution: sp.contribution(&stats.stats),
+                },
+            );
+            if state.crossed(sp)
+                && settings.enabled
+                && !OpenDispute::<T>::contains_key(provider)
+                && Self::open_statistical_dispute(params, round, provider, &state, stats.version)
+            {
+                state.reset();
+            }
+            if state.cumulative > 0 {
+                SprtStates::<T>::insert(provider, (stats.version, state));
+            }
+            Self::release(provider, released);
+        }
+
+        /// Opens a statistical dispute on `state`'s verdicts (design D7); `false` if too few
+        /// reviewers are eligible or the round has no seed.
+        fn open_statistical_dispute(
+            params: &AuditParams,
+            round: RoundIndex,
+            provider: &AccountId32,
+            state: &SprtState<AccountId32>,
+            stats_version: u16,
+        ) -> bool {
+            let mut accusers: Vec<Accuser<AccountId32>> = Vec::new();
+            let mut gateways: Vec<AccountId32> = Vec::new();
+            for e in state.entries.iter() {
+                accusers.push(Accuser {
+                    auditor: e.auditor.clone(),
+                    round: e.round,
+                });
+                let gateway = Self::verdict_list(e.round, provider)
+                    .into_iter()
+                    .find(|v| v.auditor == e.auditor)
+                    .map(|v| v.gateway);
+                if let Some(g) = gateway
+                    && !gateways.contains(&g)
+                {
+                    gateways.push(g);
+                }
+            }
+            Self::open_dispute(
+                params,
+                round,
+                provider,
+                (accusers, gateways),
+                DisputeKind::Statistical { stats_version },
+            )
         }
 
         /// Pays `usd` from the pot to `who`, or skips the payment.
@@ -1197,9 +1481,28 @@ pub mod pallet {
             if accusers.len() < 2 {
                 return;
             }
+            Self::open_dispute(
+                params,
+                round,
+                provider,
+                (accusers, gateways),
+                DisputeKind::Fail,
+            );
+        }
+
+        /// Draws the reviewers and opens a dispute on `provider` with these accusers, excluding
+        /// them, the provider and their receipts' gateways from the draw; `false` if the round
+        /// has no seed or too few reviewers are eligible.
+        fn open_dispute(
+            params: &AuditParams,
+            round: RoundIndex,
+            provider: &AccountId32,
+            (accusers, gateways): (Vec<Accuser<AccountId32>>, Vec<AccountId32>),
+            kind: DisputeKind,
+        ) -> bool {
             let (Some(seed), Some(roster)) = (Seeds::<T>::get(round), Rosters::<T>::get(round))
             else {
-                return;
+                return false;
             };
             let mut excluded: Vec<AccountId32> =
                 accusers.iter().map(|a| a.auditor.clone()).collect();
@@ -1220,11 +1523,12 @@ pub mod pallet {
                 Self::deposit_event(Event::DisputeNotOpened {
                     provider: provider.clone(),
                 });
-                return;
+                return false;
             }
-            // Both fit: accusers come from at most two rounds of at most MAX_ASSIGN verdicts,
-            // reviewers are at most MAX_REVIEWERS by the genesis guardrail.
-            let accusers = BoundedVec::<_, ConstU32<MAX_ACCUSERS>>::truncate_from(accusers);
+            // Both fit: accusers come from at most two rounds of at most MAX_ASSIGN verdicts, or
+            // from a statistical state of at most MAX_SPRT_ENTRIES; reviewers are at most
+            // MAX_REVIEWERS by the genesis guardrail.
+            let accusers = BoundedVec::<_, ConstU32<MAX_DISPUTE_ACCUSERS>>::truncate_from(accusers);
             let reviewers = BoundedVec::<_, ConstU32<{ MAX_REVIEWERS as u32 }>>::truncate_from(
                 reviewers.into_iter().map(|r| (r, None)).collect(),
             );
@@ -1240,6 +1544,7 @@ pub mod pallet {
                     deadline,
                     outcome: None,
                     closed_at: None,
+                    kind,
                 },
             );
             OpenDispute::<T>::insert(provider, id);
@@ -1247,7 +1552,9 @@ pub mod pallet {
             Self::deposit_event(Event::DisputeOpened {
                 id,
                 provider: provider.clone(),
+                kind,
             });
+            true
         }
 
         fn close(params: &AuditParams, id: u64, mut d: DisputeOf<T>, outcome: DisputeOutcome) {
@@ -1279,14 +1586,18 @@ pub mod pallet {
                         s.confirmed = s.confirmed.saturating_add(1);
                     });
                 }
-                DisputeOutcome::Rejected => {
+                // A statistical dispute is the chain's own conclusion, not an auditor's
+                // accusation: rejecting it slashes nobody (design D8).
+                DisputeOutcome::Rejected if d.kind == DisputeKind::Fail => {
                     for a in &d.accusers {
                         Self::punish_auditor(&a.auditor, params);
                     }
                 }
-                DisputeOutcome::Undecided => {}
+                DisputeOutcome::Rejected | DisputeOutcome::Undecided => {}
             }
             OpenDispute::<T>::remove(&d.provider);
+            let rounds: Vec<RoundIndex> = d.accusers.iter().map(|a| a.round).collect();
+            Self::release(&d.provider, rounds);
             d.outcome = Some(outcome);
             d.closed_at = Some(frame_system::Pallet::<T>::block_number());
             let provider = d.provider.clone();
@@ -1363,6 +1674,28 @@ pub mod pallet {
             all.sort_by(|x, y| x.0.cmp(&y.0));
             all.truncate(limit);
             all
+        }
+
+        /// The verdicts on `provider` in `round`, including a list retained past its retention.
+        #[must_use]
+        pub fn verdict_list(round: RoundIndex, provider: &AccountId32) -> VerdictList {
+            let list = Verdicts::<T>::get(round, provider);
+            if list.is_empty() {
+                RetainedVerdicts::<T>::get(round, provider).unwrap_or_default()
+            } else {
+                list
+            }
+        }
+
+        /// `provider`'s statistical state under the current parameter version (empty for a
+        /// state of an older one).
+        #[must_use]
+        pub fn sprt_state(provider: &AccountId32) -> SprtState<AccountId32> {
+            let current = StatsSettings::<T>::get().map(|c| c.version);
+            match SprtStates::<T>::get(provider) {
+                Some((v, s)) if Some(v) == current => s,
+                _ => SprtState::default(),
+            }
         }
 
         /// The first block of the current round and of the next one.

@@ -729,7 +729,7 @@ impl_runtime_apis! {
             round: ac_primitives::market::audit::RoundIndex,
             provider: AccountId,
         ) -> Vec<ac_primitives::market::audit::VerdictRecord<AccountId>> {
-            pallet_audit::Verdicts::<Runtime>::get(round, provider).to_vec()
+            Audit::verdict_list(round, &provider).to_vec()
         }
 
         fn open_dispute(provider: AccountId) -> Option<u64> {
@@ -772,6 +772,14 @@ impl_runtime_apis! {
 
         fn open_disputes(after: Option<AccountId>, limit: u32) -> Vec<(AccountId, u64)> {
             Audit::open_disputes(after.as_ref(), limit)
+        }
+
+        fn sprt_state(provider: AccountId) -> ac_primitives::market::audit::SprtState<AccountId> {
+            Audit::sprt_state(&provider)
+        }
+
+        fn stats_config() -> Option<ac_primitives::market::audit::StatsConfig> {
+            pallet_audit::StatsSettings::<Runtime>::get()
         }
     }
 

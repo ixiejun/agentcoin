@@ -83,7 +83,19 @@ pub enum AuditCommand {
         #[arg(long)]
         case: PathBuf,
     },
-    /// Show a provider's open dispute and its reviewers, and its verdict counts.
+    /// Show a provider's verdicts in a round (default: the current one) with their statistics.
+    Verdicts {
+        #[command(flatten)]
+        node: NodeArgs,
+        /// Provider address.
+        #[arg(long)]
+        provider: String,
+        /// Round.
+        #[arg(long)]
+        round: Option<u32>,
+    },
+    /// Show a provider's open dispute (kind, accusers, reviewers), its verdict counts and its
+    /// statistical state.
     Disputes {
         #[command(flatten)]
         node: NodeArgs,
@@ -333,6 +345,37 @@ pub async fn run(command: AuditCommand) -> Result<()> {
             }
             return Ok(());
         }
+        AuditCommand::Verdicts {
+            node,
+            provider,
+            round,
+        } => {
+            let provider = parse_address(&provider)?;
+            let client = NodeClient::new(&node.node)?;
+            let round = match round {
+                Some(r) => r,
+                None => {
+                    client
+                        .audit_round()
+                        .await?
+                        .context("audits are not configured on this chain")?
+                        .0
+                }
+            };
+            println!("round: {round}");
+            for v in client.audit_verdicts(round, &provider).await? {
+                println!(
+                    "verdict: {} {:?} (thresholds v{})",
+                    encode_address(v.auditor.as_ref()),
+                    v.outcome,
+                    v.thresholds_version
+                );
+                if let Some(s) = &v.stats {
+                    println!("  {}", audit::format_stats(s));
+                }
+            }
+            return Ok(());
+        }
         AuditCommand::Disputes { node, provider } => {
             let provider = parse_address(&provider)?;
             let client = NodeClient::new(&node.node)?;
@@ -341,11 +384,16 @@ pub async fn run(command: AuditCommand) -> Result<()> {
                 "verdicts: {} pass, {} fail, {} inconclusive; {} confirmed disputes",
                 s.pass, s.fail, s.inconclusive, s.confirmed
             );
+            let config = client.audit_stats_config().await?;
+            let params = config.and_then(|c| ac_primitives::market::audit::stats_params(c.version));
+            let state = client.audit_sprt_state(&provider).await?;
+            println!("{}", audit::format_state(&state, params));
             match client.audit_open_dispute(&provider).await? {
                 None => println!("open dispute: none"),
                 Some(id) => {
                     println!("open dispute: {id}");
                     if let Some(d) = client.audit_dispute(id).await? {
+                        println!("kind: {}", audit::format_kind(&d.kind));
                         println!("deadline: block {}", d.deadline);
                         for a in &d.accusers {
                             println!(
@@ -384,6 +432,20 @@ pub async fn run(command: AuditCommand) -> Result<()> {
             println!("auditor stake: {}", format_usd(a.stake_usd));
             println!("payment: {}", format_usd(a.payment_usd));
             println!("thresholds version: {}", a.thresholds_version);
+            let client = NodeClient::new(&node.node)?;
+            if let Some(c) = client.audit_stats_config().await? {
+                let state = if c.enabled { "enabled" } else { "disabled" };
+                println!("statistical judgment: {state}, parameters v{}", c.version);
+                if let Some(sp) = ac_primitives::market::audit::stats_params(c.version) {
+                    println!(
+                        "statistical bound: {} nats, per verdict {} to {}, per auditor {}",
+                        audit::format_nats(sp.bound),
+                        audit::format_nats(i64::from(sp.clamp.0)),
+                        audit::format_nats(i64::from(sp.clamp.1)),
+                        audit::format_nats(sp.per_auditor_cap)
+                    );
+                }
+            }
             return Ok(());
         }
     };
