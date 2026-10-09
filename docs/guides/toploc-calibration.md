@@ -50,10 +50,32 @@ chunk by the prompt's token count:
 | Prefill, any other prompt | 15 | 5.00 | 4 |
 | Decode (each later chunk) | 20 | 8.00 | 8 |
 
-Auditors send only prompts in the band (`ac-auditor run`), so an audit can tell int8 apart;
-outside the band the prefill bound still catches another model, int4 and a changed prompt. The
-values are provisional until the GPU calibration fixes them; the chain accepts version 3 from
-genesis.
+Auditors send only prompts in the band (`ac-auditor run`). These values were provisional; the
+GPU calibration (`calibration-results/gpu-cal-v3-2026-10-09`) showed that no bounds catch int8 in
+a single audit without failing honest providers, and version 4 replaced them (next section).
+
+## Thresholds version 4: single-audit scope
+
+User decision (2026-10-09, `m6-toploc-gpu-calibration` design D13–D15): a single audit only
+catches gross deviations (another model, int4, a changed prompt; a missing proof fails anyway).
+int8, including int8 only while decoding, is left to the statistical judgment per provider
+(OpenSpec change `m6-audit-sprt`).
+
+| Chunk | Exponent mismatches ≤ | Mean mantissa error ≤ | Median mantissa error ≤ |
+|---|---|---|---|
+| Prefill, any prompt length | 20 | 6.00 | 5 |
+| Decode (each later chunk) | 28 | 12.00 | 12 |
+
+Basis, from the four GPU cells (15,880 honest samples judged by the thresholds): the honest
+worst is prefill (11, 3.88, 3) and decode (19, 7.96, 4); int4's smallest prefill mean is 8.31, a
+changed prompt's smallest prefill exponent mismatches 56, another model's decode chunks at least
+(22, 13.17, 10). The band (150–300 tokens) stays part of the constant: audit prompts and the
+statistical judgment use it. Version 3's values are kept only to replay the runs judged under it.
+
+Honest answers whose text re-tokenizes to other token IDs than the generated ones (issue I-023)
+fail a decode chunk under any bounds; the generation records it per case (`token_ids.json`) and
+the merge lists them apart (`token_mismatch`), out of the cells and the conclusion. Their root
+cause (the provider returning the output token IDs) is a separate change.
 
 The calibration's prompts are fitted to target lengths with the engine's own tokenizer: about
 80% in the band, 10% shorter (from 20 tokens) and 10% longer (up to 600), deterministic per
@@ -149,14 +171,17 @@ python scripts/calibrate-toploc.py --merge recheck-*/calibration.json --summary-
   sample passes (the prefill bounds per side of the band), how each cell fares under
   `--thresholds` (`band=MIN,MAX prefill=… prefill_outside=… decode=…`), and a conclusion by
   the rules below.
-- **Conclusion rules** (spec "GPU 跨硬件校准", every cell on its own). Inside the band: no honest
-  fail, and no miss of another model, int8, int4 or a changed prompt. Outside it: no honest fail,
-  and no miss but int8's (an int8 pass outside the band is only reported). Each cell needs at
-  least 3,000 honest samples inside the band and 500 outside. The conclusion is `keep` (version
-  3's provisional values hold), `widen` (every bound widened to the honest maximum, the band
-  kept, still satisfies the rules), `no thresholds` (with the cells and sides that break the
-  rules, for the user to decide), or `too few samples` (with what it would be). The CI quick
-  regression lets int8 pass outside the band too.
+- **Conclusion rules** (spec "GPU 跨硬件校准", single-audit scope, every cell and side of the
+  band on its own): no honest fail, and no miss of another model, int4 or a changed prompt; int8
+  passes are reported, never a miss. Each cell needs at least 3,000 honest samples inside the band
+  and 500 outside. The conclusion is `keep` (the current values hold), `widen` (every bound
+  widened to the honest maximum, the band kept, still satisfies the rules), `no thresholds` (with
+  the cells and sides that break the rules, for the user to decide), or `too few samples` (with
+  what it would be). The CI quick regression never counts int8 passes as failures, nor honest
+  answers listed under I-023.
+- **Statistics.** The merge also gives, per cell, side of the band and variant (honest and int8),
+  histograms of the statistics a verdict carries (the prefill chunk's mean and the decode
+  chunks' means averaged, in hundredths): the input of the statistical judgment's parameters.
 - **Condensed report.** `--summary-out` writes what the repository keeps: fingerprints, cells,
   distributions, thresholds, conclusion and the chunk metrics of every sample that did not go
   as it should; case names and numbers only, never prompts or answers.

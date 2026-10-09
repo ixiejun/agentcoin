@@ -274,7 +274,7 @@ fn a_confirmed_dispute_jails_and_voids_unsettled_work() {
                 provider: bob.account.clone(),
                 round: 1,
                 outcome: fail,
-                thresholds_version: 3,
+                thresholds_version: 4,
                 evidence: Some([i as u8; 32]),
                 receipt: receipt(&bob, &charlie, model, 10 + i as u8),
             };

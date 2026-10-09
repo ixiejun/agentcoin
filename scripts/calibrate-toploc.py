@@ -357,6 +357,9 @@ def generate(variant: str, count: int, seed: int, out: Path, min_words: int = 0,
     # against the generated ones.
     tok = llm.get_tokenizer()
     diag = {"same_ids": 0, "same_count": 0, "round_trip": 0, "special_in_output": 0}
+    # Per answer, whether its text re-tokenizes to the generated token IDs: an honest answer
+    # whose IDs differ is re-checked as other tokens (issue I-023, m6-toploc-gpu-calibration D15).
+    same_ids: list[bool] = []
     for o in outputs:
         c = o.outputs[0]
         ids = list(c.token_ids)
@@ -364,6 +367,7 @@ def generate(variant: str, count: int, seed: int, out: Path, min_words: int = 0,
             ids = ids[:-1]
         again = tok(c.text, add_special_tokens=False).input_ids
         diag["same_ids"] += again == ids
+        same_ids.append(again == ids)
         diag["same_count"] += len(again) == len(ids)
         diag["round_trip"] += tok.decode(again) == c.text
         diag["special_in_output"] += any(i in tok.all_special_ids for i in ids)
@@ -371,6 +375,7 @@ def generate(variant: str, count: int, seed: int, out: Path, min_words: int = 0,
     written = 0
     preempted = 0
     lengths = {}
+    token_ids: dict[str, bool] = {}
     unproven: dict[str, int] = {}
     for i, (o, (messages, _)) in enumerate(zip(outputs, prompts)):
         keys = [k for k in provider.segments if k == o.request_id or k.startswith(o.request_id + "-")]
@@ -418,9 +423,11 @@ def generate(variant: str, count: int, seed: int, out: Path, min_words: int = 0,
             continue
         (out / f"{variant}-{i:05d}.json").write_bytes(made.stdout)
         lengths[f"{variant}-{i:05d}.json"] = prompt_tokens
+        token_ids[f"{variant}-{i:05d}.json"] = same_ids[i]
         written += 1
     # The prompt token count of every case (numbers only), for the statistics by prompt length.
     (out.parent / f"prompt-tokens-{variant}.json").write_text(json.dumps(lengths))
+    (out.parent / f"token-ids-{variant}.json").write_text(json.dumps(token_ids))
     (out.parent / f"unproven-{variant}.json").write_text(json.dumps(unproven))
     print(f"{variant}: {written}/{count} cases", flush=True)
     if unproven:
@@ -658,6 +665,62 @@ def variant_of(case: str) -> str:
     return case.split("-", 1)[0]
 
 
+STAT_MAX = 65_535  # statistics are u16 on chain (m6-audit-sprt design D1)
+STAT_BIN = 5  # histogram bin width in hundredths
+
+
+def centi(c: dict) -> int:
+    """A chunk's mean mantissa error in hundredths, rounded down; no matching exponent gives the
+    maximum."""
+    if not c["mant_count"]:
+        return STAT_MAX
+    return min(STAT_MAX, c["mant_err_sum"] * 100 // c["mant_count"])
+
+
+def audit_stats(x: dict) -> dict | None:
+    """The statistics a verdict carries (OpenSpec change m6-audit-sprt design D1): prompt tokens,
+    the prefill chunk's mean, the decode chunks' means averaged (rounded down) and their count; None
+    for a sample not judged by the thresholds."""
+    if not judged(x) or x.get("prompt_tokens") is None:
+        return None
+    decode = [centi(c) for c in x["chunks"][1:]]
+    return {"prompt_tokens": x["prompt_tokens"], "prefill": centi(x["chunks"][0]),
+            "decode": sum(decode) // len(decode) if decode else 0, "decode_chunks": len(decode)}
+
+
+def statistics(samples: list[dict]) -> dict:
+    """Per cell, side of the band and variant (honest and int8), histograms of the prefill and decode
+    statistics in bins of STAT_BIN hundredths ({bin start: count}), the input of the statistical
+    judgment's parameters (m6-audit-sprt design D9)."""
+    out: dict = {}
+    for x in samples:
+        v = variant_of(x["case"])
+        st = audit_stats(x)
+        if v not in ("honest", "int8") or st is None:
+            continue
+        g = out.setdefault(f'{x["prover"]} → {x["auditor"]}', {}).setdefault(side(x), {}).setdefault(
+            v, {"samples": 0, "prefill": {}, "decode": {}})
+        g["samples"] += 1
+        for k in ("prefill", "decode"):
+            if k == "decode" and not st["decode_chunks"]:
+                continue
+            b = str(st[k] // STAT_BIN * STAT_BIN)
+            g[k][b] = g[k].get(b, 0) + 1
+    for sides in out.values():
+        for variants in sides.values():
+            for g in variants.values():
+                for k in ("prefill", "decode"):
+                    g[k] = dict(sorted(g[k].items(), key=lambda kv: int(kv[0])))
+    return dict(sorted(out.items()))
+
+
+def token_mismatch(x: dict) -> bool:
+    """An honest answer whose text re-tokenizes to other token IDs than the generated ones (issue
+    I-023): the auditor re-checks other tokens, so its outcome says nothing about the thresholds.
+    Reports from before the generation recorded it count as matching."""
+    return variant_of(x["case"]) == "honest" and x.get("same_token_ids") is False
+
+
 def side(x: dict, band: tuple[int, int] | None = None) -> str:
     """Which side of the audit length band (the current version's unless given) a sample's prompt
     is on: "inside", "outside", or "unknown" for reports without prompt token counts."""
@@ -709,13 +772,16 @@ def cells(samples: list[dict]) -> dict:
 # auditor's outcomes; scripts/tests checks the current version against AUDIT_THRESHOLDS). Version
 # 3 bounds the prefill chunk by `prefill` when the prompt's tokens are in `band` (both ends
 # included) and by `prefill_outside` otherwise (m6-toploc-gpu-calibration design D8); version 2
-# had one prefill set, kept to replay older reports.
+# had one prefill set. Version 3 was provisional and version 4 holds the calibrated single-audit
+# bounds (design D13, D14); older versions are kept to replay the reports judged under them.
 THRESHOLDS_V2 = {"version": 2, "band": None, "prefill": (2, 50, 1), "prefill_outside": (2, 50, 1),
                  "decode": (20, 800, 8)}
 THRESHOLDS_V3 = {"version": 3, "band": (150, 300), "prefill": (6, 85, 1), "prefill_outside": (15, 500, 4),
                  "decode": (20, 800, 8)}
-THRESHOLDS = {2: THRESHOLDS_V2, 3: THRESHOLDS_V3}
-CURRENT = THRESHOLDS_V3
+THRESHOLDS_V4 = {"version": 4, "band": (150, 300), "prefill": (20, 600, 5), "prefill_outside": (20, 600, 5),
+                 "decode": (28, 1200, 12)}
+THRESHOLDS = {2: THRESHOLDS_V2, 3: THRESHOLDS_V3, 4: THRESHOLDS_V4}
+CURRENT = THRESHOLDS_V4
 METRICS = {"exp": "exponent mismatches", "noexp": "no matching exponent",
            "mean": "mean mantissa error", "median": "median mantissa error"}
 
@@ -867,17 +933,22 @@ def under(samples: list[dict], t: dict) -> dict:
     return dict(sorted(out.items()))
 
 
+# Cheats a single audit must catch (spec "GPU 跨硬件校准", 2026-10-09 revision): int8 is left
+# to the statistical judgment per provider (OpenSpec change m6-audit-sprt), on both sides of the
+# band; its passes are only reported.
+SINGLE_AUDIT_CHEATS = ("swap", "int4", "prompt")
+
+
 def broken(r: dict) -> list[str]:
-    """Where `under`'s result breaks the conclusion rules: inside the band no honest fail and no
-    cheat missed; outside it no honest fail and no cheat but int8 missed (int8 is not required to
-    fail there; its passes are only reported)."""
+    """Where `under`'s result breaks the conclusion rules, on each side of the band: an honest
+    fail, or a miss of a cheat a single audit must catch."""
     out = []
     for cell, sides in r.items():
         for where, o in sides.items():
             if o["honest_fail"]:
                 out.append(f'{cell} {where}: {o["honest_fail"]} honest fail')
             for v, n in o["missed"].items():
-                if n and not (where == "outside" and v == "int8"):
+                if n and v in SINGLE_AUDIT_CHEATS:
                     out.append(f"{cell} {where}: {n} {v} missed")
     return out
 
@@ -890,12 +961,12 @@ def short_of_samples(r: dict) -> list[str]:
 
 
 def conclusion(samples: list[dict], minimum: bool = True) -> dict:
-    """The conclusion rules of spec engineering/ci-quality-gates "GPU 跨硬件校准", cell by cell:
-    keep version 3's provisional values if they hold in every cell; else version 3 with every
-    bound widened to the honest maximum (the band kept) if that still catches every cheat it must;
-    else no thresholds, for the user to decide (design D12: version 3's values can change until
-    the change is archived). With `minimum`, a cell short of honest samples on a side of the band
-    leaves the conclusion open."""
+    """The conclusion rules of spec engineering/ci-quality-gates "GPU 跨硬件校准" (single-audit
+    scope, 2026-10-09), cell by cell: keep the current values if they hold in every cell; else the
+    current values with every bound widened to the honest maximum (the band kept) if that still
+    catches every cheat a single audit must; else no thresholds, for the user to decide. Holding
+    values are published as a new version (design D14). With `minimum`, a cell short of honest
+    samples on a side of the band leaves the conclusion open."""
     current = under(samples, CURRENT)
     low = minimal_thresholds(samples)
     found = {"minimal_thresholds": low}
@@ -969,23 +1040,29 @@ def merge(files: list[Path], out: Path, thresholds: list[str] | None = None,
         print(e)
         return 1
     s = summary(samples)
+    # Spec "token ID 不一致的诚实回答单列": listed apart, out of the cells and the conclusion.
+    mismatched = [x for x in samples if token_mismatch(x)]
+    judged_samples = [x for x in samples if not token_mismatch(x)]
     report = {
         "seeds": sorted({r["seed"] for r in shards}),
         "honest": sum(variant_of(x["case"]) == "honest" for x in samples),
         "cheat": max([sum(variant_of(x["case"]) == v for x in samples) for v in CHEATS] or [0]),
         "thresholds_versions": sorted({v for r in shards for v in r["thresholds_versions"]}),
         "fingerprints": fingerprints,
-        "cells": cells(samples),
+        "cells": cells(judged_samples),
+        "token_mismatch": [{k: x[k] for k in ("case", "seed", "prover", "auditor", "outcome", "reason") if k in x}
+                           for x in mismatched],
         "summary": s,
         "honest_by_host": by_host(samples),
-        "minimal_thresholds": minimal_thresholds(samples),
+        "minimal_thresholds": minimal_thresholds(judged_samples),
+        "statistics": statistics(judged_samples),
         "by_prompt_length": by_prompt_length(samples),
-        "conclusion": conclusion(samples),
+        "conclusion": conclusion(judged_samples),
         "samples": samples,
     }
     if thresholds:
         t = parse_thresholds(thresholds)
-        report["under_thresholds"] = {"thresholds": t, "cells": under(samples, t)}
+        report["under_thresholds"] = {"thresholds": t, "cells": under(judged_samples, t)}
     out.mkdir(parents=True, exist_ok=True)
     (out / "calibration.json").write_text(json.dumps(report, indent=1))
     if summary_out:
@@ -1009,7 +1086,8 @@ def condensed(report: dict) -> dict:
         for x in report["samples"]
         if (variant_of(x["case"]) == "honest") != (x["outcome"] == "pass")
     ]
-    keep = ("seeds", "honest", "cheat", "thresholds_versions", "fingerprints", "cells", "summary", "by_prompt_length",
+    keep = ("seeds", "honest", "cheat", "thresholds_versions", "fingerprints", "cells", "token_mismatch", "summary",
+            "by_prompt_length", "statistics",
             "minimal_thresholds", "conclusion", "under_thresholds")
     return {**{k: report[k] for k in keep if k in report}, "unexpected": unexpected}
 
@@ -1097,6 +1175,11 @@ def generate_bundle(out: Path, honest: int, cheat: int, seed: int, min_words: in
         lengths.update(json.loads(f.read_text()))
         f.unlink()
     (out / "prompt_tokens.json").write_text(json.dumps(lengths, sort_keys=True) + "\n")
+    same = {}
+    for f in sorted(out.glob("token-ids-*.json")):
+        same.update(json.loads(f.read_text()))
+        f.unlink()
+    (out / "token_ids.json").write_text(json.dumps(same, sort_keys=True) + "\n")
     unproven = {}
     for v in VARIANTS:
         f = out / f"unproven-{v}.json"
@@ -1141,13 +1224,17 @@ def recheck_bundle(bundle: Path, out: Path, shard: str | None = None) -> dict | 
     if missing:
         print(f"the auditor reported no result for {missing[:3]}")
         return None
-    lengths = {}
+    lengths, same = {}, {}
     if (bundle / "prompt_tokens.json").exists():
         lengths = json.loads((bundle / "prompt_tokens.json").read_text())
+    if (bundle / "token_ids.json").exists():
+        same = json.loads((bundle / "token_ids.json").read_text())
     for r in results:
         r["manifest"] = next((k for k in ("mismatch", "unlisted") if r["case"] in found[k]), "ok")
         if r["case"] in lengths:
             r["prompt_tokens"] = lengths[r["case"]]
+        if r["case"] in same:
+            r["same_token_ids"] = same[r["case"]]
     return {
         "seed": prover["seed"], "host": auditor["cpu"], "prover": prover["fingerprint"], "auditor": auditor,
         "min_prompt_words": prover.get("min_prompt_words", 0),
@@ -1174,20 +1261,23 @@ def quick_failures(s: dict, unproven: dict, cheat: int, samples: list[dict] = ()
     User decision (2026-10-01): an answer that cannot be re-tokenized is inconclusive, not a miss;
     at most one per variant is tolerated, while any honest failure or cheating pass fails the
     regression. An honest answer whose segments do not fit its usage (no proof at the provider,
-    m6-toploc-async-stop) fails it too. An int8 answer to a prompt outside the audit length band
-    (of `samples`) may pass: the rules do not require it to fail there (design D8)."""
+    m6-toploc-async-stop) fails it too. An int8 answer may pass: a single audit is not required to
+    catch it (2026-10-09, design D13); an honest answer that fails because its text re-tokenizes to
+    other token IDs (of `samples`, I-023) is excused."""
     failures = []
-    excused = sum(variant_of(x["case"]) == "int8" and x["outcome"] == "pass" and side(x) == "outside"
-                  for x in samples)
+    mismatched = sum(token_mismatch(x) and x["outcome"] == "fail" for x in samples)
     h = s.get("honest", {}).get("outcomes", {})
-    if h.get("fail", 0) or h.get("inconclusive", 0) > 1:
+    if h.get("fail", 0) - mismatched or h.get("inconclusive", 0) > 1:
         failures.append(f"honest samples: {h}")
     if unproven.get("honest"):
         failures.append(f"honest answers without proof at the prover: {unproven['honest']}")
     for v in CHEATS:
         o = s.get(v, {}).get("outcomes", {})
-        passed = o.get("pass", 0) - (excused if v == "int8" else 0)
-        if passed or o.get("inconclusive", 0) > 1:
+        if v == "int8":
+            if o.get("pass", 0):
+                print(f"int8 samples passing (not a failure of a single audit): {o.get('pass', 0)} of {cheat}")
+            continue
+        if o.get("pass", 0) or o.get("inconclusive", 0) > 1:
             failures.append(f"{v} samples: {o} of {cheat}")
     return failures
 

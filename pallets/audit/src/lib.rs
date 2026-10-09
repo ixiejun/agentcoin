@@ -109,8 +109,8 @@ impl AuditGenesis {
         unbond_blocks: 604_800,
         stake_usd: MicroUsd(1_000_000_000),
         payment_usd: MicroUsd(50_000),
-        // ac_market_proto::AUDIT_THRESHOLDS (m6-toploc-gpu-calibration: per prompt length).
-        thresholds_version: 3,
+        // ac_market_proto::AUDIT_THRESHOLDS (m6-toploc-gpu-calibration: calibrated single-audit bounds).
+        thresholds_version: 4,
     };
 
     /// The fixed and the adjustable parameters.

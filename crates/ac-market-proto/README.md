@@ -78,13 +78,17 @@ Byte-level vectors shared with the plugin's tests are in `tests/vectors/engine_p
 ## Audit thresholds
 
 `toploc::judge` is the audit's pass / fail rule over `ac_toploc::compare`'s per-chunk results
-(spec `market/toploc` "复核判定规则与阈值"). `Thresholds` (version 3) hold an audit length band
+(spec `market/toploc` "复核判定规则与阈值"). `Thresholds` hold an audit length band
 (`PromptBand`, prompt tokens from `min` to `max`, both included) and three sets of
-`ChunkBounds`: strict ones for the prefill chunk of a prompt in the band (the prompt, which the
-auditor knows exactly and recomputes the way the provider did), wider ones for the prefill chunk
-of a prompt outside it (on GPUs a short prompt's prefill varies with the batch's shape), and the
+`ChunkBounds`: one for the prefill chunk of a prompt in the band (the prompt, which the auditor
+knows exactly and recomputes the way the provider did), one for the prefill chunk of a prompt
+outside it (on GPUs the prefill varies with the prompt's length and the batch's shape), and the
 widest for the decode chunks. `judge` takes the prompt's token count to pick the prefill set;
-auditors send prompts in the band only. A chunk passes if its exponent
+auditors send prompts in the band only. A single audit only tells gross deviations apart
+(another model, quantization below 8 bits, a changed prompt): version 4 bounds the prefill
+chunk by 20 / 6.00 / 5 on both sides of the band and decode chunks by 28 / 12.00 / 12, above
+the honest maximum of the GPU calibration; 8-bit quantization is left to the statistical
+judgment per provider. A chunk passes if its exponent
 mismatches, its mean mantissa error (in hundredths, as `sum × 100 ≤ bound × count`) and its
 median mantissa error stay within its set and at least one exponent matches; an inference passes
 if every chunk does, and otherwise fails on the first chunk out of bounds. `AUDIT_THRESHOLDS`

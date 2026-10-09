@@ -87,11 +87,13 @@ scripts/gpu-calibration.sh pack       # archives and their SHA-256 in /root/auto
 an A100 also gets seed 12.) If `check` stops, nothing is generated on that GPU: send the log it
 names.
 
-Prompts are fitted to target lengths around the audit length band of thresholds version 3
+Prompts are fitted to target lengths around the audit length band
 (150–300 tokens, from `ac-auditor thresholds`): about 80% inside it, 10% shorter, 10% longer. Of
 4,000 honest samples about 3,200 are inside the band and 800 outside, as each cell needs (at
 least 3,000 and 500); the cheats are spread the same way. The quick regression of `check` judges
-by version 3, and lets int8 pass outside the band.
+by the current thresholds (version 4: a single audit catches another model, int4 and a changed
+prompt); int8 passes and honest answers whose text re-tokenizes to other token IDs (issue I-023,
+recorded per case in `token_ids.json`) never count as failures.
 
 Then give each machine the other's bundle and re-check it:
 

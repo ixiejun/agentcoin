@@ -194,6 +194,40 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(kept["unexpected"][0]["chunks"], bad["chunks"])
 
 
+class TokenMismatchTests(unittest.TestCase):
+    """m6-toploc-gpu-calibration 11.1 (design D15): honest answers whose text re-tokenizes to other
+    token IDs are listed apart (issue I-023)."""
+
+    # Spec "token ID 不一致的诚实回答单列".
+    def test_listed_apart_and_out_of_the_conclusion(self):
+        bad = dict(sample("honest-00002.json", [EXACT, chunk(exp=83, total=3500, median=25)]),
+                   prompt_tokens=200, same_token_ids=False)
+        good = dict(sample("honest-00003.json", [EXACT, EXACT]), prompt_tokens=200, same_token_ids=True)
+        cheats = [dict(sample(f"{v}-00000.json", [chunk(exp=90, total=900, median=9)]), prompt_tokens=200)
+                  for v in cal.CHEATS]
+        code, report, condensed = merged([shard(5, gpu_fp("A"), gpu_fp("B"), [bad, good] + cheats)])
+        self.assertEqual(code, 0)
+        self.assertEqual([x["case"] for x in report["token_mismatch"]], ["honest-00002.json"])
+        self.assertEqual(report["cells"]["A → B"]["honest"]["samples"], 1)
+        self.assertEqual(report["cells"]["A → B"]["honest"]["fail"], 0)
+        self.assertNotIn("honest", " ".join(report["conclusion"].get("broken", [])))
+        self.assertIn("token_mismatch", json.loads(condensed))
+        # The same answer without the generation's record counts as an honest failure.
+        unknown = {k: v for k, v in bad.items() if k != "same_token_ids"}
+        self.assertFalse(cal.token_mismatch(unknown))
+        self.assertTrue(cal.token_mismatch(bad))
+        # A cheat is never excused this way.
+        self.assertFalse(cal.token_mismatch(dict(cheats[0], same_token_ids=False)))
+
+    def test_the_quick_regression_excuses_them(self):
+        s = {"honest": {"outcomes": {"pass": 47, "fail": 1, "inconclusive": 0}}}
+        for v in cal.CHEATS:
+            s[v] = {"outcomes": {"pass": 0, "fail": 8, "inconclusive": 0}}
+        bad = {"case": "honest-00007.json", "outcome": "fail", "same_token_ids": False}
+        self.assertEqual(cal.quick_failures(s, {}, 8, [bad]), [])
+        self.assertTrue(cal.quick_failures(s, {}, 8, [dict(bad, same_token_ids=True)]))
+
+
 class ReplayTests(unittest.TestCase):
     """Design D5: the thresholds replayed in Python, as `ac_market_proto::toploc::judge`."""
 
@@ -204,8 +238,8 @@ class ReplayTests(unittest.TestCase):
         block = block[: block.index("\n};") + 3]
         version = int(re.search(r"version:\s*(\d+)", block).group(1))
         band = tuple(int(v) for v in re.search(r"band:\s*PromptBand\s*\{\s*min:\s*(\d+),\s*max:\s*(\d+)", block).groups())
-        bounds = [tuple(int(v) for v in m) for m in re.findall(
-            r"exp_mismatches:\s*(\d+),\s*mant_mean_centi:\s*(\d+),\s*mant_median:\s*(\d+)", block)]
+        bounds = [tuple(int(v.replace("_", "")) for v in m) for m in re.findall(
+            r"exp_mismatches:\s*([\d_]+),\s*mant_mean_centi:\s*([\d_]+),\s*mant_median:\s*([\d_]+)", block)]
         self.assertEqual(version, cal.CURRENT["version"])
         self.assertEqual(band, cal.CURRENT["band"])
         self.assertEqual(bounds, [cal.CURRENT["prefill"], cal.CURRENT["prefill_outside"], cal.CURRENT["decode"]])
@@ -272,8 +306,8 @@ class ReplayTests(unittest.TestCase):
 
 
 class ConclusionTests(unittest.TestCase):
-    """The conclusion rules of "GPU 跨硬件校准", per side of the audit length band (version 3:
-    150–300 prompt tokens; prefill 6/0.85/1 inside, 15/5.00/4 outside)."""
+    """The conclusion rules of "GPU 跨硬件校准", per side of the audit length band (version 4:
+    150–300 prompt tokens; prefill 20/6.00/5 on both sides, decode 28/12.00/12)."""
 
     IN, OUT = 200, 100
 
@@ -312,24 +346,36 @@ class ConclusionTests(unittest.TestCase):
         r = cal.under(samples, cal.CURRENT)["A → B"]
         self.assertEqual((r["inside"]["honest"], r["outside"]["honest"]), (1, 1))
 
-    # Scenario "区间外的 int8 不计漏检": an int8 answer outside the band passes; still satisfied,
-    # and its pass is reported.
-    def test_int8_outside_the_band(self):
-        passing = chunk(exp=4, total=256)  # mean 2.00: inside it fails, outside it passes
+    # Scenario "int8 不计入单次判定的漏检": int8 answers pass on both sides; still satisfied, and
+    # their passes are reported.
+    def test_int8_is_not_a_miss(self):
+        passing = chunk(exp=1, total=64)  # mean 0.50: within the prefill bounds on both sides
         c = self.conclusion([self.honest(self.IN, EXACT), self.honest(self.OUT, EXACT)]
-                            + self.cheats() + self.cheats(self.OUT, int8=passing))
+                            + self.cheats(int8=passing) + self.cheats(self.OUT, int8=passing))
         self.assertEqual(c["decision"], "keep")
+        self.assertEqual(c["cells"]["A → B"]["inside"]["missed"]["int8"], 1)
         self.assertEqual(c["cells"]["A → B"]["outside"]["missed"]["int8"], 1)
-        # The same int8 answer inside the band is a miss of the current values: it fails there.
-        inside = cal.under([dict(x, prover="A", auditor="B") for x in self.cheats(int8=passing)], cal.CURRENT)
-        self.assertEqual(inside["A → B"]["inside"]["missed"]["int8"], 0)
 
-    # Honest prefill errors above the provisional values: widened to the honest maximum, still
-    # catching every cheat it must.
+    # Scenario "报告按区间内外分开": the statistics a verdict would carry, as histograms per cell,
+    # side and variant.
+    def test_statistics_per_side(self):
+        xs = [dict(x, prover="A", auditor="B") for x in
+              [self.honest(self.IN, chunk(total=64), chunk(total=128), chunk(total=256)),
+               self.honest(self.OUT, chunk(total=64)), dict(self.cheats()[-1])]]
+        st = cal.statistics(xs)["A → B"]
+        self.assertEqual(st["inside"]["honest"], {"samples": 1, "prefill": {"50": 1}, "decode": {"150": 1}})
+        self.assertEqual(st["outside"]["honest"], {"samples": 1, "prefill": {"50": 1}, "decode": {}})
+        self.assertEqual(st["inside"]["int8"]["samples"], 1)
+        self.assertEqual(cal.audit_stats(xs[0]), {"prompt_tokens": self.IN, "prefill": 50, "decode": 150,
+                                                  "decode_chunks": 2})
+        self.assertEqual(cal.centi(chunk(exp=128, count=0, median=None)), cal.STAT_MAX)
+
+    # Honest prefill errors above the current values: widened to the honest maximum, still
+    # catching every cheat a single audit must.
     def test_widen(self):
-        c = self.conclusion([self.honest(self.IN, chunk(exp=8, total=100), EXACT)] + self.cheats())
+        c = self.conclusion([self.honest(self.IN, chunk(exp=25, total=100), EXACT)] + self.cheats())
         self.assertEqual(c["decision"], "widen")
-        self.assertEqual(c["thresholds"]["prefill"], (8, 85, 1))
+        self.assertEqual(c["thresholds"]["prefill"], (25, 600, 5))
         self.assertEqual(c["thresholds"]["band"], cal.CURRENT["band"])
         self.assertEqual(c["current"]["A → B"]["inside"]["honest_fail"], 1)
 
@@ -461,13 +507,15 @@ class QuickTests(unittest.TestCase):
         self.assertFalse(cal.quick_failures(self.summary(honest={"pass": 47, "inconclusive": 1}), {}, 8))
         self.assertTrue(cal.quick_failures(self.summary(cheat={"pass": 1, "fail": 7}), {}, 8))
 
-    def test_int8_outside_the_band_may_pass(self):
+    def test_int8_may_pass(self):
+        # 2026-10-09 (design D13): a single audit is not required to catch int8, in or out of the band.
         s = self.summary()
-        s["int8"]["outcomes"] = {"pass": 1, "fail": 7, "inconclusive": 0}
-        outside = {"case": "int8-00003.json", "outcome": "pass", "prompt_tokens": 40}
-        self.assertEqual(cal.quick_failures(s, {}, 8, [outside]), [])
-        self.assertTrue(cal.quick_failures(s, {}, 8, [dict(outside, prompt_tokens=200)]))
-        self.assertTrue(cal.quick_failures(s, {}, 8, [dict(outside, case="swap-00003.json")]))
+        s["int8"]["outcomes"] = {"pass": 5, "fail": 3, "inconclusive": 0}
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(cal.quick_failures(s, {}, 8), [])
+        s["swap"]["outcomes"] = {"pass": 1, "fail": 7, "inconclusive": 0}
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(cal.quick_failures(s, {}, 8))
 
 
 class WorkflowTests(unittest.TestCase):

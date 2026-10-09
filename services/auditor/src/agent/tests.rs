@@ -564,13 +564,13 @@ async fn another_thresholds_version_stops_the_audit_before_paying() {
 }
 
 #[tokio::test]
-async fn a_chain_still_on_version_2_gets_no_verdicts() {
-    // "阈值版本不符" (m6-toploc-gpu-calibration 5.1): a chain that has not adopted the
-    // per-length thresholds of version 3 is not audited by an agent that judges by them.
-    assert_eq!(AUDIT_THRESHOLDS.version, 3);
+async fn a_chain_on_an_older_version_gets_no_verdicts() {
+    // "阈值版本不符" (m6-toploc-gpu-calibration 5.1, 11.3): a chain that has not adopted the
+    // calibrated thresholds of version 4 is not audited by an agent that judges by them.
+    assert_eq!(AUDIT_THRESHOLDS.version, 4);
     let me = acc(1);
     let mut c = chain_for(me.clone());
-    c.version = 2;
+    c.version = 3;
     let chain = Arc::new(c);
     let s = shop(1);
     let a = agent_with(
@@ -582,7 +582,7 @@ async fn a_chain_still_on_version_2_gets_no_verdicts() {
     );
     assert!(matches!(
         a.audit(4, &acc(10)).await,
-        Audited::ThresholdsVersion { chain: 2, ours: 3 }
+        Audited::ThresholdsVersion { chain: 3, ours: 4 }
     ));
     assert!(s.bought.lock().unwrap().is_empty());
     assert!(chain.sent.lock().unwrap().is_empty());

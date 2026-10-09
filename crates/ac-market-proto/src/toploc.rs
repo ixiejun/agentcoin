@@ -287,11 +287,13 @@ impl PromptBand {
 }
 
 /// The bounds audits judge by. The prefill chunk (the prompt, which the auditor knows exactly
-/// and recomputes the way the provider computed it) has strict bounds when the prompt is in the
-/// audit length band and wider ones outside it: on GPUs a short prompt's prefill varies with the
-/// batch's shape, and only prompts in the band tell a weight quantization apart (m6-toploc-gpu-
-/// calibration). Decode chunks, whose activations an auditor recomputes in a prefill (a
-/// different computation path), have the widest. Versioned: an audit verdict names the version
+/// and recomputes the way the provider computed it) has one set of bounds for prompts in the
+/// audit length band and one for the others (they may be equal): on GPUs the prefill varies with
+/// the prompt's length and the batch's shape. Decode chunks, whose activations an auditor
+/// recomputes in a prefill (a different computation path), have the widest. A single audit only
+/// tells gross deviations apart (another model, quantization below 8 bits, a changed prompt);
+/// 8-bit quantization is left to the statistical judgment per provider, and the bounds never
+/// fail an honest inference to catch it (m6-toploc-gpu-calibration). Versioned: an audit verdict names the version
 /// it was judged under, and every change of a bound or of the band is a new version, calibrated
 /// anew.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -308,26 +310,29 @@ pub struct Thresholds {
     pub decode: ChunkBounds,
 }
 
-/// The bounds audits judge by. Version 3 (m6-toploc-gpu-calibration design D8): the prefill
-/// bounds depend on the prompt's length. The values are provisional until the change's GPU and
-/// CPU calibration fixes them (version 2 bounded every prefill chunk by 2 / 0.50 / 1).
+/// The bounds audits judge by. Version 4 (m6-toploc-gpu-calibration design D13, D14): above the
+/// honest maximum of the GPU and CPU calibration with a margin, below another model, int4 and a
+/// changed prompt; the same prefill bounds on both sides of the band, which audit prompts and the
+/// statistical judgment still use. Version 3 (6 / 0.85 / 1 in the band, 15 / 5.00 / 4 outside,
+/// 20 / 8.00 / 8 decode) was provisional and is kept only to replay the calibration runs judged
+/// under it; version 2 bounded every prefill chunk by 2 / 0.50 / 1.
 pub const AUDIT_THRESHOLDS: Thresholds = Thresholds {
-    version: 3,
+    version: 4,
     band: PromptBand { min: 150, max: 300 },
     prefill: ChunkBounds {
-        exp_mismatches: 6,
-        mant_mean_centi: 85,
-        mant_median: 1,
+        exp_mismatches: 20,
+        mant_mean_centi: 600,
+        mant_median: 5,
     },
     prefill_outside: ChunkBounds {
-        exp_mismatches: 15,
-        mant_mean_centi: 500,
-        mant_median: 4,
+        exp_mismatches: 20,
+        mant_mean_centi: 600,
+        mant_median: 5,
     },
     decode: ChunkBounds {
-        exp_mismatches: 20,
-        mant_mean_centi: 800,
-        mant_median: 8,
+        exp_mismatches: 28,
+        mant_mean_centi: 1_200,
+        mant_median: 12,
     },
 };
 
@@ -715,7 +720,7 @@ mod tests {
         assert!(t.prefill.within(&t.prefill_outside));
         assert!(t.prefill_outside.within(&t.decode));
         assert!(t.band.min <= t.band.max);
-        assert_eq!(t.version, 3);
+        assert_eq!(t.version, 4);
     }
 
     // Recomputing the very activations passes; another model's do not.
