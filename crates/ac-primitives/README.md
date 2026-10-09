@@ -165,3 +165,57 @@ let split = split_reward(100, 1_000, &[("validator", 1), ("nominator", 2)]);
 assert_eq!(split.commission, 10);
 assert_eq!(split.shares, vec![("validator", 30), ("nominator", 60)]);
 ```
+
+## Statistical judgment of audits
+
+`market::audit::stats` holds the per-provider statistical judgment (OpenSpec change
+`m6-audit-sprt`). It catches deviations too subtle for a single audit, such as 8-bit weights,
+including 8-bit weights used only while decoding.
+
+- `AuditStats` are the integers a verdict judged by the thresholds carries:
+  - the prompt token count;
+  - the prefill chunk's mean mantissa error;
+  - the decode chunks' mean errors, averaged;
+  - the number of decode chunks.
+
+  Means are in hundredths and rounded down. A chunk with no matching exponent, or any value
+  above 65,535, saturates at 65,535. Without decode chunks the decode mean is 0.
+  `AuditStats::from_chunks` computes them from a re-check's chunks.
+- `StatsParams` is one version of the parameters; the versions are listed in `AUDIT_STATS`,
+  and `stats_params` looks one up. A version holds:
+  - the audit length band;
+  - bin edges and log-likelihood ratios for each statistic, in thousandths of a nat;
+  - the clamp on one verdict's contribution;
+  - the per-auditor cap, a third of the bound, so crossing needs at least three auditors;
+  - the bound;
+  - the most entries a provider's state keeps.
+
+  Version 1 is provisional, derived from the GPU calibration: clamp −0.5 / +3.0 nats, bound
+  24.7 nats.
+- A verdict's contribution is the sum of two ratios, clamped:
+  - the prefill bin's ratio, counted only when the prompt is in the band;
+  - the decode bin's ratio, counted only when there are decode chunks.
+- `SprtState` is a provider's CUSUM: `S ← max(0, S + counted)`.
+  - A state back at 0 forgets its entries.
+  - A positive contribution counts only up to what is left of its auditor's cap.
+  - A full list drops its oldest entry and replays the rest.
+  - `SprtState::replay` recomputes a state from its entries; anyone can check the chain with it.
+
+```rust
+use ac_primitives::market::audit::{AuditStats, CURRENT_STATS, SprtEntry, SprtState};
+
+let p = CURRENT_STATS;
+// An 8-bit-like verdict: high prefill and decode means for a prompt in the band.
+let int8 = AuditStats { prompt_tokens: 200, prefill_mean_centi: 125, decode_mean_centi: 250, decode_chunks: 4 };
+assert_eq!(p.contribution(&int8), 3_000); // clamped to +3.0 nats
+// An honest-looking one counts against the state, down to the floor of −0.5 nats.
+let honest = AuditStats { prompt_tokens: 200, prefill_mean_centi: 50, decode_mean_centi: 100, decode_chunks: 4 };
+assert_eq!(p.contribution(&honest), -500);
+
+let mut s = SprtState::default();
+for (auditor, round) in [(1u8, 0), (2, 0), (3, 1), (4, 1), (5, 2), (6, 2), (7, 3), (8, 3), (9, 4)] {
+    s.record(&p, SprtEntry { auditor, round, contribution: p.contribution(&int8) });
+}
+assert!(s.crossed(&p)); // 27.0 nats ≥ 24.7
+assert_eq!(s, SprtState::replay(&p, s.entries.clone()));
+```

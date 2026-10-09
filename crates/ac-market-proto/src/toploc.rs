@@ -723,6 +723,20 @@ mod tests {
         assert_eq!(t.version, 4);
     }
 
+    // m6-audit-sprt 1.2: the statistical judgment's parameters use these thresholds' band.
+    #[test]
+    fn statistics_use_the_thresholds_band() {
+        use ac_primitives::market::audit::{AUDIT_STATS, CURRENT_STATS};
+        let t = AUDIT_THRESHOLDS;
+        assert_eq!(CURRENT_STATS.thresholds_version, t.version);
+        for p in AUDIT_STATS
+            .iter()
+            .filter(|p| p.thresholds_version == t.version)
+        {
+            assert_eq!(p.band, (t.band.min, t.band.max), "version {}", p.version);
+        }
+    }
+
     // Recomputing the very activations passes; another model's do not.
     #[test]
     fn judging_real_comparisons() {

@@ -6,8 +6,17 @@
 //!
 //! A verdict never holds the prompt, the answer or the proofs (red line 6): only the receipt and,
 //! for a failure, the commitment to the evidence, which stays off chain.
+//!
+//! [`stats`] is the statistical judgment over a provider's verdicts (m6-audit-sprt).
 
 use alloc::vec::Vec;
+
+pub mod stats;
+
+pub use stats::{
+    AUDIT_STATS, AuditStats, CURRENT_STATS, ChunkMantissa, MAX_SPRT_ENTRIES, STAT_MAX, SprtEntry,
+    SprtState, StatsConfig, StatsParams, stats_params,
+};
 
 use parity_scale_codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
