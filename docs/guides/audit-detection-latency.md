@@ -71,6 +71,31 @@ Reproduce with `scripts/sim-audit-latency.py` and `scripts/sim-audit-latency.py 
   parameters (20 + 15 + submit + review blocks) and within the test's bound of three rounds
   after the switch.
 
+## Statistical judgment (8-bit weights)
+
+Since thresholds version 4 a single audit no longer catches int8 weights. The statistical
+judgment (OpenSpec change `m6-audit-sprt`) accumulates each passing or failing verdict's
+statistics per provider, and a statistical dispute opens once the state reaches the bound.
+`scripts/export-audit-stats.py --simulate` gives the audits needed, by share of requests served
+with int8. `scripts/sim-audit-latency.py --stats-sim <report>` turns them into time: 2 audits
+per round, and a 2-minute review. The table uses provisional parameter version 1 on the GPU
+calibration (seed 1, 1,000 runs). All times assume 20-minute rounds.
+
+| int8 share of requests | Audits (median / p95) | Decided after (median / p95) |
+|---|---|---|
+| 100% | 9 / 9 | 1.7 h / 1.7 h |
+| 50% | 19 / 31 | 3.4 h / 5.4 h |
+| 30% | 45 / 90 | 7.0 h / 14.7 h |
+| 20% | 103 / 320 | 17.0 h / 55.7 h |
+
+The honest bound holds on every calibrated cell: the worst cell's `E[e^λ]` is 0.62, so false
+disputes stay below 52,560 × e^−24.7 ≈ 10⁻⁶ per provider and year. On the development chain,
+the `agents_find_a_provider_that_drifts` test checks this end to end. Sixteen agents audit a
+provider that starts proving slightly deviating activations. Its single audits all pass, yet the
+statistical dispute opens and is confirmed, and the honest provider's state stays below the
+bound. A cheat on fewer than about 20% of requests takes days or is not found; its gain is just
+as small (the change's simulation report).
+
 ## Limits
 
 - The simulation assumes a cheat that never stops. An intermittent cheater is caught with the

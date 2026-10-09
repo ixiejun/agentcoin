@@ -48,6 +48,10 @@ struct Args {
     /// See --switch-seed.
     #[arg(long, requires = "switch_seed")]
     switch_file: Option<std::path::PathBuf>,
+    /// Prove slightly deviating activations once this file exists (a provider starting to
+    /// serve 8-bit weights; m6-audit-sprt).
+    #[arg(long)]
+    deviate_file: Option<std::path::PathBuf>,
 }
 
 #[tokio::main]
@@ -73,6 +77,7 @@ async fn main() -> anyhow::Result<()> {
             }),
             model_seed: a.model_seed,
             switch: a.switch_seed.zip(a.switch_file),
+            deviate: a.deviate_file,
         },
     )
     .await?;

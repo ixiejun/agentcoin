@@ -23,6 +23,7 @@ serde_json = { workspace = true, features = ["std"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net", "sync", "io-util"] }
 
 [dev-dependencies]
+ac-primitives = { workspace = true, features = ["std"] }
 
 [lints]
 workspace = true

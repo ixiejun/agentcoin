@@ -14,6 +14,12 @@
 //! switch to the first failing verdict, to the dispute and to the jail (and writes them to
 //! `$AC_E2E_LATENCY` if set, for the CI summary and the latency report).
 //!
+//! A second scenario (m6-audit-sprt 7.2) has one provider start proving slightly deviating
+//! activations, like 8-bit weights: every single audit passes, and the statistical judgment
+//! must open a statistical dispute that the reviewers confirm, while the honest provider's
+//! statistical state stays below the bound. A statistical dispute's reviewers exclude every
+//! auditor of its verdicts, so this scenario runs sixteen auditors.
+//!
 //! Enabled with `AC_E2E=1`; needs `cargo build -p ac-node -p ac-wallet -p ac-provider -p
 //! ac-gateway -p ac-auditor -p ac-mock-engine`.
 
@@ -34,7 +40,8 @@ use std::time::Duration;
 
 use ac_e2e::{TestNode, Testnet, TestnetConfig, free_port};
 use ac_primitives::market::audit::{
-    AuditorStats, ProviderAuditStats, RoundIndex, VerdictOutcome, VerdictRecord,
+    AuditorStats, CURRENT_STATS, DisputeKind, DisputeRecord, ProviderAuditStats, RoundIndex,
+    SprtState, VerdictOutcome, VerdictRecord,
 };
 use ac_runtime::AccountId;
 use common::{Proc, W, account, api, bin, field, funded_wallet, import_dev_wallet, run};
@@ -48,6 +55,18 @@ const HONEST_SEED: u64 = 7;
 /// What the cheating provider switches to.
 const OTHER_SEED: u64 = 8;
 const AUDITORS: usize = 6;
+/// Auditors of the statistical scenario: enough that reviewers remain once a dispute's verdicts
+/// exclude their auditors.
+const STATS_AUDITORS: usize = 16;
+
+/// How the cheating provider cheats.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Cheat {
+    /// It plays another model: single audits fail.
+    Model,
+    /// It proves slightly deviating activations: single audits pass.
+    Deviate,
+}
 
 struct ProviderSetup {
     wallet: W,
@@ -103,6 +122,14 @@ async fn open_dispute(node: &TestNode, who: &AccountId) -> Option<u64> {
     api(node, "AuditApi_open_dispute", &who.encode()).await
 }
 
+async fn sprt_state(node: &TestNode, who: &AccountId) -> SprtState<AccountId> {
+    api(node, "AuditApi_sprt_state", &who.encode()).await
+}
+
+async fn dispute(node: &TestNode, id: u64) -> Option<DisputeRecord<AccountId, u32>> {
+    api(node, "AuditApi_dispute", &id.encode()).await
+}
+
 fn status(user: &W, address: &str) -> String {
     let mut c = Command::new(bin("ac-wallet"));
     c.args(["market", "provider", "show", "--address", address])
@@ -110,11 +137,23 @@ fn status(user: &W, address: &str) -> String {
     run(&mut c)
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn agents_find_a_provider_that_starts_cheating() {
-    require_e2e!();
+/// A running audit world: the chain, two providers (the first one cheats once `trigger`
+/// exists), a gateway and the auditors' agents, after a full round of honest service.
+struct World {
+    net: Testnet,
+    base: PathBuf,
+    user: W,
+    cheater_address: String,
+    cheater: AccountId,
+    honest: AccountId,
+    auditors: Vec<AccountId>,
+    trigger: PathBuf,
+    _procs: Vec<Proc>,
+}
+
+async fn world(label: &str, auditor_count: usize, cheat: Cheat) -> World {
     let config = TestnetConfig {
-        label: "auditor-agent".to_string(),
+        label: label.to_string(),
         chain: "dev".to_string(),
         authorities: 1,
         args: Vec::new(),
@@ -143,7 +182,7 @@ async fn agents_find_a_provider_that_starts_cheating() {
         "model id",
     );
 
-    // Two providers at the same price; the cheater's engine switches models on a file.
+    // Two providers at the same price; the cheater's engine starts cheating on a file.
     let switch_file = base.join("start-cheating");
     let mut engines = Vec::new();
     let mut providers = Vec::new();
@@ -155,9 +194,16 @@ async fn agents_find_a_provider_that_starts_cheating() {
             .arg("--toploc-socket")
             .arg(&toploc);
         if name == "cheater" {
-            c.args(["--switch-seed", &OTHER_SEED.to_string()])
-                .arg("--switch-file")
-                .arg(&switch_file);
+            match cheat {
+                Cheat::Model => {
+                    c.args(["--switch-seed", &OTHER_SEED.to_string()])
+                        .arg("--switch-file")
+                        .arg(&switch_file);
+                }
+                Cheat::Deviate => {
+                    c.arg("--deviate-file").arg(&switch_file);
+                }
+            }
         }
         let (engine, engine_addr) = Proc::start(c, base.join(format!("engine-{name}.log")));
         engines.push(engine);
@@ -193,7 +239,7 @@ async fn agents_find_a_provider_that_starts_cheating() {
             toploc,
         });
     }
-    let _running: Vec<Proc> = providers
+    let mut procs: Vec<Proc> = providers
         .iter()
         .zip(["cheater", "honest"])
         .map(|(p, n)| {
@@ -225,7 +271,7 @@ async fn agents_find_a_provider_that_starts_cheating() {
         "--fee-bps",
         "300",
     ]));
-    let (_gw, _) = Proc::start(
+    let (gw, _) = Proc::start(
         {
             let mut c = Command::new(bin("ac-gateway"));
             c.arg("run")
@@ -247,6 +293,8 @@ async fn agents_find_a_provider_that_starts_cheating() {
         },
         base.join("gateway.log"),
     );
+    procs.push(gw);
+    procs.extend(engines);
     let g = gateway.address();
 
     // A prompt bank whose every prompt carries the marker (spec "日志中没有审计 prompt"). The
@@ -267,9 +315,8 @@ async fn agents_find_a_provider_that_starts_cheating() {
     // agent. The pot pays them.
     let pot = field(&run(&mut user.query(&["audit", "pot"])), "pot");
     run(&mut user.cmd(&["transfer", "--to", &pot, "--amount", "100"]));
-    let mut agents = Vec::new();
     let mut auditors = Vec::new();
-    for i in 0..AUDITORS {
+    for i in 0..auditor_count {
         let a = funded_wallet(&base, &format!("auditor{i}"), &user, "2000");
         run(&mut a.cmd(&["audit", "register"]));
         let payer = funded_wallet(&base, &format!("payer{i}"), &user, "50");
@@ -323,7 +370,8 @@ async fn agents_find_a_provider_that_starts_cheating() {
             .arg(&socket);
         let verify = Proc::spawn(engine, &base.join(format!("auditor{i}-engine.log")));
         let (agent, _) = Proc::start(agent, base.join(format!("auditor{i}.log")));
-        agents.push((agent, verify));
+        procs.push(agent);
+        procs.push(verify);
         auditors.push(account(&a.address()));
     }
 
@@ -337,53 +385,38 @@ async fn agents_find_a_provider_that_starts_cheating() {
         assert!(s.pass > 0, "no passing verdict before the switch: {s:?}");
         assert_eq!(s.fail, 0, "{s:?}");
     }
+    let cheater_address = providers[0].wallet.address();
+    World {
+        net,
+        base,
+        user,
+        cheater_address,
+        cheater,
+        honest,
+        auditors,
+        trigger: switch_file,
+        _procs: procs,
+    }
+}
 
-    // The switch, in the middle of a round.
+/// Waits for the middle of a round and starts the cheat; returns the round, its length and
+/// the block of the switch.
+async fn start_cheating(w: &World) -> (RoundIndex, u32, u32, u32) {
+    let node = &w.net.nodes[0];
     let (k, start, next) = round(node).await;
     while block(node).await < start + (next - start) / 2 {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    std::fs::write(&switch_file, b"").unwrap();
-    let switched = block(node).await;
-    let length = next - start;
-    let limit = start + 4 * length; // the end of round k + 3
+    std::fs::write(&w.trigger, b"").unwrap();
+    (k, start, next - start, block(node).await)
+}
 
-    // The agents find it: failing verdicts, a dispute, a confirmation, a jail.
-    let mut first_fail = None;
-    let mut disputed = None;
-    let mut jailed = None;
-    while jailed.is_none() {
-        let now = block(node).await;
-        assert!(
-            now < limit,
-            "not jailed within three rounds of the switch (block {switched}, now {now})"
-        );
-        if first_fail.is_none() && stats(node, &cheater).await.fail > 0 {
-            first_fail = Some(now);
-        }
-        if disputed.is_none() && open_dispute(node, &cheater).await.is_some() {
-            disputed = Some(now);
-        }
-        if field(&status(&user, &providers[0].wallet.address()), "status") == "Jailed" {
-            jailed = Some(now);
-            disputed.get_or_insert(now);
-            first_fail.get_or_insert(now);
-        }
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    }
-    let shown = status(&user, &providers[0].wallet.address());
-    assert_eq!(field(&shown, "serviceable"), "false");
-    assert_eq!(stats(node, &cheater).await.confirmed, 1);
-
-    // The honest provider: never failed, never disputed. No auditor was slashed.
-    let s = stats(node, &honest).await;
-    assert_eq!(s.fail, 0, "{s:?}");
-    assert!(open_dispute(node, &honest).await.is_none());
-    // Assignment is random, so a single auditor may never have been drawn; together they
-    // submitted verdicts and at least a quorum (2) of reviewers voted.
+/// No auditor was slashed or made to exit, and together they submitted verdicts and voted.
+async fn auditors_untouched(w: &World) {
+    let node = &w.net.nodes[0];
     let (mut verdicts, mut votes) = (0, 0);
-    for a in &auditors {
-        let shown = run(&mut user.query(&[
+    for a in &w.auditors {
+        let shown = run(&mut w.user.query(&[
             "audit",
             "status",
             "--address",
@@ -399,6 +432,70 @@ async fn agents_find_a_provider_that_starts_cheating() {
         verdicts > 0 && votes >= 2,
         "verdicts {verdicts}, votes {votes}"
     );
+}
+
+/// Nothing of the prompts in any log.
+async fn no_content_in_logs(base: &Path) {
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    for entry in std::fs::read_dir(base).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_some_and(|e| e == "log") {
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            assert!(
+                !text.contains(MARKER),
+                "{} contains request content",
+                path.display()
+            );
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agents_find_a_provider_that_starts_cheating() {
+    require_e2e!();
+    let w = world("auditor-agent", AUDITORS, Cheat::Model).await;
+    let node = &w.net.nodes[0];
+    let (base, user, cheater, honest) = (&w.base, &w.user, &w.cheater, &w.honest);
+    let auditors = &w.auditors;
+
+    // The switch, in the middle of a round.
+    let (k, start, length, switched) = start_cheating(&w).await;
+    let limit = start + 4 * length; // the end of round k + 3
+
+    // The agents find it: failing verdicts, a dispute, a confirmation, a jail.
+    let mut first_fail = None;
+    let mut disputed = None;
+    let mut jailed = None;
+    while jailed.is_none() {
+        let now = block(node).await;
+        assert!(
+            now < limit,
+            "not jailed within three rounds of the switch (block {switched}, now {now})"
+        );
+        if first_fail.is_none() && stats(node, cheater).await.fail > 0 {
+            first_fail = Some(now);
+        }
+        if disputed.is_none() && open_dispute(node, cheater).await.is_some() {
+            disputed = Some(now);
+        }
+        if field(&status(user, &w.cheater_address), "status") == "Jailed" {
+            jailed = Some(now);
+            disputed.get_or_insert(now);
+            first_fail.get_or_insert(now);
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    let shown = status(user, &w.cheater_address);
+    assert_eq!(field(&shown, "serviceable"), "false");
+    assert_eq!(stats(node, cheater).await.confirmed, 1);
+
+    // The honest provider: never failed, never disputed. No auditor was slashed.
+    let s = stats(node, honest).await;
+    assert_eq!(s.fail, 0, "{s:?}");
+    assert!(open_dispute(node, honest).await.is_none());
+    // Assignment is random, so a single auditor may never have been drawn; together they
+    // submitted verdicts and at least a quorum (2) of reviewers voted.
+    auditors_untouched(&w).await;
     // Some reviewers re-checked the evidence their accusers served and confirmed.
     let r = round(node).await.0;
     let mut fails = Vec::<VerdictRecord<AccountId>>::new();
@@ -435,19 +532,7 @@ async fn agents_find_a_provider_that_starts_cheating() {
     }
     assert!(counted > 0, "no audit prompt logged");
 
-    // Nothing of the prompts in any log.
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    for entry in std::fs::read_dir(&base).unwrap() {
-        let path = entry.unwrap().path();
-        if path.extension().is_some_and(|e| e == "log") {
-            let text = std::fs::read_to_string(&path).unwrap_or_default();
-            assert!(
-                !text.contains(MARKER),
-                "{} contains request content",
-                path.display()
-            );
-        }
-    }
+    no_content_in_logs(base).await;
 
     let latency = json!({
         "round_blocks": length,
@@ -465,6 +550,86 @@ async fn agents_find_a_provider_that_starts_cheating() {
         }
         std::fs::write(&path, latency.to_string()).unwrap();
     }
+}
+
+// m6-audit-sprt 7.2 (spec market/audit "统计判定" / "越界开启统计争议", "统计争议确认后罚没并
+// 禁闭"): a provider that starts proving slightly deviating activations passes every single
+// audit, yet its statistical state crosses the bound, the reviewers recompute the statistics
+// from the evidence and confirm, and it is slashed and jailed. The honest provider's state stays
+// below the bound and it is never disputed.
+#[tokio::test(flavor = "multi_thread")]
+async fn agents_find_a_provider_that_drifts() {
+    require_e2e!();
+    let w = world("auditor-stats", STATS_AUDITORS, Cheat::Deviate).await;
+    let node = &w.net.nodes[0];
+    let (k, start, length, switched) = start_cheating(&w).await;
+    // Nine int8-looking verdicts cross the bound; two are drawn per round, and the dispute takes
+    // a vote period: well within twelve rounds.
+    let limit = start + 12 * length;
+    let mut disputed: Option<(u32, u64)> = None;
+    let mut jailed = None;
+    while jailed.is_none() {
+        let now = block(node).await;
+        assert!(
+            now < limit,
+            "not jailed within twelve rounds of the drift (block {switched}, now {now})"
+        );
+        assert_eq!(
+            stats(node, &w.cheater).await.fail,
+            0,
+            "a single audit failed"
+        );
+        let honest = sprt_state(node, &w.honest).await;
+        assert!(
+            !honest.crossed(&CURRENT_STATS),
+            "the honest provider's state reached the bound: {}",
+            honest.cumulative
+        );
+        assert!(open_dispute(node, &w.honest).await.is_none());
+        if disputed.is_none()
+            && let Some(id) = open_dispute(node, &w.cheater).await
+        {
+            disputed = Some((now, id));
+        }
+        if field(&status(&w.user, &w.cheater_address), "status") == "Jailed" {
+            jailed = Some(now);
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    let (dispute_block, id) = disputed.expect("the dispute was never seen open");
+    let d = dispute(node, id).await.unwrap();
+    assert_eq!(
+        d.kind,
+        DisputeKind::Statistical {
+            stats_version: CURRENT_STATS.version
+        }
+    );
+    assert!(d.accusers.len() >= 9, "{} verdicts", d.accusers.len());
+    // Every verdict of the dispute passed and carried statistics and an evidence commitment.
+    for a in &d.accusers {
+        let v: Vec<VerdictRecord<AccountId>> = api(
+            node,
+            "AuditApi_verdicts",
+            &(a.round, w.cheater.clone()).encode(),
+        )
+        .await;
+        let v = v.iter().find(|v| v.auditor == a.auditor).unwrap();
+        assert_eq!(v.outcome, VerdictOutcome::Pass);
+        assert!(v.stats.is_some() && v.evidence.is_some());
+    }
+    assert_eq!(stats(node, &w.cheater).await.confirmed, 1);
+    assert_eq!(
+        field(&status(&w.user, &w.cheater_address), "serviceable"),
+        "false"
+    );
+    auditors_untouched(&w).await;
+    no_content_in_logs(&w.base).await;
+    eprintln!(
+        "statistical detection: round blocks {length}, drift at block {switched} (round {k}), \
+         dispute after {} blocks, jail after {} blocks",
+        dispute_block - switched,
+        jailed.unwrap() - switched
+    );
 }
 
 trait Query {

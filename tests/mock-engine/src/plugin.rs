@@ -9,6 +9,11 @@
 //! midway, see [`PluginConfig::preempt_after`], or with the end token fed back, see
 //! [`PluginConfig::end_fed_back`]). In the verify mode it sends one segment per prefilled
 //! token row of a completion, then the end marker.
+//!
+//! A deviating prover ([`Plugin::deviating`], m6-audit-sprt 7.1) flips one low mantissa bit
+//! ([`SUBTLE_XOR`]) of every activation it proves: every chunk's mean mantissa error is 2.00,
+//! within the single-audit bounds but on the int8 side of the statistical judgment, like a
+//! provider serving 8-bit weights.
 
 use std::path::PathBuf;
 
@@ -20,6 +25,10 @@ use tokio::sync::Mutex;
 
 /// Hidden size of the pseudo-model (values per token); at least the market's top-k of 128.
 pub const HIDDEN: u32 = 256;
+
+/// The bits a deviating prover flips in every activation: one mantissa bit, so the exponent and
+/// the sign never change and the mantissa error is always 2.
+pub const SUBTLE_XOR: u16 = 0x0002;
 
 /// How the stand-in plugin behaves.
 #[derive(Clone, Debug)]
@@ -60,6 +69,7 @@ pub struct Plugin {
     config: PluginConfig,
     seed: u64,
     switch: Option<(u64, PathBuf)>,
+    deviate: Option<PathBuf>,
     conn: Mutex<Option<(UnixStream, usize)>>,
 }
 
@@ -111,8 +121,22 @@ impl Plugin {
             config,
             seed,
             switch: None,
+            deviate: None,
             conn: Mutex::new(None),
         }
+    }
+
+    /// Proves slightly deviating activations once `file` exists (see `Config::deviate`).
+    #[must_use]
+    pub fn deviating(mut self, file: Option<PathBuf>) -> Self {
+        self.deviate = file;
+        self
+    }
+
+    /// Whether the proved activations deviate now.
+    #[must_use]
+    pub fn deviates(&self) -> bool {
+        self.deviate.as_ref().is_some_and(|f| f.exists())
     }
 
     /// Plays the model of `seed` once `file` exists (see `Config::switch`).
@@ -141,6 +165,13 @@ impl Plugin {
     /// followed by the `output` tokens; failures are ignored (the provider then signs a receipt
     /// without proofs), as the real plugin never blocks inference.
     pub async fn send(&self, request: &str, prompt: &[u32], output: &[u32]) {
+        let segs = self.prove_segments(prompt, output);
+        self.write(request, segs).await;
+    }
+
+    /// The segments a prove-mode plugin sends for `prompt` followed by `output`.
+    #[must_use]
+    pub fn prove_segments(&self, prompt: &[u32], output: &[u32]) -> Vec<(Phase, Vec<Bf16>)> {
         let mut tokens = prompt.to_vec();
         tokens.extend_from_slice(output);
         let prefixes = prefix_hashes(self.seed(), &tokens);
@@ -181,7 +212,14 @@ impl Plugin {
                 }
             }
         }
-        self.write(request, segs).await;
+        if self.deviates() {
+            for (_, values) in &mut segs {
+                for v in values.iter_mut() {
+                    v.0 ^= SUBTLE_XOR;
+                }
+            }
+        }
+        segs
     }
 
     /// Connects now if not connected; `true` once connected. A verify-mode engine connects at
@@ -286,5 +324,81 @@ mod switch_tests {
         assert_eq!(p.seed(), 7);
         let plain = Plugin::new(PluginConfig::prove(PathBuf::from("/nowhere")), 7);
         assert_eq!(plain.seed(), 7);
+    }
+}
+
+#[cfg(test)]
+mod deviation_tests {
+    #![allow(clippy::unwrap_used, clippy::indexing_slicing)] // Test code.
+
+    use super::*;
+    use ac_market_proto::toploc::{AUDIT_THRESHOLDS, Judgement, MARKET_PARAMS, judge};
+    use ac_primitives::market::audit::{AuditStats, CURRENT_STATS, ChunkMantissa};
+    use ac_toploc::{Segment, build_proofs_from_candidates, compare_from_candidates};
+
+    fn segments(rows: Vec<(Phase, Vec<Bf16>)>) -> Vec<Segment> {
+        rows.into_iter()
+            .map(|(phase, values)| Segment {
+                phase,
+                len: u32::try_from(values.len()).unwrap(),
+                candidates: top_k_candidates(&values, 128),
+            })
+            .collect()
+    }
+
+    /// The single-audit judgement and the statistical contribution of an audit of `plugin`'s
+    /// proofs for a prompt in the audit length band.
+    fn audit(plugin: &Plugin) -> (Judgement, i32) {
+        let prompt: Vec<u32> = (0..200).collect();
+        let output: Vec<u32> = (1_000..1_040).collect();
+        let proofs = build_proofs_from_candidates(
+            &segments(plugin.prove_segments(&prompt, &output)),
+            &MARKET_PARAMS,
+        )
+        .unwrap();
+        // The auditor's rows: the sequence prefilled, one row per token, honest activations.
+        let mut tokens = prompt.clone();
+        tokens.extend_from_slice(&output[..39]);
+        let prefixes = prefix_hashes(7, &tokens);
+        let rows = (0..tokens.len())
+            .map(|t| {
+                let phase = if t < prompt.len() {
+                    Phase::Prefill
+                } else {
+                    Phase::Decode
+                };
+                (phase, activations(&prefixes, t, t + 1))
+            })
+            .collect();
+        let cmp = compare_from_candidates(&segments(rows), &proofs, &MARKET_PARAMS).unwrap();
+        let chunks: Vec<ChunkMantissa> = cmp
+            .iter()
+            .map(|c| ChunkMantissa {
+                err_sum: c.mant_err_sum,
+                count: c.mant_count,
+            })
+            .collect();
+        let stats = AuditStats::from_chunks(200, &chunks).unwrap();
+        (
+            judge(&cmp, &AUDIT_THRESHOLDS, 200),
+            CURRENT_STATS.contribution(&stats),
+        )
+    }
+
+    // m6-audit-sprt 7.1: the deviation stays within the single-audit bounds and counts as int8
+    // evidence; the honest prover counts against it.
+    #[test]
+    fn a_deviating_prover_passes_and_counts_as_int8() {
+        let file = std::env::temp_dir().join(format!("ac-mock-deviate-{}", std::process::id()));
+        let _ = std::fs::remove_file(&file);
+        let p = Plugin::new(PluginConfig::prove(PathBuf::new()), 7).deviating(Some(file.clone()));
+        let (honest, c) = audit(&p);
+        assert_eq!(honest, Judgement::Pass);
+        assert!(c < 0, "{c}");
+        std::fs::write(&file, b"").unwrap();
+        let (deviating, c) = audit(&p);
+        assert_eq!(deviating, Judgement::Pass);
+        assert_eq!(c, CURRENT_STATS.clamp.1);
+        std::fs::remove_file(&file).unwrap();
     }
 }

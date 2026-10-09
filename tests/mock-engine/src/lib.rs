@@ -62,6 +62,9 @@ pub struct Config {
     /// From the moment this file exists, play the model of this seed instead: a provider that
     /// starts cheating while running (m6-auditor-agent 7.1).
     pub switch: Option<(u64, std::path::PathBuf)>,
+    /// From the moment this file exists, prove slightly deviating activations: a provider that
+    /// starts serving 8-bit weights (m6-audit-sprt 7.1).
+    pub deviate: Option<std::path::PathBuf>,
 }
 
 impl Default for Config {
@@ -74,6 +77,7 @@ impl Default for Config {
             toploc: None,
             model_seed: 0,
             switch: None,
+            deviate: None,
         }
     }
 }
@@ -173,10 +177,11 @@ pub async fn spawn(listen: &str, config: Config) -> anyhow::Result<Engine> {
     let addr = listener.local_addr()?;
     let served = Arc::new(AtomicU64::new(0));
     let shared = Arc::new(Shared {
-        plugin: config
-            .toploc
-            .clone()
-            .map(|c| plugin::Plugin::new(c, config.model_seed).switching(config.switch.clone())),
+        plugin: config.toploc.clone().map(|c| {
+            plugin::Plugin::new(c, config.model_seed)
+                .switching(config.switch.clone())
+                .deviating(config.deviate.clone())
+        }),
         config,
         served: Arc::clone(&served),
         vocab: Mutex::new(BTreeMap::new()),

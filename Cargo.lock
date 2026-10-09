@@ -242,6 +242,7 @@ name = "ac-mock-engine"
 version = "0.1.0"
 dependencies = [
  "ac-market-proto",
+ "ac-primitives",
  "ac-toploc",
  "ac-wallet",
  "anyhow",
