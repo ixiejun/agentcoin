@@ -112,7 +112,9 @@ async fn finality_survives_one_stopped_node() {
 
 // Scenario "停止一半节点后恢复": with charlie and dave stopped for 20 s blocks keep coming but
 // finality stops; after they restart every node is within 3 blocks of its best block in
-// finalized height within 30 s.
+// finalized height within 30 s. The 30 s count from when both restarted nodes serve RPC again:
+// a debug node takes over 20 s to open its database and load the runtime on a CI runner (I-021),
+// which says nothing about AC-BFT's recovery.
 #[tokio::test(flavor = "multi_thread")]
 async fn finality_pauses_without_quorum_and_recovers() {
     require_e2e!();
@@ -139,6 +141,19 @@ async fn finality_pauses_without_quorum_and_recovers() {
 
     net.restart("charlie").unwrap();
     net.restart("dave").unwrap();
+    let spawned = Instant::now();
+    for node in &net.nodes[2..4] {
+        while node.height().await.is_none() {
+            assert!(
+                spawned.elapsed() < START,
+                "{} did not come back; logs in {}",
+                node.name,
+                net.base.display()
+            );
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
+    eprintln!("restarted nodes up after {:?}", spawned.elapsed());
     let restarted = Instant::now();
     loop {
         let mut lagging = Vec::new();
