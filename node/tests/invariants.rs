@@ -374,7 +374,14 @@ async fn early_switch_upgrade_is_rejected() {
     drop(node);
     let text = std::fs::read_to_string(&log).unwrap();
     assert!(text.contains("PoA → PoS transition"), "rule not named");
-    // The rejected block is an epoch boundary (10-block epochs) before the switch is due.
+    // The node rejects it as an early switch. The faulty runtime switches at the first boundary
+    // after alice qualifies, which depends on when her registration lands; an honest runtime
+    // would only start the qualified run there, so any such boundary is early.
+    assert!(
+        text.contains("switched to PoS before the conditions held"),
+        "not rejected as an early switch"
+    );
+    // The rejected block is an epoch boundary (10-block epochs).
     let rejected: u64 = text
         .split("rejecting block #")
         .nth(1)
@@ -382,5 +389,4 @@ async fn early_switch_upgrade_is_rejected() {
         .and_then(|n| n.parse().ok())
         .unwrap();
     assert_eq!(rejected % 10, 1, "rejected block #{rejected}");
-    assert!(rejected < 41, "rejected block #{rejected}");
 }
