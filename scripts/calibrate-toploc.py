@@ -633,8 +633,17 @@ def amx_in_use(cpu: dict) -> bool:
 
 
 def cell_key(fp: dict | None) -> str:
-    """A prover's or an auditor's side of a cell: the GPU model, or the CPU model with AMX on or
-    off. The full fingerprint stays in the report."""
+    """A prover's or an auditor's side of a cell: the GPU model, or a CPU with AMX on or off,
+    whatever its model (design D2, revised 2026-10-14: runners' models cannot be chosen, and
+    without AMX every model re-computes the same way). `model_key` keeps the model."""
+    fp = fp or {}
+    if fp.get("gpu"):
+        return fp["gpu"]["name"]
+    return f'CPU AMX {"on" if amx_in_use(fp.get("cpu") or {}) else "off"}'
+
+
+def model_key(fp: dict | None) -> str:
+    """`cell_key` with the CPU's model, for the per-model breakdown of a cell."""
     fp = fp or {}
     if fp.get("gpu"):
         return fp["gpu"]["name"]
@@ -759,8 +768,8 @@ def cell_counts(samples: list[dict]) -> dict:
 
 
 def cells(samples: list[dict]) -> dict:
-    """Per "prover → auditor" cell: the counts of `cell_counts`, in all and per side of the audit
-    length band (spec "报告按区间内外分开")."""
+    """Per "prover → auditor" cell: the counts of `cell_counts`, in all, per side of the audit
+    length band (spec "报告按区间内外分开") and per processor model (spec "CPU 格子不按型号区分")."""
     groups: dict = {}
     for x in samples:
         groups.setdefault(f'{x["prover"]} → {x["auditor"]}', []).append(x)
@@ -769,8 +778,13 @@ def cells(samples: list[dict]) -> dict:
         by_side: dict = {}
         for x in xs:
             by_side.setdefault(side(x), []).append(x)
+        by_model: dict = {}
+        for x in xs:
+            by_model.setdefault(f'{x.get("prover_model", x["prover"])} → {x.get("auditor_model", x["auditor"])}',
+                                []).append(x)
         out[key] = {"prover": xs[0]["prover"], "auditor": xs[0]["auditor"], **cell_counts(xs),
-                    "by_band": {k: cell_counts(v) for k, v in sorted(by_side.items())}}
+                    "by_band": {k: cell_counts(v) for k, v in sorted(by_side.items())},
+                    "by_model": {k: cell_counts(v) for k, v in sorted(by_model.items())}}
     return out
 
 
@@ -1029,6 +1043,7 @@ def merge(files: list[Path], out: Path, thresholds: list[str] | None = None,
         prover = r.get("prover") or {"cpu": r.get("host")}
         auditor = r.get("auditor") or {"cpu": r.get("host")}
         p, a = cell_key(prover), cell_key(auditor)
+        pm, am = model_key(prover), model_key(auditor)
         for key, fp in ((p, prover), (a, auditor)):
             if fp not in fingerprints.setdefault(key, []):
                 fingerprints[key].append(fp)
@@ -1040,6 +1055,7 @@ def merge(files: list[Path], out: Path, thresholds: list[str] | None = None,
                 return 1
             seen.add(ident)
             samples.append(dict(x, seed=r["seed"], host=auditor.get("cpu"), prover=p, auditor=a,
+                                prover_model=pm, auditor_model=am,
                                 thresholds_version=x.get("thresholds_version", 2)))
     try:
         check_replay(samples)
@@ -1057,7 +1073,8 @@ def merge(files: list[Path], out: Path, thresholds: list[str] | None = None,
         "thresholds_versions": sorted({v for r in shards for v in r["thresholds_versions"]}),
         "fingerprints": fingerprints,
         "cells": cells(judged_samples),
-        "token_mismatch": [{k: x[k] for k in ("case", "seed", "prover", "auditor", "outcome", "reason") if k in x}
+        "token_mismatch": [{k: x[k] for k in ("case", "seed", "prover", "auditor", "prover_model", "auditor_model",
+                                              "outcome", "reason") if k in x}
                            for x in mismatched],
         "summary": s,
         "honest_by_host": by_host(samples),
@@ -1089,7 +1106,8 @@ def condensed(report: dict) -> dict:
     should (an honest one not passing, a cheating one not failing). Samples hold case names,
     outcomes and numbers only, never prompts or answers."""
     unexpected = [
-        {k: x[k] for k in ("case", "seed", "prover", "auditor", "outcome", "reason", "prompt_tokens", "chunks") if k in x}
+        {k: x[k] for k in ("case", "seed", "prover", "auditor", "prover_model", "auditor_model", "outcome", "reason",
+                           "prompt_tokens", "chunks") if k in x}
         for x in report["samples"]
         if (variant_of(x["case"]) == "honest") != (x["outcome"] == "pass")
     ]

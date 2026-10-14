@@ -111,7 +111,7 @@ python scripts/calibrate-toploc.py --merge recheck-*/calibration.json --summary-
     [--thresholds prefill=E,M,D decode=E,M,D]
 ```
 
-- **指纹。**案例包的 `prover.json` 与每份复核报告都记录运行所在的硬件与软件：CPU 型号、决定计算核的标志与 `ONEDNN_MAX_CPU_ISA`；GPU 型号、计算能力、驱动、CUDA 与 cuDNN；PyTorch、vLLM 与插件版本；模型 revision。格子的一边是 GPU 型号，或 `CPU <型号> AMX on|off`（AMX on：CPU 有 AMX 且 oneDNN 可以使用）。
+- **指纹。**案例包的 `prover.json` 与每份复核报告都记录运行所在的硬件与软件：CPU 型号、决定计算核的标志与 `ONEDNN_MAX_CPU_ISA`；GPU 型号、计算能力、驱动、CUDA 与 cuDNN；PyTorch、vLLM 与插件版本；模型 revision。格子的一边是 GPU 型号，或 `CPU AMX on|off`（AMX on：CPU 有 AMX 且 oneDNN 可以使用），不论 CPU 型号：GitHub 的运行器无法选择，而不使用 AMX 时各型号的复算方式相同（用户决定，2026-10-14）。每格的 `by_model` 按处理器型号细分其计数。
 - **格子。**合并报告把每个样本计入其“证明方 → 审计员”格：诚实样本的通过、不通过、无法判定与预填充非精确块数，以及每类作弊的样本数与漏检数，既有合计，也按审计长度区间分开（`by_band`：区间内、区间外，没有 prompt token 数的旧报告为未知）。拆分之前的报告两边都计为其所在主机。
 - **完整性。**`MANIFEST.sha256` 发现传输损坏：清单中的案例缺失时复核停止，摘要不符的案例照常复核并标记。案例是否被改动由复核本身判定：改动的证明打不开收据的承诺，改动的提示或回答在某一块上不通过。
 - **重放阈值。**合并时按每块的指标把每个样本重新判定一遍，与审计员的规则相同；按审计员所用的版本重放必须与审计员给出的结果逐样本相同，否则合并失败。报告给出让所有诚实样本通过的最小阈值（预填充按区间内外分别给出）、`--thresholds`（`band=MIN,MAX prefill=… prefill_outside=… decode=…`）下各格的结果，以及按下列规则得出的结论。

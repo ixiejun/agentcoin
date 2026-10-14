@@ -37,8 +37,8 @@ def gpu_fp(name):
             "gpu": {"name": name, "capability": [8, 6]}, "vllm": "0.30.0"}
 
 
-def cpu_fp(amx, isa):
-    return {"cpu": {"model": "Xeon 8480", "flags": ["amx_bf16"] if amx else ["avx512_bf16"],
+def cpu_fp(amx, isa, model="Xeon 8480"):
+    return {"cpu": {"model": model, "flags": ["amx_bf16"] if amx else ["avx512_bf16"],
                     "onednn_max_cpu_isa": isa}, "gpu": None}
 
 
@@ -73,13 +73,22 @@ class FingerprintTests(unittest.TestCase):
         # As the plugin reads ONEDNN_MAX_CPU_ISA: unset, ALL or an AMX level allow AMX.
         for isa, on in (("", True), ("ALL", True), ("AVX512_CORE_AMX", True),
                         ("AVX512_CORE_BF16", False), ("AVX2", False)):
-            self.assertEqual(cal.cell_key(cpu_fp(True, isa)), f"CPU Xeon 8480 AMX {'on' if on else 'off'}", isa)
-        self.assertEqual(cal.cell_key(cpu_fp(False, "")), "CPU Xeon 8480 AMX off")
+            self.assertEqual(cal.cell_key(cpu_fp(True, isa)), f"CPU AMX {'on' if on else 'off'}", isa)
+            self.assertEqual(cal.model_key(cpu_fp(True, isa)), f"CPU Xeon 8480 AMX {'on' if on else 'off'}", isa)
+        self.assertEqual(cal.cell_key(cpu_fp(False, "")), "CPU AMX off")
+
+    def test_cpu_cells_ignore_the_model(self):
+        # Design D2, revised 2026-10-14: the model is in the breakdown, not in the cell.
+        for model in ("AMD EPYC 7763 64-Core Processor", "INTEL(R) XEON(R) PLATINUM 8573C"):
+            self.assertEqual(cal.cell_key(cpu_fp(False, "AVX512_CORE_BF16", model)), "CPU AMX off")
+            self.assertEqual(cal.model_key(cpu_fp(False, "AVX512_CORE_BF16", model)), f"CPU {model} AMX off")
+        self.assertEqual(cal.model_key(gpu_fp("NVIDIA H800 PCIe")), "NVIDIA H800 PCIe")
 
     def test_old_reports(self):
         # A shard written before fingerprints: its host is both sides.
-        self.assertEqual(cal.cell_key({"cpu": None}), "CPU ? AMX off")
-        self.assertEqual(cal.cell_key(None), "CPU ? AMX off")
+        self.assertEqual(cal.cell_key({"cpu": None}), "CPU AMX off")
+        self.assertEqual(cal.cell_key(None), "CPU AMX off")
+        self.assertEqual(cal.model_key(None), "CPU ? AMX off")
 
     def test_fingerprint_without_gpu(self):
         fp = cal.fingerprint()
@@ -176,8 +185,37 @@ class MergeTests(unittest.TestCase):
                "thresholds_versions": [2], "samples": [sample("honest-00000.json", [EXACT])]}
         code, report, _ = merged([old])
         self.assertEqual(code, 0)
-        self.assertEqual(list(report["cells"]), ["CPU AMD EPYC 7763 AMX off → CPU AMD EPYC 7763 AMX off"])
+        self.assertEqual(list(report["cells"]), ["CPU AMX off → CPU AMX off"])
+        self.assertEqual(list(report["cells"]["CPU AMX off → CPU AMX off"]["by_model"]),
+                         ["CPU AMD EPYC 7763 AMX off → CPU AMD EPYC 7763 AMX off"])
         self.assertEqual(len(report["honest_by_host"]), 1)
+
+    def test_cpu_models_share_a_cell(self):
+        # Spec scenario "CPU 格子不按型号区分": one GPU bundle re-checked by shards on CPUs of two
+        # models, both without AMX, is one cell; the report lists each model apart.
+        gpu = gpu_fp("NVIDIA GeForce RTX 5090")
+        amd = cpu_fp(False, "AVX512_CORE_BF16", "AMD EPYC 7763")
+        intel = cpu_fp(True, "AVX512_CORE_BF16", "Xeon 8573C")
+        code, report, condensed = merged([
+            shard(11, gpu, amd, [sample("honest-00000.json", [EXACT]), sample("swap-00000.json", [chunk(exp=60)])]),
+            shard(11, gpu, intel, [sample("honest-00001.json", [EXACT]),
+                                   sample("honest-00002.json", [chunk(exp=3), EXACT])]),
+        ])
+        self.assertEqual(code, 0)
+        self.assertEqual(list(report["cells"]), ["NVIDIA GeForce RTX 5090 → CPU AMX off"])
+        cell = report["cells"]["NVIDIA GeForce RTX 5090 → CPU AMX off"]
+        self.assertEqual(cell["honest"]["samples"], 3)
+        self.assertEqual(cell["honest"]["fail"], 1)
+        by_model = cell["by_model"]
+        self.assertEqual(sorted(by_model), ["NVIDIA GeForce RTX 5090 → CPU AMD EPYC 7763 AMX off",
+                                            "NVIDIA GeForce RTX 5090 → CPU Xeon 8573C AMX off"])
+        self.assertEqual(by_model["NVIDIA GeForce RTX 5090 → CPU AMD EPYC 7763 AMX off"]["honest"]["pass"], 1)
+        self.assertEqual(by_model["NVIDIA GeForce RTX 5090 → CPU AMD EPYC 7763 AMX off"]["cheats"]["swap"]["missed"], 0)
+        self.assertEqual(by_model["NVIDIA GeForce RTX 5090 → CPU Xeon 8573C AMX off"]["honest"]["fail"], 1)
+        # Both auditors' fingerprints are kept under the cell's key; the failing sample names its model.
+        self.assertEqual(report["fingerprints"]["CPU AMX off"], [amd, intel])
+        bad = [u for u in json.loads(condensed)["unexpected"] if u["case"] == "honest-00002.json"]
+        self.assertEqual(bad[0]["auditor_model"], "CPU Xeon 8573C AMX off")
 
     def test_a_sample_twice_in_a_cell_is_refused(self):
         s = shard(5, gpu_fp("A"), gpu_fp("B"), [sample("honest-00000.json", [EXACT])])

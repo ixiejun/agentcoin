@@ -176,8 +176,10 @@ python scripts/calibrate-toploc.py --merge recheck-*/calibration.json --summary-
 - **Fingerprints.** The bundle's `prover.json` and every re-check report record the hardware and
   software they ran on: CPU model, kernel flags and `ONEDNN_MAX_CPU_ISA`; GPU model, compute
   capability, driver, CUDA and cuDNN; PyTorch, vLLM and plugin versions; the models' revisions.
-  A side of a cell is the GPU model, or `CPU <model> AMX on|off` (AMX on: the CPU has AMX and
-  oneDNN may use it).
+  A side of a cell is the GPU model, or `CPU AMX on|off` (AMX on: the CPU has AMX and oneDNN
+  may use it) whatever the CPU's model: GitHub's runners cannot be chosen, and without AMX every
+  model re-computes the same way (user decision, 2026-10-14). Each cell's `by_model` breaks its
+  counts down by processor model.
 - **Cells.** The merged report counts every sample in its "prover → auditor" cell: honest
   passes, fails, inconclusive answers and inexact prefill chunks, and per cheating variant its
   samples and misses, in all and per side of the audit length band (`by_band`: inside, outside,
