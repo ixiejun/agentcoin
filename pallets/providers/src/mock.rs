@@ -72,6 +72,51 @@ std::thread_local! {
     pub static BURNED: RefCell<u128> = const { RefCell::new(0) };
     /// Accounts the jail hook was called for, in order.
     pub static JAILED: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+    /// Recent revenue per epoch of each account, in micro-dollars.
+    pub static REVENUE: RefCell<std::collections::BTreeMap<u64, u128>> =
+        const { RefCell::new(std::collections::BTreeMap::new()) };
+    /// Accounts with an open audit dispute.
+    pub static LOCKED: RefCell<std::collections::BTreeSet<u64>> =
+        const { RefCell::new(std::collections::BTreeSet::new()) };
+}
+
+/// Recent revenue settable by tests.
+pub struct TestRevenue;
+impl ac_primitives::market::traits::SettlementHistory<u64> for TestRevenue {
+    fn avg_per_epoch(who: &u64) -> ac_primitives::market::MicroUsd {
+        ac_primitives::market::MicroUsd(REVENUE.with(|r| r.borrow().get(who).copied().unwrap_or(0)))
+    }
+}
+
+/// Sets `who`'s recent revenue per epoch, in dollars.
+pub fn set_revenue(who: u64, usd: u128) {
+    REVENUE.with(|r| r.borrow_mut().insert(who, usd * 1_000_000));
+}
+
+/// Dispute locks settable by tests.
+pub struct TestLock;
+impl ac_primitives::market::traits::DisputeLock<u64> for TestLock {
+    fn is_locked(who: &u64) -> bool {
+        LOCKED.with(|l| l.borrow().contains(who))
+    }
+}
+
+/// Opens (or closes) a dispute on `who`.
+pub fn set_locked(who: u64, locked: bool) {
+    LOCKED.with(|l| {
+        if locked {
+            l.borrow_mut().insert(who);
+        } else {
+            l.borrow_mut().remove(&who);
+        }
+    });
+}
+
+frame_support::parameter_types! {
+    /// Two epochs of challenge, as on live chains.
+    pub const ChallengeEpochs: u32 = 2;
+    /// 10% slashed on a confirmed dispute, as on live chains.
+    pub const ConfirmedSlash: sp_runtime::Perbill = sp_runtime::Perbill::from_percent(10);
 }
 
 /// Rate settable by tests.
@@ -119,6 +164,10 @@ impl pallet_providers::Config for Test {
     type Price = TestPrice;
     type Slash = TestBurn;
     type OnJail = TestOnJail;
+    type Revenue = TestRevenue;
+    type ChallengeEpochs = ChallengeEpochs;
+    type ConfirmedSlash = ConfirmedSlash;
+    type DisputeLock = TestLock;
     type WeightInfo = ();
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();
@@ -186,6 +235,8 @@ pub fn registration(tier: Tier, models: &[ModelPrice], stake: u128) -> crate::Re
 pub fn ext() -> sp_io::TestExternalities {
     set_rate(Some(1_000));
     BURNED.with(|b| *b.borrow_mut() = 0);
+    REVENUE.with(|r| r.borrow_mut().clear());
+    LOCKED.with(|l| l.borrow_mut().clear());
     let storage = RuntimeGenesisConfig {
         system: Default::default(),
         balances: pallet_balances::GenesisConfig {

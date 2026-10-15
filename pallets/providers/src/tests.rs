@@ -16,7 +16,7 @@ use parity_scale_codec::{Decode, Encode};
 use crate::mock::{
     ALICE, BOB, Balances, FUNDS, HEARTBEAT, MODEL_A, MODEL_B, Providers, RuntimeCall,
     RuntimeHoldReason, RuntimeOrigin, System, T1_MIN, T2_MIN, Test, UNBOND, UNKNOWN, burned, ext,
-    issuance_and_burned, kem, price, register, registration, set_rate,
+    issuance_and_burned, kem, price, register, registration, set_locked, set_rate, set_revenue,
 };
 use crate::{Error, Event, HoldReason, ModelProviders};
 
@@ -201,6 +201,150 @@ fn a_rate_change_can_make_a_provider_unserviceable() {
         assert!(Providers::is_serviceable(&ALICE));
         set_rate(None);
         assert!(!Providers::is_serviceable(&ALICE));
+    });
+}
+
+/// Registers `who` as a T1 provider of `MODEL_A` with `stake`.
+fn register_t1(who: u64, stake: u128) -> sp_runtime::DispatchResult {
+    Providers::register(
+        RuntimeOrigin::signed(who),
+        registration(Tier::T1, &[price(MODEL_A, 1, 1)], stake),
+    )
+}
+
+// m6-audit-hardening: κ = (0.5 × 11 − 2) / 0.1 = 35 epochs with the live deterrence parameters,
+// the mock's two challenge epochs and 10% slash.
+#[test]
+fn kappa_from_the_parameters() {
+    ext().execute_with(|| {
+        assert_eq!(Providers::kappa_bps(), 350_000);
+    });
+}
+
+// Requirement "质押门槛", Scenario "营收增长提高所需质押".
+#[test]
+fn revenue_raises_the_required_stake() {
+    ext().execute_with(|| {
+        assert_ok!(register_t1(ALICE, T1_MIN));
+        assert!(Providers::is_serviceable(&ALICE));
+        set_revenue(ALICE, 100);
+        let usd = |n: u128| ac_primitives::market::MicroUsd(n * 1_000_000);
+        assert_eq!(
+            Providers::required_usd(&ALICE, Tier::T1),
+            (usd(3_500), usd(3_500))
+        );
+        assert_eq!(Providers::required_stake(&ALICE, Tier::T1), Ok(3_500_000));
+        assert!(!Providers::is_serviceable(&ALICE));
+        assert!(serviceable_of(MODEL_A).is_empty());
+        assert_ok!(Providers::bond_extra(
+            RuntimeOrigin::signed(ALICE),
+            2_500_000
+        ));
+        assert!(Providers::is_serviceable(&ALICE));
+    });
+}
+
+// Scenario "小提供者只需门槛".
+#[test]
+fn small_providers_need_the_threshold() {
+    ext().execute_with(|| {
+        assert_ok!(register_t1(ALICE, T1_MIN));
+        set_revenue(ALICE, 10);
+        let usd = |n: u128| ac_primitives::market::MicroUsd(n * 1_000_000);
+        assert_eq!(
+            Providers::required_usd(&ALICE, Tier::T1),
+            (usd(350), usd(1_000))
+        );
+        assert!(Providers::is_serviceable(&ALICE));
+        // A T2 provider's floor is its own threshold.
+        assert_ok!(register(BOB, &[price(MODEL_A, 1, 1)], T2_MIN));
+        set_revenue(BOB, 1);
+        assert_eq!(Providers::required_usd(&BOB, Tier::T2).1, usd(100));
+        assert!(Providers::is_serviceable(&BOB));
+    });
+}
+
+// Scenario "不能减少到所需质押以下".
+#[test]
+fn stake_cannot_drop_below_the_required_stake() {
+    ext().execute_with(|| {
+        assert_ok!(register_t1(ALICE, 3_500_000));
+        set_revenue(ALICE, 100);
+        assert_noop!(
+            Providers::unbond(RuntimeOrigin::signed(ALICE), 500_000),
+            Error::<Test>::BelowThreshold
+        );
+        assert_ok!(Providers::bond_extra(RuntimeOrigin::signed(ALICE), 500_000));
+        assert_ok!(Providers::unbond(RuntimeOrigin::signed(ALICE), 500_000));
+        // Registration checks the required stake too: an account that earned before keeps its
+        // revenue history.
+        set_revenue(BOB, 100);
+        assert_noop!(register_t1(BOB, T1_MIN), Error::<Test>::BelowThreshold);
+    });
+}
+
+// Scenario "护栏外的 g".
+#[test]
+#[should_panic(expected = "invalid provider genesis parameters")]
+fn a_gain_below_ten_percent_fails_genesis() {
+    use frame_support::traits::BuildGenesisConfig;
+    sp_io::TestExternalities::default().execute_with(|| {
+        crate::GenesisConfig::<Test> {
+            deterrence: crate::DeterrenceParams {
+                gain: Perbill::from_percent(5),
+                horizon_epochs: 11,
+            },
+            ..Default::default()
+        }
+        .build();
+    });
+}
+
+#[test]
+fn deterrence_guardrails() {
+    let ok = crate::DeterrenceParams::LIVE;
+    assert!(ok.is_valid());
+    for bad in [
+        crate::DeterrenceParams {
+            gain: Perbill::from_percent(9),
+            ..ok
+        },
+        crate::DeterrenceParams {
+            horizon_epochs: 0,
+            ..ok
+        },
+        crate::DeterrenceParams {
+            horizon_epochs: 721,
+            ..ok
+        },
+    ] {
+        assert!(!bad.is_valid());
+    }
+    assert!(
+        crate::DeterrenceParams {
+            gain: Perbill::one(),
+            horizon_epochs: 720
+        }
+        .is_valid()
+    );
+}
+
+// Requirement "质押调整、退出与解绑", Scenario "争议未关闭时不能取回".
+#[test]
+fn an_open_dispute_keeps_the_unbonding_stake() {
+    ext().execute_with(|| {
+        assert_ok!(register(ALICE, &[price(MODEL_A, 1, 1)], T2_MIN));
+        assert_ok!(Providers::exit(RuntimeOrigin::signed(ALICE)));
+        at(1 + UNBOND);
+        set_locked(ALICE, true);
+        assert_noop!(
+            Providers::withdraw_unbonded(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::DisputeOpen
+        );
+        set_locked(ALICE, false);
+        assert_ok!(Providers::withdraw_unbonded(RuntimeOrigin::signed(ALICE)));
+        assert_eq!(held(ALICE), 0);
+        assert!(Providers::provider(&ALICE).is_none());
     });
 }
 

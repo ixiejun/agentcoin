@@ -21,13 +21,30 @@ providers of a model from here and route requests to them.
 ## Stake in dollars
 
 The stake threshold is set in US dollars — **T1 $1,000, T2 $100** on live chains (draft values)
-— and converted at the reference rate (`pallet-ref-rate`) rounding up. Registering and unbonding
-check it; without a rate both fail. When the rate moves, a provider whose stake falls below the
-threshold stays registered but is not serviceable until it bonds more.
+— and converted at the reference rate (`pallet-ref-rate`) rounding up.
+
+A provider's **required stake** is the larger of its tier's threshold and its **deterrent**,
+`κ` times its recent revenue per epoch (`Config::Revenue`, work settlement's average over the
+last 24 epochs). `κ = (g × H − C) / f` epochs (m6-audit-hardening design D3) is computed from
+these values:
+
+- `g`, the assumed gain of a cheat as a share of its revenue (50%);
+- `H`, the exposure horizon in epochs (11, from the statistical judgment's simulation);
+- `C`, the challenge period (`Config::ChallengeEpochs`, 2);
+- `f`, the share of the stake a confirmed dispute slashes (`Config::ConfirmedSlash`, 10%).
+
+On live chains `κ` is 35 epochs, so a provider settling $100 per epoch needs $3,500. With this
+stake a confirmed cheat loses at least what it gained before being found. `g` and `H` are set at
+genesis (`deterrence`, guardrails 10%–100% and 1–720 epochs). `kappa_bps()`, `required_usd(who,
+tier)` and `required_stake(who, tier)` expose the computation.
+
+Registering and unbonding check the required stake; without a rate both fail. When the rate or
+the revenue moves, a provider whose stake falls below its required stake stays registered but is
+not serviceable until it bonds more.
 
 ## Serviceable
 
-A provider is **serviceable** when it is `Active`, its stake meets the current threshold and at
+A provider is **serviceable** when it is `Active`, its stake meets its required stake and at
 most two heartbeat intervals (600 blocks each on live chains) have passed since its last
 heartbeat. `serviceable_providers(model, start_after, limit)` pages through the serviceable
 providers of a model in account order (the runtime exposes it through `MarketApi`).
@@ -40,9 +57,9 @@ providers of a model in account order (the runtime exposes it through `MarketApi
 | `update(endpoint?, kem_pk?, models?)` | Changes any of them (same rules as registration); not while exiting. The tier cannot change. |
 | `heartbeat()` | Records a heartbeat. **Free** when at least half an interval passed since the last one; paid otherwise. |
 | `bond_extra(amount)` | Adds stake (not while exiting). |
-| `unbond(amount)` | Moves `amount` to unbonding; what stays bonded must meet the threshold. |
+| `unbond(amount)` | Moves `amount` to unbonding; what stays bonded must meet the required stake. |
 | `exit()` | Stops serving: the whole stake starts unbonding and the provider leaves every model's list. |
-| `withdraw_unbonded()` | Releases unbonding chunks that are due (7 days on live chains). An exited provider with nothing left is removed and may register again. |
+| `withdraw_unbonded()` | Releases unbonding chunks that are due (7 days on live chains), except while an audit dispute on the provider is open (`Config::DisputeLock`, error `DisputeOpen`). An exited provider with nothing left is removed and may register again. |
 
 When the unbonding list is full (8 chunks), a new chunk merges into the last one.
 

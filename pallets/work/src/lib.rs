@@ -74,7 +74,7 @@ pub mod pallet {
     use ac_primitives::market::deterrence::{MAX_SETTLED_WINDOW, avg_per_epoch, in_window};
     use ac_primitives::market::traits::{
         Credit as CreditInterface, GatewayLookup, ModelCalibration, OnJail, PriceSource,
-        ProviderLookup, SettlementHistory,
+        ProviderLookup,
     };
     use ac_primitives::market::work::{
         MAX_REPORT_ENTRIES, MAX_REPORT_VOUCHERS, allocate, proven_work,

@@ -403,9 +403,35 @@ impl pallet_providers::Config for Runtime {
     /// Slashed stake is burned and counted in `Emission::TotalBurned`.
     type Slash = Emission;
     type OnJail = crate::Work;
+    /// Required stakes grow with the revenue work settlement records (m6-audit-hardening).
+    type Revenue = crate::Work;
+    type ChallengeEpochs = WorkChallengeEpochs;
+    type ConfirmedSlash = AuditProviderSlash;
+    // Until the audit pallet reports open disputes (m6-audit-hardening group 5), nothing locks.
+    type DisputeLock = ();
     type WeightInfo = pallet_providers::weights::SubstrateWeight<Runtime>;
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = MarketBenchmarkHelper;
+}
+
+/// The challenge period of work settlement (`C` of the deterrence check).
+pub struct WorkChallengeEpochs;
+impl frame_support::traits::Get<u32> for WorkChallengeEpochs {
+    fn get() -> u32 {
+        pallet_work::Params::<Runtime>::get().challenge_epochs
+    }
+}
+
+/// The share of a provider's stake a confirmed dispute slashes (`f` of the deterrence check);
+/// the live value before the audit parameters are set.
+pub struct AuditProviderSlash;
+impl frame_support::traits::Get<sp_runtime::Perbill> for AuditProviderSlash {
+    fn get() -> sp_runtime::Perbill {
+        pallet_audit::Params::<Runtime>::get().map_or(
+            ac_primitives::market::audit::AuditParams::LIVE.provider_slash,
+            |p| p.provider_slash,
+        )
+    }
 }
 
 impl pallet_gateways::Config for Runtime {
@@ -588,6 +614,20 @@ impl pallet_providers::BenchmarkHelper for MarketBenchmarkHelper {
     }
     fn set_rate(rate: u128) {
         Self::put_rate(rate);
+    }
+    fn fill_revenue<A: parity_scale_codec::Encode>(who: &A) {
+        use ac_primitives::market::MicroUsd;
+        use ac_primitives::market::deterrence::MAX_SETTLED_WINDOW;
+        use parity_scale_codec::Decode;
+        let Ok(who) = AccountId::decode(&mut &who.encode()[..]) else {
+            return;
+        };
+        pallet_work::RevenueWindow::<Runtime>::put(MAX_SETTLED_WINDOW);
+        let epochs = (0..u64::from(MAX_SETTLED_WINDOW)).map(|e| (e, MicroUsd(1)));
+        pallet_work::RecentSettled::<Runtime>::insert(
+            who,
+            frame_support::BoundedVec::truncate_from(epochs.collect::<alloc::vec::Vec<_>>()),
+        );
     }
 }
 

@@ -83,6 +83,7 @@ mod benchmarks {
     #[benchmark]
     fn register(m: Linear<1, MAX_PROVIDER_MODELS>) {
         let who = funded::<T>();
+        T::BenchmarkHelper::fill_revenue(&who);
         let reg = registration::<T>(m);
         #[extrinsic_call]
         _(RawOrigin::Signed(who.clone()), reg);
@@ -122,6 +123,7 @@ mod benchmarks {
     #[benchmark]
     fn unbond() {
         let who = registered::<T>(1);
+        T::BenchmarkHelper::fill_revenue(&who);
         for _ in 0..MAX_UNLOCKING {
             Pallet::<T>::unbond(RawOrigin::Signed(who.clone()).into(), 1).unwrap();
         }

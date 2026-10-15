@@ -6,12 +6,16 @@
 //!   reserved), a service endpoint, an X-Wing key gateways encrypt requests to, and 1–16
 //!   registered models with dollar prices per million tokens.
 //! - Stake thresholds are in US dollars (T1 $1,000, T2 $100 on live chains), converted at the
-//!   reference rate rounding up. After a rate change a provider below its threshold stays
-//!   registered but is not *serviceable* until it bonds more.
+//!   reference rate rounding up. A provider's *required stake* is the larger of its tier's
+//!   threshold and its deterrent, `κ` times its recent revenue per epoch, so that a confirmed
+//!   cheat loses at least what it gained before being found (m6-audit-hardening design D3).
+//!   After a rate or revenue change a provider below its required stake stays registered but is
+//!   not *serviceable* until it bonds more.
 //! - Heartbeats keep a provider serviceable: at most two intervals may pass (600 blocks each on
 //!   live chains). A heartbeat at least half an interval after the last one is free.
 //! - Unbonded stake and the stake of an exiting provider unlock after the unbonding period
-//!   (7 days on live chains) and stay slashable until then.
+//!   (7 days on live chains) and stay slashable until then, and after it while an audit dispute
+//!   on the provider is open.
 //! - [`ProviderPenalty`] (slash and jail) is for the audit module (M6); no call reaches it, not
 //!   even the PoA administration (D6).
 //!
@@ -87,6 +91,54 @@ impl Default for ProviderParams {
     }
 }
 
+/// The deterrence parameters set at genesis (m6-audit-hardening design D3; spec
+/// `market/providers` "质押门槛").
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    MaxEncodedLen,
+    TypeInfo,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(rename_all = "camelCase")]
+pub struct DeterrenceParams {
+    /// Assumed gain of a cheat as a share of its revenue (`g`, 10% to 100%).
+    pub gain: sp_runtime::Perbill,
+    /// Exposure horizon in emission epochs (`H`, 1 to 720): the largest share × p95 detection
+    /// time of the statistical judgment.
+    pub horizon_epochs: u32,
+}
+
+impl DeterrenceParams {
+    /// Live-chain values: `g` = 50%, `H` = 11 epochs (statistical parameters version 1).
+    pub const LIVE: Self = Self {
+        gain: sp_runtime::Perbill::from_percent(50),
+        horizon_epochs: 11,
+    };
+
+    /// Whether the genesis guardrails hold.
+    #[must_use]
+    pub fn is_valid(&self) -> bool {
+        let (lo, hi) = ac_primitives::market::deterrence::GAIN_BOUNDS;
+        (lo..=hi).contains(&self.gain)
+            && (1..=ac_primitives::market::deterrence::MAX_HORIZON_EPOCHS)
+                .contains(&self.horizon_epochs)
+    }
+}
+
+impl Default for DeterrenceParams {
+    fn default() -> Self {
+        Self::LIVE
+    }
+}
+
 /// A provider registration: everything `register` needs besides the caller (one argument
 /// instead of six, G.FUD.01).
 #[derive(
@@ -119,6 +171,9 @@ pub trait BenchmarkHelper {
     fn register_model(id: ac_primitives::market::ModelId);
     /// Sets the reference rate to `rate` smallest units per dollar.
     fn set_rate(rate: u128);
+    /// Gives `who` the longest recent revenue history, with a negligible amount, so that reading
+    /// its required stake costs the most (m6-audit-hardening 4.3).
+    fn fill_revenue<A: parity_scale_codec::Encode>(_who: &A) {}
 }
 
 #[cfg(feature = "runtime-benchmarks")]
@@ -133,15 +188,20 @@ impl BenchmarkHelper for () {
 #[allow(clippy::expect_used, clippy::unreachable)]
 #[frame_support::pallet]
 pub mod pallet {
-    use super::{ProviderParams, Registration, WeightInfo};
+    use super::{DeterrenceParams, ProviderParams, Registration, WeightInfo};
     use ac_crypto::{KemAlg, KemPublicKey};
+    use ac_primitives::market::deterrence::{
+        kappa_bps as deterrence_kappa, required_stake as with_deterrent,
+    };
     use ac_primitives::market::records::{
         Endpoint, MAX_PROVIDER_MODELS, ModelPrice, ProviderStatus, SlaMetrics, Tier, UnlockingList,
         schedule_unlock, take_due, take_for_slash, unlocking_total,
     };
-    use ac_primitives::market::traits::{ModelLookup, OnJail, PriceSource};
+    use ac_primitives::market::traits::{
+        DisputeLock, ModelLookup, OnJail, PriceSource, SettlementHistory,
+    };
     use ac_primitives::market::usd::Rounding;
-    use ac_primitives::market::{ModelId, PriceError, ProviderRecord};
+    use ac_primitives::market::{MicroUsd, ModelId, PriceError, ProviderRecord};
     use alloc::collections::BTreeSet;
     use alloc::vec::Vec;
     use frame_support::dispatch::{DispatchResultWithPostInfo, Pays};
@@ -153,7 +213,7 @@ pub mod pallet {
         BalancedHold, Credit, Inspect, InspectHold, Mutate, MutateHold,
     };
     use frame_support::traits::tokens::Precision;
-    use frame_support::traits::{Imbalance, OnUnbalanced};
+    use frame_support::traits::{Get, Imbalance, OnUnbalanced};
     use frame_support::{BoundedVec, Identity};
     use frame_system::pallet_prelude::{BlockNumberFor, OriginFor};
     use sp_runtime::{Perbill, SaturatedConversion, Saturating};
@@ -191,6 +251,14 @@ pub mod pallet {
         type Slash: OnUnbalanced<Credit<Self::AccountId, Self::Currency>>;
         /// Told when a provider is jailed (work settlement voids its unmatured earnings).
         type OnJail: OnJail<Self::AccountId>;
+        /// Each provider's recent revenue per epoch (work settlement).
+        type Revenue: SettlementHistory<Self::AccountId>;
+        /// The challenge period of work settlement, in epochs (`C`).
+        type ChallengeEpochs: Get<u32>;
+        /// The share of a provider's stake a confirmed dispute slashes (`f`).
+        type ConfirmedSlash: Get<Perbill>;
+        /// Whether an audit dispute on a provider is open (its unbonding stake stays).
+        type DisputeLock: DisputeLock<Self::AccountId>;
         /// Weights.
         type WeightInfo: WeightInfo;
         /// Registers models and sets a rate for the benchmarks.
@@ -221,10 +289,17 @@ pub mod pallet {
     #[pallet::storage]
     pub type Params<T: Config> = StorageValue<_, ProviderParams, ValueQuery>;
 
+    /// Deterrence parameters set at genesis (`g` and `H`).
+    #[pallet::storage]
+    pub type Deterrence<T: Config> = StorageValue<_, DeterrenceParams, ValueQuery>;
+
     #[pallet::genesis_config]
     pub struct GenesisConfig<T: Config> {
         /// Parameters.
         pub params: ProviderParams,
+        /// Deterrence parameters.
+        #[serde(default)]
+        pub deterrence: DeterrenceParams,
         /// Unused type marker.
         #[serde(skip)]
         pub _marker: core::marker::PhantomData<T>,
@@ -234,6 +309,7 @@ pub mod pallet {
         fn default() -> Self {
             Self {
                 params: ProviderParams::LIVE,
+                deterrence: DeterrenceParams::LIVE,
                 _marker: core::marker::PhantomData,
             }
         }
@@ -243,7 +319,11 @@ pub mod pallet {
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
             let p = self.params;
-            if p.heartbeat_interval < 2 || p.unbond_blocks == 0 || p.t2_min_usd.0 == 0 {
+            if p.heartbeat_interval < 2
+                || p.unbond_blocks == 0
+                || p.t2_min_usd.0 == 0
+                || !self.deterrence.is_valid()
+            {
                 // Genesis is built once, off chain: a bad parameter must stop the chain from
                 // being created at all.
                 #[allow(clippy::panic)]
@@ -252,6 +332,7 @@ pub mod pallet {
                 }
             }
             Params::<T>::put(p);
+            Deterrence::<T>::put(self.deterrence);
         }
     }
 
@@ -350,7 +431,8 @@ pub mod pallet {
         RateNotSet,
         /// The threshold overflows when converted.
         PriceOverflow,
-        /// The stake would be below the tier's threshold.
+        /// The stake would be below the required stake (the tier's threshold, or more for a
+        /// provider with revenue).
         BelowThreshold,
         /// The account cannot cover the stake.
         InsufficientBalance,
@@ -364,6 +446,8 @@ pub mod pallet {
         AmountTooLarge,
         /// No unbonding stake is due.
         NothingToWithdraw,
+        /// An audit dispute on the provider is open: its unbonding stake stays until it closes.
+        DisputeOpen,
     }
 
     impl<T> From<PriceError> for Error<T> {
@@ -400,7 +484,7 @@ pub mod pallet {
             Self::check_kem(&kem_pk)?;
             Self::check_models(&models)?;
             ensure!(
-                stake >= Self::threshold(tier).map_err(Error::<T>::from)?,
+                stake >= Self::required_stake(&who, tier).map_err(Error::<T>::from)?,
                 Error::<T>::BelowThreshold
             );
             T::Currency::hold(&HoldReason::Stake.into(), &who, stake)
@@ -500,7 +584,7 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Starts unbonding `amount`; the rest must stay at or above the threshold.
+        /// Starts unbonding `amount`; the rest must stay at or above the required stake.
         #[pallet::call_index(4)]
         #[pallet::weight(T::WeightInfo::unbond())]
         pub fn unbond(origin: OriginFor<T>, amount: Balance) -> DispatchResult {
@@ -511,7 +595,7 @@ pub mod pallet {
             ensure!(amount <= p.stake, Error::<T>::AmountTooLarge);
             let rest = p.stake.saturating_sub(amount);
             ensure!(
-                rest >= Self::threshold(p.tier).map_err(Error::<T>::from)?,
+                rest >= Self::required_stake(&who, p.tier).map_err(Error::<T>::from)?,
                 Error::<T>::BelowThreshold
             );
             p.stake = rest;
@@ -553,11 +637,13 @@ pub mod pallet {
         }
 
         /// Releases unbonding stake that is due; removes an exited provider with nothing left.
+        /// Nothing is released while an audit dispute on the provider is open.
         #[pallet::call_index(6)]
         #[pallet::weight(T::WeightInfo::withdraw_unbonded())]
         pub fn withdraw_unbonded(origin: OriginFor<T>) -> DispatchResult {
             let who = frame_system::ensure_signed(origin)?;
             let mut p = Providers::<T>::get(&who).ok_or(Error::<T>::NotProvider)?;
+            ensure!(!T::DisputeLock::is_locked(&who), Error::<T>::DisputeOpen);
             let due = take_due(&mut p.unlocking, frame_system::Pallet::<T>::block_number());
             ensure!(due > 0, Error::<T>::NothingToWithdraw);
             T::Currency::release(&HoldReason::Stake.into(), &who, due, Precision::BestEffort)?;
@@ -622,14 +708,52 @@ pub mod pallet {
         ///
         /// [`PriceError::NotSet`] without a rate; [`PriceError::Overflow`].
         pub fn threshold(tier: Tier) -> Result<Balance, PriceError> {
+            T::Price::to_atc(Self::tier_usd(tier), Rounding::Threshold)
+        }
+
+        /// The dollar threshold of `tier`.
+        fn tier_usd(tier: Tier) -> MicroUsd {
             let params = Params::<T>::get();
-            let usd = match tier {
+            match tier {
                 Tier::T1 => params.t1_min_usd,
                 // T0 is refused at registration; it would share T1's threshold.
                 Tier::T0 => params.t1_min_usd,
                 Tier::T2 => params.t2_min_usd,
-            };
-            T::Price::to_atc(usd, Rounding::Threshold)
+            }
+        }
+
+        /// `κ`, in basis points of an epoch: the epochs of revenue a provider's stake must cover.
+        #[must_use]
+        pub fn kappa_bps() -> u128 {
+            let d = Deterrence::<T>::get();
+            deterrence_kappa(
+                d.gain,
+                d.horizon_epochs,
+                T::ChallengeEpochs::get(),
+                T::ConfirmedSlash::get(),
+            )
+        }
+
+        /// `who`'s deterrent and required stake in dollars as a provider of `tier`: `κ` times its
+        /// recent revenue per epoch, and the larger of that and the tier's threshold.
+        #[must_use]
+        pub fn required_usd(who: &T::AccountId, tier: Tier) -> (MicroUsd, MicroUsd) {
+            let revenue = T::Revenue::avg_per_epoch(who);
+            let kappa = Self::kappa_bps();
+            let deterrent = with_deterrent(MicroUsd::ZERO, kappa, revenue);
+            (
+                deterrent,
+                with_deterrent(Self::tier_usd(tier), kappa, revenue),
+            )
+        }
+
+        /// Stake `who` needs now as a provider of `tier`, rounded up.
+        ///
+        /// # Errors
+        ///
+        /// [`PriceError::NotSet`] without a rate; [`PriceError::Overflow`].
+        pub fn required_stake(who: &T::AccountId, tier: Tier) -> Result<Balance, PriceError> {
+            T::Price::to_atc(Self::required_usd(who, tier).1, Rounding::Threshold)
         }
 
         /// A registered provider.
@@ -638,20 +762,20 @@ pub mod pallet {
             Providers::<T>::get(who)
         }
 
-        /// Whether `record` is serviceable at the current block.
+        /// Whether `who`'s `record` is serviceable at the current block.
         #[must_use]
-        pub fn record_serviceable(record: &RecordOf<T>) -> bool {
+        pub fn record_serviceable(who: &T::AccountId, record: &RecordOf<T>) -> bool {
             let now = frame_system::Pallet::<T>::block_number();
             let interval = Params::<T>::get().heartbeat_interval;
             record.status == ProviderStatus::Active
-                && Self::threshold(record.tier).is_ok_and(|t| record.stake >= t)
+                && Self::required_stake(who, record.tier).is_ok_and(|t| record.stake >= t)
                 && Self::blocks_between(record.last_heartbeat, now) <= interval.saturating_mul(2)
         }
 
         /// Whether `who` is serviceable now.
         #[must_use]
         pub fn is_serviceable(who: &T::AccountId) -> bool {
-            Providers::<T>::get(who).is_some_and(|p| Self::record_serviceable(&p))
+            Providers::<T>::get(who).is_some_and(|p| Self::record_serviceable(who, &p))
         }
 
         /// Serviceable providers of `model` in account order, after `start_after`, at most
@@ -672,7 +796,7 @@ pub mod pallet {
             };
             keys.filter_map(|who| {
                 let p = Providers::<T>::get(&who)?;
-                Self::record_serviceable(&p).then_some((who, p))
+                Self::record_serviceable(&who, &p).then_some((who, p))
             })
             .take(limit)
             .collect()
