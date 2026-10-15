@@ -137,23 +137,25 @@ pub struct StatsParams {
     pub max_entries: u32,
 }
 
-/// Version 1 (provisional until the calibration's CPU cells are in, design D3/D4): bins and
-/// ratios from the GPU calibration `gpu-cal-v3-2026-10-09` (int8 against the worst honest cell,
-/// pseudo-counts 5 and 0.5, rounded down), contributions clamped to −0.5 and +3.0 nats, the
-/// bound at 24.7 nats (a false alarm per provider and year at most 52,560 × e^−24.7 ≈ 10⁻⁶ when
-/// the honest `E[e^λ]` is at most 1; it is 0.62 at worst).
+/// Version 1 (design D3/D4): bins and ratios from the calibration
+/// `plugins/vllm/ci/calibration-results/gpu-cal-v4-2026-10-15` (every cell: RTX 5090 and H800
+/// PCIe re-checked by themselves, each other and CPUs, and CPU cells; int8 against the worst
+/// honest cell, pseudo-counts 5 and 0.5, rounded down), contributions clamped to −0.5 and +3.0
+/// nats, the bound at 24.7 nats (a false alarm per provider and year at most
+/// 52,560 × e^−24.7 ≈ 10⁻⁶ when the honest `E[e^λ]` is at most 1; it is 0.62 at worst).
+/// `scripts/tests` checks these values against a re-export of that report.
 pub const STATS_V1: StatsParams = StatsParams {
     version: 1,
     thresholds_version: 4,
     band: (150, 300),
     prefill_edges: &[30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 140, 170, 220],
     prefill_llr: &[
-        -1_631, -5_609, -6_378, -6_333, -4_959, -2_988, 172, 2_187, 3_777, 4_518, 4_870, 4_639,
-        2_537, -408,
+        -7_772, -7_364, -7_289, -7_243, -5_872, -3_900, 359, 2_579, 3_311, 4_325, 4_784, 4_461,
+        2_180, 406,
     ],
     decode_edges: &[60, 80, 100, 120, 140, 170, 200, 240, 280, 340, 450],
     decode_llr: &[
-        -409, -4_390, -6_248, -6_105, -5_256, -2_276, 990, 3_472, 4_911, 4_597, 3_537, 1_018,
+        -7_770, -7_360, -7_175, -7_018, -6_169, -1_638, 1_548, 3_546, 4_940, 4_179, 3_017, 1_149,
     ],
     clamp: (-500, 3_000),
     per_auditor_cap: 8_233,

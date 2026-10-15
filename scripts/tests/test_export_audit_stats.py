@@ -152,5 +152,45 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual([int(x.replace("_", "")) for x in llr.split(",")], p["prefill_llr"])
 
 
+class PublishedVersionTests(unittest.TestCase):
+    """m6-audit-sprt 2.3: the published version 1 is what the committed calibration exports."""
+
+    REPORT = ROOT / "plugins" / "vllm" / "ci" / "calibration-results" / "gpu-cal-v4-2026-10-15"
+    RUST = ROOT / "crates" / "ac-primitives" / "src" / "market" / "audit" / "stats.rs"
+
+    def rust_v1(self) -> dict:
+        text = self.RUST.read_text()
+        body = re.search(r"pub const STATS_V1: StatsParams = StatsParams \{(.*?)\n\};", text, re.S).group(1)
+
+        def ints(name):
+            raw = re.search(rf"{name}: &\[([^\]]*)\]", body).group(1)
+            return [int(x.replace("_", "")) for x in raw.split(",") if x.strip()]
+
+        def num(name):
+            return int(re.search(rf"\b{name}: (-?[0-9_]+),", body).group(1).replace("_", ""))
+
+        pair = lambda name: [int(x.replace("_", "")) for x in
+                             re.search(rf"{name}: \((-?[0-9_]+), (-?[0-9_]+)\)", body).groups()]
+        return {"version": num("version"), "thresholds_version": num("thresholds_version"),
+                "band": pair("band"), "prefill_edges": ints("prefill_edges"),
+                "prefill_llr": ints("prefill_llr"), "decode_edges": ints("decode_edges"),
+                "decode_llr": ints("decode_llr"), "clamp": pair("clamp"),
+                "per_auditor_cap": num("per_auditor_cap"), "bound": num("bound")}
+
+    def test_rust_constant_matches_the_report(self):
+        p = ex.derive(ex.load([self.REPORT / "summary.json"]), 1, 4, (150, 300))
+        published = json.loads((self.REPORT / "audit-stats-v1.json").read_text())
+        self.assertEqual(p, published)
+        rust = self.rust_v1()
+        self.assertEqual(rust, {k: list(v) if isinstance(v, (tuple, list)) else v
+                                for k, v in p.items() if k != "max_entries"})
+
+    def test_the_simulation_meets_the_gate(self):
+        sim = json.loads((self.REPORT / "audit-stats-v1-simulation.json").read_text())["simulation"]
+        self.assertTrue(sim["ok"])
+        self.assertLessEqual(sim["worst_e_lambda"], 0.8)
+        self.assertLessEqual(sim["false_alarms_per_year"], 1e-6)
+
+
 if __name__ == "__main__":
     unittest.main()

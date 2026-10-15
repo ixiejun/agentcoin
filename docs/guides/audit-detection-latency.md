@@ -78,15 +78,15 @@ judgment (OpenSpec change `m6-audit-sprt`) accumulates each passing or failing v
 statistics per provider, and a statistical dispute opens once the state reaches the bound.
 `scripts/export-audit-stats.py --simulate` gives the audits needed, by share of requests served
 with int8. `scripts/sim-audit-latency.py --stats-sim <report>` turns them into time: 2 audits
-per round, and a 2-minute review. The table uses provisional parameter version 1 on the GPU
-calibration (seed 1, 1,000 runs). All times assume 20-minute rounds.
+per round, and a 2-minute review. The table uses parameter version 1 on the cross-hardware
+calibration `gpu-cal-v4-2026-10-15` (seed 1, 1,000 runs). All times assume 20-minute rounds.
 
 | int8 share of requests | Audits (median / p95) | Decided after (median / p95) |
 |---|---|---|
 | 100% | 9 / 9 | 1.7 h / 1.7 h |
-| 50% | 19 / 31 | 3.4 h / 5.4 h |
-| 30% | 45 / 90 | 7.0 h / 14.7 h |
-| 20% | 103 / 320 | 17.0 h / 55.7 h |
+| 50% | 19 / 32 | 3.4 h / 5.4 h |
+| 30% | 41 / 87 | 7.0 h / 14.7 h |
+| 20% | 102 / 326 | 17.0 h / 54.4 h |
 
 The honest bound holds on every calibrated cell: the worst cell's `E[e^λ]` is 0.62, so false
 disputes stay below 52,560 × e^−24.7 ≈ 10⁻⁶ per provider and year. On the development chain,

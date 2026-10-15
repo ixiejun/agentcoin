@@ -190,8 +190,8 @@ including 8-bit weights used only while decoding.
   - the bound;
   - the most entries a provider's state keeps.
 
-  Version 1 is provisional, derived from the GPU calibration: clamp −0.5 / +3.0 nats, bound
-  24.7 nats.
+  Version 1 is derived from the cross-hardware calibration `gpu-cal-v4-2026-10-15` (GPU and CPU
+  cells): clamp −0.5 / +3.0 nats, bound 24.7 nats.
 - A verdict's contribution is the sum of two ratios, clamped:
   - the prefill bin's ratio, counted only when the prompt is in the band;
   - the decode bin's ratio, counted only when there are decode chunks.
