@@ -123,3 +123,48 @@ pub trait OnJail<AccountId> {
 impl<AccountId> OnJail<AccountId> for () {
     fn on_jail(_who: &AccountId) {}
 }
+
+/// Whether a model is calibrated: it has an audit profile, its own or the chain's default
+/// (m6-audit-hardening design D1; spec `market/audit` "按模型的审计档案"). Settlement pays for
+/// an uncalibrated model's receipts but credits no market work for them.
+pub trait ModelCalibration {
+    /// `true` if `model` has an audit profile.
+    fn is_calibrated(model: &ModelId) -> bool;
+}
+
+/// Every model counts as calibrated: for chains and tests without audits.
+pub struct AllCalibrated;
+
+impl ModelCalibration for AllCalibrated {
+    fn is_calibrated(_model: &ModelId) -> bool {
+        true
+    }
+}
+
+/// A provider's recent revenue, which its required stake grows with (m6-audit-hardening design
+/// D3, D4; spec `market/work-settlement` "近期结算额").
+pub trait SettlementHistory<AccountId> {
+    /// `who`'s settled dollars per epoch over the recent window, rounded up.
+    fn avg_per_epoch(who: &AccountId) -> MicroUsd;
+}
+
+/// No settlement history: every provider's recent revenue is zero.
+impl<AccountId> SettlementHistory<AccountId> for () {
+    fn avg_per_epoch(_who: &AccountId) -> MicroUsd {
+        MicroUsd::ZERO
+    }
+}
+
+/// Whether an account is a party to an open audit dispute or spot check, so its unbonding stake
+/// must stay (m6-audit-hardening design D8; spec `market/audit` "争议当事方的罚没锁").
+pub trait DisputeLock<AccountId> {
+    /// `true` while `who` may still be slashed by an open dispute or spot check.
+    fn is_locked(who: &AccountId) -> bool;
+}
+
+/// Nothing is ever locked: for chains and tests without audits.
+impl<AccountId> DisputeLock<AccountId> for () {
+    fn is_locked(_who: &AccountId) -> bool {
+        false
+    }
+}

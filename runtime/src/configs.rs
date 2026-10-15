@@ -444,6 +444,9 @@ impl pallet_work::Config for Runtime {
     type Providers = crate::Providers;
     type Price = crate::RefRate;
     type Epochs = Emission;
+    // Until the audit pallet keeps per-model profiles (m6-audit-hardening group 5), every model
+    // counts as calibrated, as before.
+    type Calibration = ac_primitives::market::traits::AllCalibrated;
     /// Burned shares and the burn ratio go through `Emission`, counted in `TotalBurned`.
     type Burn = Emission;
     type PalletId = WorkPalletId;

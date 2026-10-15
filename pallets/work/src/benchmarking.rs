@@ -12,8 +12,9 @@ use crate::{Config, Pallet};
 #[benchmarks]
 mod benchmarks {
     use super::{Config, Pallet};
-    use crate::{BenchmarkHelper, Call, Params};
+    use crate::{BenchmarkHelper, Call, Params, RecentSettled, RevenueWindow};
     use ac_primitives::emission::{EpochIndex, MarketPayout, WorkSource};
+    use ac_primitives::market::deterrence::MAX_SETTLED_WINDOW;
     use ac_primitives::market::work::{JobKind, MAX_REPORT_ENTRIES, MAX_REPORT_VOUCHERS};
     use ac_primitives::market::{MicroUsd, ModelId, ReportEntry};
     use alloc::vec::Vec;
@@ -65,6 +66,19 @@ mod benchmarks {
         let vouchers = T::BenchmarkHelper::vouchers(&g, 0, v, per_voucher);
         let entries = entries::<T>(e, per_voucher * u128::from(v));
         let count = e;
+        // Worst case of the recent revenue (m6-audit-hardening 3.3): the widest window, every
+        // provider with all earlier epochs of it settled, so the list is decoded, filtered and
+        // grows to its bound.
+        RevenueWindow::<T>::put(MAX_SETTLED_WINDOW);
+        let now = EpochIndex::from(MAX_SETTLED_WINDOW);
+        T::BenchmarkHelper::set_epoch(now);
+        let earlier: Vec<(EpochIndex, MicroUsd)> = (1..MAX_SETTLED_WINDOW)
+            .rev()
+            .map(|k| (now - EpochIndex::from(k), MicroUsd(1)))
+            .collect();
+        for entry in &entries {
+            RecentSettled::<T>::insert(&entry.provider, BoundedVec::truncate_from(earlier.clone()));
+        }
 
         #[extrinsic_call]
         _(
@@ -76,6 +90,11 @@ mod benchmarks {
         );
 
         assert!(Pallet::<T>::report(0).is_some());
+        let first: AccountId32 = account("provider", 0, 0);
+        assert_eq!(
+            u32::try_from(RecentSettled::<T>::get(first).len()).unwrap(),
+            MAX_SETTLED_WINDOW
+        );
     }
 
     #[benchmark]

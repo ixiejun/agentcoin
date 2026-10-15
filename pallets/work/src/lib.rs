@@ -17,6 +17,9 @@
 //!   fees are released, the emission share is paid from the pot.
 //! - A provider jailed before its work is settled (the audit, M6; nothing reaches it in M5) loses
 //!   that work and its shares, which are burned when claimed.
+//! - Receipts of an uncalibrated model (no audit profile) are paid but earn no market work, and
+//!   each provider's settled dollars of the last `W` epochs are kept: its required stake grows
+//!   with them (m6-audit-hardening design D3, D4).
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -66,10 +69,12 @@ pub trait BenchmarkHelper {
 #[allow(clippy::expect_used, clippy::unreachable)]
 #[frame_support::pallet]
 pub mod pallet {
-    use super::WeightInfo;
+    use super::{LIVE_REVENUE_WINDOW, WeightInfo, live_revenue_window};
     use ac_primitives::emission::{EpochIndex, EpochIndexSource, MarketPayout, WorkSource};
+    use ac_primitives::market::deterrence::{MAX_SETTLED_WINDOW, avg_per_epoch, in_window};
     use ac_primitives::market::traits::{
-        Credit as CreditInterface, GatewayLookup, OnJail, PriceSource, ProviderLookup,
+        Credit as CreditInterface, GatewayLookup, ModelCalibration, OnJail, PriceSource,
+        ProviderLookup, SettlementHistory,
     };
     use ac_primitives::market::work::{
         MAX_REPORT_ENTRIES, MAX_REPORT_VOUCHERS, allocate, proven_work,
@@ -128,6 +133,8 @@ pub mod pallet {
         type Price: PriceSource;
         /// The current emission epoch.
         type Epochs: EpochIndexSource;
+        /// Whether a model has an audit profile (m6-audit-hardening).
+        type Calibration: ModelCalibration;
         /// Where burned amounts go; the runtime burns them through `Emission`.
         type Burn: OnUnbalanced<Credit<AccountId32, Self::Currency>>;
         /// Derives the account market emission is minted to.
@@ -206,19 +213,54 @@ pub mod pallet {
     #[pallet::storage]
     pub type Unclaimed<T: Config> = StorageValue<_, Balance, ValueQuery>;
 
+    /// Each provider's settled dollars per epoch over the last [`RevenueWindow`] epochs, oldest
+    /// first (spec "近期结算额").
+    #[pallet::storage]
+    pub type RecentSettled<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        AccountId32,
+        BoundedVec<(EpochIndex, MicroUsd), ConstU32<MAX_SETTLED_WINDOW>>,
+        ValueQuery,
+    >;
+
+    /// Epochs the recent revenue is averaged over (`W`).
+    #[pallet::storage]
+    pub type RevenueWindow<T: Config> = StorageValue<_, u32, ValueQuery, RevenueWindowDefault>;
+
+    /// Default window: the live value, 24 epochs.
+    pub struct RevenueWindowDefault;
+    impl Get<u32> for RevenueWindowDefault {
+        fn get() -> u32 {
+            LIVE_REVENUE_WINDOW
+        }
+    }
+
     /// Lifetime work of each account.
     #[pallet::storage]
     pub type Lifetime<T: Config> =
         StorageMap<_, Blake2_128Concat, AccountId32, LifetimeWork<Balance>, ValueQuery>;
 
     #[pallet::genesis_config]
-    #[derive(frame_support::DefaultNoBound)]
     pub struct GenesisConfig<T: Config> {
         /// Settlement parameters.
         pub params: WorkParams,
+        /// Epochs the recent revenue is averaged over (`W`, 1 to 168).
+        #[serde(default = "live_revenue_window")]
+        pub revenue_window: u32,
         /// Marker.
         #[serde(skip)]
         pub _config: core::marker::PhantomData<T>,
+    }
+
+    impl<T: Config> Default for GenesisConfig<T> {
+        fn default() -> Self {
+            Self {
+                params: WorkParams::default(),
+                revenue_window: LIVE_REVENUE_WINDOW,
+                _config: core::marker::PhantomData,
+            }
+        }
     }
 
     #[pallet::genesis_build]
@@ -229,6 +271,12 @@ pub mod pallet {
                 .validate()
                 .expect("work parameters out of bounds");
             Params::<T>::put(self.params);
+            // Documented genesis check, like the parameters above.
+            assert!(
+                (1..=MAX_SETTLED_WINDOW).contains(&self.revenue_window),
+                "revenue window out of bounds"
+            );
+            RevenueWindow::<T>::put(self.revenue_window);
             // The pot exists from genesis without holding any ATC (no premine, D9).
             frame_system::Pallet::<T>::inc_providers(&Pallet::<T>::pot());
         }
@@ -457,9 +505,16 @@ pub mod pallet {
             let matures = submitted.saturating_add(u64::from(params.challenge_epochs));
             let mut lines = Vec::with_capacity(entries.len());
             let mut epoch_work = 0u128;
+            let window = RevenueWindow::<T>::get();
             for ((entry, share), work) in entries.into_iter().zip(alloc.shares).zip(alloc.work) {
-                // Receipts without proofs are paid but earn no market work (I-008).
-                let work = proven_work(work, entry.usd, entry.unproven);
+                // Receipts without proofs are paid but earn no market work (I-008), nor do those
+                // of an uncalibrated model (spec "工作量").
+                let work = if T::Calibration::is_calibrated(&entry.model) {
+                    proven_work(work, entry.usd, entry.unproven)
+                } else {
+                    0
+                };
+                Self::record_settled(&entry.provider, submitted, entry.usd, window);
                 Self::add_held(&entry.provider, matures, &gateway, share, 0);
                 WorkOf::<T>::mutate(&entry.provider, matures, |w| {
                     let w = w.get_or_insert_with(ProviderWork::default);
@@ -528,6 +583,33 @@ pub mod pallet {
                     w.held = w.held.saturating_add(1);
                 });
             }
+        }
+
+        /// Adds `usd` to `who`'s settled dollars of epoch `now` and drops the epochs that left the
+        /// window of `window` epochs (spec "近期结算额").
+        fn record_settled(who: &AccountId32, now: EpochIndex, usd: MicroUsd, window: u32) {
+            RecentSettled::<T>::mutate(who, |list| {
+                list.retain(|(e, _)| in_window(*e, now, window));
+                match list.last_mut() {
+                    Some((e, total)) if *e == now => {
+                        *total = MicroUsd(total.0.saturating_add(usd.0))
+                    }
+                    // The window holds at most `MAX_SETTLED_WINDOW` epochs after the retain,
+                    // so this fits unless the window is wider, which genesis refuses.
+                    _ => {
+                        let _ = list.try_push((now, usd));
+                    }
+                }
+            });
+        }
+
+        /// `who`'s settled dollars per epoch over the recent window at the current epoch.
+        pub fn recent_revenue(who: &AccountId32) -> MicroUsd {
+            avg_per_epoch(
+                &RecentSettled::<T>::get(who),
+                T::Epochs::current_epoch(),
+                RevenueWindow::<T>::get(),
+            )
         }
 
         /// Removes up to four reports past their retention period (design D8).
@@ -744,5 +826,20 @@ pub mod pallet {
                 epoch = epoch.saturating_add(1);
             }
         }
+    }
+}
+
+/// Live window of the recent revenue: 24 epochs (spec `node/chain-spec` "提供者威慑参数").
+pub const LIVE_REVENUE_WINDOW: u32 = 24;
+
+fn live_revenue_window() -> u32 {
+    LIVE_REVENUE_WINDOW
+}
+
+impl<T: Config> ac_primitives::market::traits::SettlementHistory<sp_runtime::AccountId32>
+    for Pallet<T>
+{
+    fn avg_per_epoch(who: &sp_runtime::AccountId32) -> ac_primitives::market::MicroUsd {
+        Pallet::<T>::recent_revenue(who)
     }
 }

@@ -84,6 +84,7 @@ std::thread_local! {
         const { RefCell::new(BTreeMap::new()) };
     static OFFERS: RefCell<BTreeSet<(AccountId32, ModelId)>> = const { RefCell::new(BTreeSet::new()) };
     static EPOCH: RefCell<EpochIndex> = const { RefCell::new(0) };
+    static UNCALIBRATED: RefCell<BTreeSet<ModelId>> = const { RefCell::new(BTreeSet::new()) };
     /// Total burned through the burn sink.
     pub static BURNED: RefCell<u128> = const { RefCell::new(0) };
 }
@@ -132,6 +133,25 @@ pub fn set_gateway(who: &AccountId32, active: bool, fee_bps: u16) {
 }
 
 /// Providers able to settle a model.
+/// Models without an audit profile: all are calibrated unless marked.
+pub struct TestCalibration;
+impl ac_primitives::market::traits::ModelCalibration for TestCalibration {
+    fn is_calibrated(model: &ModelId) -> bool {
+        !UNCALIBRATED.with(|u| u.borrow().contains(model))
+    }
+}
+
+/// Marks `model` uncalibrated (or calibrated again).
+pub fn set_calibrated(model: ModelId, calibrated: bool) {
+    UNCALIBRATED.with(|u| {
+        if calibrated {
+            u.borrow_mut().remove(&model);
+        } else {
+            u.borrow_mut().insert(model);
+        }
+    });
+}
+
 pub struct TestProviders;
 impl ProviderLookup<AccountId32> for TestProviders {
     fn can_settle(who: &AccountId32, model: &ModelId) -> bool {
@@ -207,6 +227,7 @@ impl pallet_work::Config for Test {
     type Providers = TestProviders;
     type Price = TestPrice;
     type Epochs = TestEpochs;
+    type Calibration = TestCalibration;
     type Burn = TestBurn;
     type PalletId = WorkPalletId;
     type WeightInfo = ();
@@ -367,6 +388,7 @@ pub fn ext() -> sp_io::TestExternalities {
     KEYS.with(|k| k.borrow_mut().clear());
     GATEWAYS.with(|g| g.borrow_mut().clear());
     OFFERS.with(|o| o.borrow_mut().clear());
+    UNCALIBRATED.with(|u| u.borrow_mut().clear());
     BURNED.with(|b| *b.borrow_mut() = 0);
     let storage = RuntimeGenesisConfig {
         system: Default::default(),

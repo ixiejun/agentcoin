@@ -38,7 +38,16 @@ work_i   = (G × usd_i / Σ usd) × k   (k = 0.5; k − b ≤ 0.5, research 03 �
 ```
 
 Requests served without proofs are paid like the others but earn no market work
-(m6-public-jobs, I-008): only proven dollars count toward emission.
+(m6-public-jobs, I-008): only proven dollars count toward emission. Likewise, an entry whose model
+is uncalibrated (it has no audit profile, `Config::Calibration`) is paid but earns no market work
+(m6-audit-hardening).
+
+Every accepted entry also adds its dollars to its provider's revenue of the current epoch
+(`RecentSettled`). `recent_revenue(who)` averages the last `revenue_window` epochs (`W`, rounded
+up; epochs without reports count as zero), and the pallet implements `SettlementHistory` with it.
+`pallet-providers` reads it, because a provider's required stake grows with its revenue
+(m6-audit-hardening design D3). A list keeps at most `W` epochs, and the oldest ones are dropped
+when the provider is next settled.
 
 Shares and fee stay **held on the gateway's account** (hold reason `Pending`) until the challenge
 period ends; they are recorded per (recipient, maturity epoch, gateway).
@@ -67,9 +76,10 @@ never voided with a provider.
 | `emission_bps` (`k`) | 5,000 | 5,000 |
 | `challenge_epochs` (`C`) | 2 | 2 |
 | `retention_epochs` | 720 (30 days) | 20 |
+| `revenue_window` (`W`) | 24 | 24 |
 
-Genesis rejects `b` outside 1,000–9,000, `k − b` above 5,000 and a zero challenge period or
-retention. Reports are pruned (at most four per submission) `retention_epochs` after they mature;
+Genesis rejects `b` outside 1,000–9,000, `k − b` above 5,000, a zero challenge period or
+retention, and a revenue window outside 1–168 epochs. Reports are pruned (at most four per submission) `retention_epochs` after they mature;
 pending payments outlive them.
 
 ## Features

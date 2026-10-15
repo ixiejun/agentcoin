@@ -19,9 +19,10 @@ use ac_primitives::market::{MicroUsd, ReportEntry, SignedVoucher};
 use crate::mock::{
     Balances, Credits, GW_FUNDS, MODEL, OTHER_MODEL, P_FUNDS, PARAMS, RuntimeHoldReason,
     RuntimeOrigin, System, Test, UNITS_PER_USD, Work, alice, bob, burned, entry, ext, gw, key, p1,
-    p2, set_epoch, set_gateway, set_rate, settle_epoch, stranger, voucher, voucher_for,
+    p2, set_calibrated, set_epoch, set_gateway, set_rate, settle_epoch, stranger, voucher,
+    voucher_for,
 };
-use crate::{Error, Event, HeldFor, HoldReason, Reports, WorkOf};
+use crate::{Error, Event, HeldFor, HoldReason, RecentSettled, Reports, WorkOf};
 
 const ROOT: [u8; 32] = [0xab; 32];
 
@@ -140,6 +141,103 @@ fn unproven_fees_are_paid_without_work() {
         assert_eq!((r.lines[0].share, r.lines[1].share), (562_500, 187_500));
         assert_eq!((r.lines[0].work, r.lines[1].work), (281_250, 0));
         assert_eq!(<Work as WorkSource>::verified_work(2), (281_250, 0));
+    });
+}
+
+// Spec "工作量", scenario "未校准模型不产生工作量" (m6-audit-hardening): the model has no
+// audit profile, so its fees are shared as usual but earn no market work.
+#[test]
+fn uncalibrated_models_earn_no_work() {
+    ext().execute_with(|| {
+        set_calibrated(MODEL, false);
+        one_dollar_report();
+        let r = Work::report(0).unwrap();
+        assert_eq!((r.lines[0].share, r.lines[1].share), (562_500, 187_500));
+        assert_eq!((r.lines[0].work, r.lines[1].work), (0, 0));
+        assert_eq!(<Work as WorkSource>::verified_work(2), (0, 0));
+        // Once calibrated, the same model's next report earns work again.
+        set_calibrated(MODEL, true);
+        assert_ok!(submit(
+            &gw(),
+            vec![entry(&p1(), 750_000), entry(&p2(), 250_000)],
+            vec![voucher(&alice(), 2_000_000)],
+        ));
+        assert_eq!(<Work as WorkSource>::verified_work(2), (500_000, 0));
+    });
+}
+
+// Spec "近期结算额" (m6-audit-hardening): each provider's settled dollars per epoch, averaged
+// over the last 24 epochs, rounded up; an epoch leaves the window 24 epochs later.
+#[test]
+fn recent_revenue_per_epoch() {
+    ext().execute_with(|| {
+        one_dollar_report();
+        assert_eq!(Work::recent_revenue(&p1()), MicroUsd(31_250)); // 750,000 / 24
+        assert_eq!(Work::recent_revenue(&p2()), MicroUsd(10_417)); // 250,000 / 24, up
+        // A second report in the same epoch adds to it.
+        assert_ok!(submit(
+            &gw(),
+            vec![entry(&p1(), 1_000_000)],
+            vec![voucher(&alice(), 2_000_000)],
+        ));
+        assert_eq!(
+            RecentSettled::<Test>::get(p1()).into_inner(),
+            vec![(0, MicroUsd(1_750_000))]
+        );
+        // Another epoch is a new entry.
+        set_epoch(3);
+        deposit(&bob(), 2 * UNITS_PER_USD);
+        assert_ok!(submit(
+            &gw(),
+            vec![entry(&p1(), 650_000)],
+            vec![voucher(&bob(), 650_000)],
+        ));
+        assert_eq!(Work::recent_revenue(&p1()), MicroUsd(100_000)); // 2,400,000 / 24
+        // Epoch 0 leaves the window at epoch 24, epoch 3 at 27.
+        set_epoch(23);
+        assert_eq!(Work::recent_revenue(&p1()), MicroUsd(100_000));
+        set_epoch(24);
+        assert_eq!(Work::recent_revenue(&p1()), MicroUsd(27_084)); // 650,000 / 24, up
+        set_epoch(27);
+        assert_eq!(Work::recent_revenue(&p1()), MicroUsd(0));
+        // The next report drops the epochs that left the window.
+        deposit(&bob(), UNITS_PER_USD);
+        assert_ok!(submit(
+            &gw(),
+            vec![entry(&p1(), 240_000)],
+            vec![voucher(&bob(), 890_000)],
+        ));
+        assert_eq!(
+            RecentSettled::<Test>::get(p1()).into_inner(),
+            vec![(27, MicroUsd(240_000))]
+        );
+    });
+}
+
+// The window's genesis guardrail: 1 to 168 epochs.
+#[test]
+#[should_panic(expected = "revenue window out of bounds")]
+fn a_zero_revenue_window_fails_genesis() {
+    use frame_support::traits::BuildGenesisConfig;
+    sp_io::TestExternalities::default().execute_with(|| {
+        crate::GenesisConfig::<Test> {
+            revenue_window: 0,
+            ..Default::default()
+        }
+        .build();
+    });
+}
+
+#[test]
+#[should_panic(expected = "revenue window out of bounds")]
+fn a_revenue_window_above_168_fails_genesis() {
+    use frame_support::traits::BuildGenesisConfig;
+    sp_io::TestExternalities::default().execute_with(|| {
+        crate::GenesisConfig::<Test> {
+            revenue_window: 169,
+            ..Default::default()
+        }
+        .build();
     });
 }
 
