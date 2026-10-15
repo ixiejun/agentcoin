@@ -167,6 +167,16 @@ prompt, int8 left to the statistical judgment. Its conclusion is `too few sample
 By user decision (2026-10-14) the shortfall is recorded and version 4 stands; the 95% upper bound
 of that cell's honest failure rate is about 0.13%.
 
+**The statistics on two auditors.** The same bundle re-checked on the RTX 5090 and on the H800
+PCIe gives other statistics for most cases (`calibrate-toploc.py --spread`; cases judged by the
+thresholds, prompts in the band). Honest prefill means differ by 0.05–0.11 at the median, 0.20–0.33
+at p99 and 0.90 at most; decode means by 0.08–0.13, 0.60–0.68 and 2.32. The clamped contribution
+λ of the statistical judgment is the same for more than 99.9% of the cases, but about 1 in 2,000
+differs by more than 2 nats (at most 3.5, from −0.5 to +3.0). A single verdict's statistics
+therefore cannot be checked against a reviewer's re-computation: reviews of verdicts compare only
+the outcome (OpenSpec change `m6-audit-hardening`, user decision 2026-10-15). Statistical disputes
+re-compute a whole participation list, where these differences average out.
+
 ## Limits
 
 - GPUs measured: one consumer (RTX 5090) and one data-center GPU (H800 PCIe), with vLLM's default
