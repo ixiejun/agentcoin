@@ -8,10 +8,26 @@
 //! for a failure, the commitment to the evidence, which stays off chain.
 //!
 //! [`stats`] is the statistical judgment over a provider's verdicts (m6-audit-sprt).
+//! m6-audit-hardening adds per-model audit [`profile`]s, the [`windows`] check, the
+//! [`spot_check`] draw and the [`evidence_availability`] rules of the light penalty.
 
 use alloc::vec::Vec;
 
+pub mod evidence_availability;
+pub mod profile;
+pub mod spot_check;
 pub mod stats;
+pub mod windows;
+
+pub use evidence_availability::{
+    MAX_MARKED, MAX_UNAVAILABLE_LIMIT, UnavailablePenalty, recent_findings, unavailable,
+    unavailable_penalty,
+};
+pub use profile::{
+    AuditProfile, ProfileError, ProfileSource, THRESHOLDS_VERSIONS, resolve, thresholds_known,
+};
+pub use spot_check::{MAX_SPOT_CHECK_BPS, SPOT_CHECK_CONTEXT, spot_checked};
+pub use windows::{WindowError, WindowParams, check_windows, citation_window};
 
 pub use stats::{
     AUDIT_STATS, AuditStats, CURRENT_STATS, ChunkMantissa, MAX_SPRT_ENTRIES, STAT_MAX, SprtEntry,

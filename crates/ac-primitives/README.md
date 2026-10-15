@@ -219,3 +219,47 @@ for (auditor, round) in [(1u8, 0), (2, 0), (3, 1), (4, 1), (5, 2), (6, 2), (7, 3
 assert!(s.crossed(&p)); // 27.0 nats ≥ 24.7
 assert_eq!(s, SprtState::replay(&p, s.entries.clone()));
 ```
+
+## Audit hardening
+
+OpenSpec change `m6-audit-hardening` adds the rules below. Each is a pure function that the
+runtime, wallets and tests share.
+
+- `market::audit::profile`: per-model audit profiles. An `AuditProfile` names the thresholds
+  version and the statistical parameter version a model is audited under. Both must be built in:
+  `THRESHOLDS_VERSIONS` for the thresholds, `AUDIT_STATS` for the parameters.
+  `AuditProfile::check_update` lets only bf16 models have a profile, and versions only increase.
+  `resolve` gives a model its own profile, else the chain's default for a bf16 model, else
+  none. A model without a profile is uncalibrated: verdicts on it are refused and its receipts
+  earn no market work.
+- `market::audit::windows`: `check_windows` relates the time windows. A verdict can be cited
+  for `2R + V` blocks after its submission (`citation_window`, `R` the round, `V` the vote
+  period). Both unbonding periods and the record retention must cover that, and `V ≤ R`.
+- `market::audit::spot_check`: `spot_checked` draws the verdicts that are re-checked, at a rate
+  in basis points (at most 50%). It hashes the next round's seed and the receipt's request ID
+  under `agentcoin 2026-10 audit-spot-check v1`, so the auditor cannot know the draw when it
+  submits.
+- `market::audit::evidence_availability`: each ballot marks the cited verdicts whose evidence
+  the reviewer did not obtain, one bit per verdict. `unavailable` finds the verdicts marked by
+  at least the quorum. `unavailable_penalty` makes an auditor's finding the full penalty once its
+  findings within the retention reach the limit (3 on live chains); before that, the finding is
+  only the light penalty.
+- `market::deterrence`: provider stakes that grow with revenue. `kappa_bps` is
+  `κ = (g × H − C) / f` epochs, in basis points of an epoch, rounded up. Here `g` is the assumed
+  gain ratio, `H` the exposure horizon, `C` the challenge period and `f` the provider slash.
+  `required_stake` is the larger of the tier threshold and `κ` times the recent revenue per
+  epoch, which `avg_per_epoch` averages over the last `W` epochs.
+
+```rust
+use ac_primitives::market::deterrence::{kappa_bps, required_stake};
+use ac_primitives::market::usd::MicroUsd;
+use sp_runtime::Perbill;
+
+// Live draft values: g = 50%, H = 11 epochs, C = 2 epochs, f = 10%, so κ = 35 epochs.
+let k = kappa_bps(Perbill::from_percent(50), 11, 2, Perbill::from_percent(10));
+assert_eq!(k, 350_000);
+// $100 of revenue per epoch needs $3,500 of stake; $10 per epoch only the $1,000 threshold.
+let t1 = MicroUsd::from_usd(1_000).unwrap();
+assert_eq!(required_stake(t1, k, MicroUsd::from_usd(100).unwrap()), MicroUsd::from_usd(3_500).unwrap());
+assert_eq!(required_stake(t1, k, MicroUsd::from_usd(10).unwrap()), t1);
+```

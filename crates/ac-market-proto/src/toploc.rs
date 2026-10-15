@@ -723,6 +723,18 @@ mod tests {
         assert_eq!(t.version, 4);
     }
 
+    // m6-audit-hardening 2.1: audit profiles may name these thresholds, the newest the runtime
+    // knows.
+    #[test]
+    fn the_runtime_knows_these_thresholds() {
+        use ac_primitives::market::audit::THRESHOLDS_VERSIONS;
+        assert!(THRESHOLDS_VERSIONS.contains(&AUDIT_THRESHOLDS.version));
+        assert_eq!(
+            THRESHOLDS_VERSIONS.iter().max(),
+            Some(&AUDIT_THRESHOLDS.version)
+        );
+    }
+
     // m6-audit-sprt 1.2: the statistical judgment's parameters use these thresholds' band.
     #[test]
     fn statistics_use_the_thresholds_band() {

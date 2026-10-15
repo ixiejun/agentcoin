@@ -82,3 +82,15 @@ AC-BFT 各种格式的字节级回归向量位于 `tests/vectors/`（见 `SOURCE
   - `SprtState::replay` 由条目重算状态，任何人都可以用它核对链。
 
 示例代码见英文版 [README.md](README.md)（作为 doctest 运行）：一条类似 int8 的裁决贡献 +3.0 奈特（截断），一条类似诚实的裁决贡献 −0.5 奈特；九名审计员各一条类似 int8 的裁决累计 27.0 奈特，越过 24.7 的判定界，且与重算结果相同。
+
+## 审计加固
+
+OpenSpec 变更 `m6-audit-hardening` 增加了下列规则。每条规则都是一个纯函数，由运行时、钱包与测试共用。
+
+- `market::audit::profile`：按模型的审计档案。`AuditProfile` 给出一个模型审计时使用的阈值版本与统计参数版本，两者都必须内置于运行时：阈值版本看 `THRESHOLDS_VERSIONS`，统计参数版本看 `AUDIT_STATS`。`AuditProfile::check_update` 只允许 BF16 模型有档案，且版本只能增大。`resolve` 给出模型的档案：先用它自己的档案，没有时 BF16 模型用链的默认档案，否则没有档案。没有档案的模型为“未校准”：对它的裁决被拒绝，它的收据不产生市场工作量。
+- `market::audit::windows`：`check_windows` 检查各时间窗口之间的关系。一条裁决在提交后 `2R + V` 个区块内都可能被引用（`citation_window`，`R` 为轮次长度，`V` 为投票期限）。两种解绑期与记录保留期都必须覆盖这段时间，并且 `V ≤ R`。
+- `market::audit::spot_check`：`spot_checked` 按以基点表示的比例（至多 50%）抽出要复查的裁决。它在上下文 `agentcoin 2026-10 audit-spot-check v1` 下对下一轮的种子与收据请求 ID 做哈希，所以审计员提交时无法预知是否会被抽中。
+- `market::audit::evidence_availability`：每张票用一位标明一条被引用的裁决，置位表示复核人没有取得它的证据。`unavailable` 找出至少被 Q 张票标出的裁决。`unavailable_penalty` 判定处罚：审计员在保留期内的此类记录达到上限（活链为 3 次）时，本次按完整处罚，此前只受轻罚。
+- `market::deterrence`：随营收增长的提供者质押。`kappa_bps` 计算 `κ = (g × H − C) / f` 个纪元，以纪元的基点表示，向上取整；其中 `g` 为假设的作弊收益比例，`H` 为暴露期，`C` 为挑战期，`f` 为提供者的罚没比例。`required_stake` 取档位门槛与“κ 乘以近期每纪元营收”中的较大者，近期营收由 `avg_per_epoch` 按最近 `W` 个纪元平均。
+
+示例代码见英文版 [README.md](README.md)（作为 doctest 运行）：按活链草案值（g = 50%、H = 11、C = 2、f = 10%）得 κ = 35 个纪元；每纪元营收 100 美元的提供者需要 3,500 美元质押，每纪元 10 美元的只需 1,000 美元门槛。
