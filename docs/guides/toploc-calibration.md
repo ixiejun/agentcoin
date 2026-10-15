@@ -228,6 +228,9 @@ The calibration workflow can do two cross-hardware runs, set in `plugins/vllm/ci
 - `CALIBRATION_PROVER_ISA`: the generating engines' `ONEDNN_MAX_CPU_ISA` (e.g. `ALL`), while the
   re-checking ones keep `ONEDNN_MAX_CPU_ISA`: on runners with AMX this is the "CPU AMX on → CPU
   AMX off" cell. Runners cannot be chosen, so the cell fills over runs with different seeds.
+- `CALIBRATION_AMX_FACTOR`: a shard that finds itself on such a runner generates this many times
+  its share of samples. Few runners have AMX, but they are the fastest (about 35 minutes for 400
+  honest answers against about 4.5 hours on an AMD EPYC 7763), so they fill the cell sooner.
 
 GPU machines are set up and run with `scripts/gpu-calibration.sh` (see
 [GPU calibration](gpu-calibration.md)).

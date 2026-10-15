@@ -124,6 +124,7 @@ python scripts/calibrate-toploc.py --merge recheck-*/calibration.json --summary-
 
 - `CALIBRATION_BUNDLE_RELEASE`、`CALIBRATION_BUNDLE_FILE`、`CALIBRATION_BUNDLE_SHA256`：各分片下载本仓库某个 Release 的这个附件（案例包的 `tar.gz`，即 `scripts/gpu-calibration.sh pack` 的产物），核对 SHA-256，各复核其中十分之一的案例，oneDNN 不使用 AMX：即“GPU → CPU AMX off”各格。上传附件：打开仓库的 Releases 页面，新建一个预发布（例如标签 `calibration-gpu-1`），拖入文件并发布。
 - `CALIBRATION_PROVER_ISA`：生成用引擎的 `ONEDNN_MAX_CPU_ISA`（例如 `ALL`），复核用引擎仍用 `ONEDNN_MAX_CPU_ISA`：在有 AMX 的运行器上即“CPU AMX on → CPU AMX off”格。运行器无法选择，因此该格要靠不同种子的多次运行累积。
+- `CALIBRATION_AMX_FACTOR`：分片发现自己在这样的运行器上时，按这个倍数生成样本。有 AMX 的运行器不多，但它们最快（400 个诚实回答约 35 分钟，AMD EPYC 7763 上约 4.5 小时），因此能更快凑满该格。
 
 GPU 机器的安装与运行用 `scripts/gpu-calibration.sh`（见 [GPU 校准](gpu-calibration.zh-CN.md)）。
 

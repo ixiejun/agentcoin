@@ -86,6 +86,17 @@ jobs:
           else
             honest=$(( ${HONEST:-$CALIBRATION_HONEST} / shards ))
             cheat=$(( ${CHEAT:-$CALIBRATION_CHEAT} / shards ))
+            # A shard on a runner with AMX whose generating engines may use it belongs to the
+            # "CPU AMX on -> CPU AMX off" cell, which few runners reach; these runners are also the
+            # fastest (about 35 minutes for 400 honest answers), so they generate
+            # CALIBRATION_AMX_FACTOR times as many samples (m6-toploc-gpu-calibration 8.4).
+            isa="${CALIBRATION_PROVER_ISA:-${ONEDNN_MAX_CPU_ISA:-}}"
+            if grep -qw amx_bf16 /proc/cpuinfo && { [ -z "$isa" ] || [ "$isa" = ALL ] || [[ "$isa" == *AMX* ]]; }; then
+              factor="${CALIBRATION_AMX_FACTOR:-1}"
+              echo "AMX runner: $factor times the samples"
+              honest=$(( honest * factor ))
+              cheat=$(( cheat * factor ))
+            fi
             seed=$(( ${SEED:-$CALIBRATION_SEED} * 100 + ${{ matrix.shard }} ))
             python scripts/calibrate-toploc.py --honest "$honest" --cheat "$cheat" --seed "$seed"
           fi
