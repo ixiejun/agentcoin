@@ -282,3 +282,60 @@ fn public_jobs_parameters() {
     assert_eq!(live.lock_blocks, 604_800);
     assert_eq!(live.price_cap, MicroUsd(1_000_000));
 }
+
+// m6-audit-hardening 6.2, spec node/chain-spec "提供者威慑参数". The test presets keep the live
+// epoch counts: with their 10-block epochs these are already minutes.
+#[test]
+fn provider_deterrence_parameters() {
+    use ac_primitives::market::deterrence::kappa_bps;
+    use ac_runtime::Runtime;
+    use pallet_providers::DeterrenceParams;
+    use sp_runtime::Perbill;
+
+    for id in [
+        sp_genesis_builder::DEV_RUNTIME_PRESET,
+        sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET,
+    ] {
+        preset_ext(id).execute_with(|| {
+            assert_eq!(
+                pallet_providers::Deterrence::<Runtime>::get(),
+                DeterrenceParams::LIVE
+            );
+            assert_eq!(pallet_work::RevenueWindow::<Runtime>::get(), 24);
+            assert_eq!(ac_runtime::Providers::kappa_bps(), 350_000);
+        });
+    }
+    // Scenario "导出正式链威慑参数": g = 50%, H = 11 epochs, W = 24 epochs, so κ = 35 epochs.
+    let live = pallet_providers::GenesisConfig::<Runtime>::default().deterrence;
+    assert_eq!(
+        (live.gain, live.horizon_epochs),
+        (Perbill::from_percent(50), 11)
+    );
+    assert_eq!(
+        pallet_work::GenesisConfig::<Runtime>::default().revenue_window,
+        24
+    );
+    let challenge = ac_primitives::market::WorkParams::LIVE.challenge_epochs;
+    let slash = ac_primitives::market::audit::AuditParams::LIVE.provider_slash;
+    assert_eq!(
+        kappa_bps(live.gain, live.horizon_epochs, challenge, slash),
+        350_000
+    );
+
+    // Scenario "H 覆盖模拟的检出用时": H covers the committed simulation of the latest
+    // statistical parameter version (scripts/export-audit-stats.py --simulate).
+    let report: serde_json::Value = serde_json::from_str(include_str!(
+        "../../plugins/vllm/ci/calibration-results/gpu-cal-v4-2026-10-15/audit-stats-v1-simulation.json"
+    ))
+    .unwrap();
+    assert_eq!(
+        report["params"]["version"].as_u64(),
+        Some(u64::from(
+            ac_primitives::market::audit::CURRENT_STATS.version
+        ))
+    );
+    let horizon = report["simulation"]["exposure"]["horizon_epochs"]
+        .as_u64()
+        .unwrap();
+    assert!(u64::from(live.horizon_epochs) >= horizon, "{horizon}");
+}
