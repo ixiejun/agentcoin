@@ -1,0 +1,140 @@
+{
+ "params": {
+  "version": 1,
+  "thresholds_version": 4,
+  "band": [
+   150,
+   300
+  ],
+  "prefill_edges": [
+   30,
+   40,
+   50,
+   60,
+   70,
+   80,
+   90,
+   100,
+   110,
+   120,
+   140,
+   170,
+   220
+  ],
+  "prefill_llr": [
+   -7772,
+   -7364,
+   -7289,
+   -7243,
+   -5872,
+   -3900,
+   359,
+   2579,
+   3311,
+   4325,
+   4784,
+   4461,
+   2180,
+   406
+  ],
+  "decode_edges": [
+   60,
+   80,
+   100,
+   120,
+   140,
+   170,
+   200,
+   240,
+   280,
+   340,
+   450
+  ],
+  "decode_llr": [
+   -7770,
+   -7360,
+   -7175,
+   -7018,
+   -6169,
+   -1638,
+   1548,
+   3546,
+   4940,
+   4179,
+   3017,
+   1149
+  ],
+  "clamp": [
+   -500,
+   3000
+  ],
+  "per_auditor_cap": 8233,
+  "bound": 24700,
+  "max_entries": 128
+ },
+ "simulation": {
+  "cells": {
+   "CPU AMX off \u2192 CPU AMX off": {
+    "honest": 17231,
+    "e_lambda": 0.6065
+   },
+   "CPU AMX on \u2192 CPU AMX off": {
+    "honest": 1918,
+    "e_lambda": 0.6065
+   },
+   "NVIDIA GeForce RTX 5090 \u2192 CPU AMX off": {
+    "honest": 3179,
+    "e_lambda": 0.6065
+   },
+   "NVIDIA GeForce RTX 5090 \u2192 NVIDIA GeForce RTX 5090": {
+    "honest": 3179,
+    "e_lambda": 0.6178
+   },
+   "NVIDIA GeForce RTX 5090 \u2192 NVIDIA H800 PCIe": {
+    "honest": 3179,
+    "e_lambda": 0.6171
+   },
+   "NVIDIA H800 PCIe \u2192 CPU AMX off": {
+    "honest": 3114,
+    "e_lambda": 0.6065
+   },
+   "NVIDIA H800 PCIe \u2192 NVIDIA GeForce RTX 5090": {
+    "honest": 3114,
+    "e_lambda": 0.6088
+   },
+   "NVIDIA H800 PCIe \u2192 NVIDIA H800 PCIe": {
+    "honest": 3114,
+    "e_lambda": 0.6065
+   }
+  },
+  "worst_cell": "NVIDIA GeForce RTX 5090 \u2192 NVIDIA GeForce RTX 5090",
+  "worst_e_lambda": 0.6178,
+  "gate": 0.8,
+  "audits_per_year": 52560,
+  "false_alarms_per_year": 9.853298814259623e-07,
+  "detection": {
+   "100%": {
+    "median": 9,
+    "p95": 9,
+    "crossed": 1.0
+   },
+   "50%": {
+    "median": 19,
+    "p95": 32,
+    "crossed": 1.0
+   },
+   "30%": {
+    "median": 41,
+    "p95": 87,
+    "crossed": 1.0
+   },
+   "20%": {
+    "median": 102,
+    "p95": 326,
+    "crossed": 1.0
+   }
+  },
+  "seed": 1,
+  "ok": true
+ }
+}

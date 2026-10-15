@@ -400,7 +400,7 @@ Provider {
 - **实际实现**（m6-toploc-verify，即第 3 步的复核；链上部分即第 1、4、5 步，随 `m6-audit-chain` 与 `m6-auditor-agent` 实现）：
   - **复核**：`ac-auditor recheck` 读入一个案例（请求的 messages、回答、用量、签名收据与证明），检查收据承诺了这些证明与 token 数量，用引擎自己的分词器与对话模板重现 prompt 与回答的 token，并在 TOPLOC 插件处于复核模式（`AGENTCOIN_TOPLOC_MODE=verify`，本机协议 v2）的 vLLM 中作为**一次预填充**运行。插件发出每个 token 行的 top-k 候选；prompt 之后的各行代表提供者的各个解码步骤。`ac-toploc::compare_from_candidates` 把它们按证明的分块重组并比对，得到与用全量激活值比对相同的指标。
   - **判定**：每块按 `ac-market-proto` 中的 `AUDIT_THRESHOLDS` 判定（指数不一致次数、尾数误差均值与中位数的整数上限；预填充块由审计员以与提供者相同的方式计算，用严格阈值，解码块用较宽的阈值）；每一块都通过，推理才通过。没有证明（承诺全零）或证明与承诺不符判为**不通过**（I-008）。注册为 bfloat16 以外精度的模型、无法重现 token 的回答以及引擎错误判为**无法判定**，绝不判为不通过。
-  - **校准**：阈值来自在 CPU 上用 vLLM 生成并复核的诚实样本与四类作弊（换模型、int8 与 int4 权重、隐藏的 system prompt）（`scripts/calibrate-toploc.py`，工作流 `toploc-calibration`；[报告](../guides/toploc-calibration.zh-CN.md)）；CI 每次推送都运行一个小规模版本。α 测试网之前必须在 GPU 上校准（I-012）。
+  - **校准**：阈值来自在 CPU 上用 vLLM 生成并复核的诚实样本与四类作弊（换模型、int8 与 int4 权重、隐藏的 system prompt）（`scripts/calibrate-toploc.py`，工作流 `toploc-calibration`；[报告](../guides/toploc-calibration.zh-CN.md)）；CI 每次推送都运行一个小规模版本。跨硬件校准（2026-10-15；证明方为 RTX 5090 与 H800 PCIe，审计员在两款 GPU 与 CPU 上，CPU 证明方用或不用 AMX）在每一格确认了阈值版本 4，并给出统计判定的参数（[结果](../../plugins/vllm/ci/calibration-results/gpu-cal-v4-2026-10-15/README.zh-CN.md)；I-012 已关闭）。用 AMX 出证明的 CPU 那一格样本少于要求（3,500 个中有 2,382 个，全部通过）。
   - **隐私**：审计员的日志只含案例名、结果与指标，绝不含 prompt 或回答。
 - **实际实现**（m6-audit-chain，链上的第 1、4、5 步；`pallet-audit`）：
   - **审计员**质押 1,000 美元（活链草案；提供者与网关不能登记），解绑期 7 天。每 20 分钟一轮（1,200 个区块；m6-audit-chain 中为 30 分钟，由 m6-auditor-agent 缩短），链记录名单与由提交-揭示随机数派生的种子，为每个提供者抽 2 名审计员；任何人都能复算抽样。
@@ -418,7 +418,7 @@ Provider {
   - **单次审计**（阈值版本 4）只对明显的偏离下结论：换模型、低于 8 位的权重、篡改 prompt、不带证明。其上限高于 GPU 校准中诚实样本的最大值，因此不会判诚实提供者不通过。8 位权重（包括只在解码阶段使用）交给统计判定。
   - **统计量**：每条由阈值判定的裁决（通过，或某块超限）都带证据承诺与四个整数：prompt token 数、预填充块的尾数误差均值、各解码块均值的平均值与解码块数。
   - **按提供者的 CUSUM**：链在由校准导出的带版本查表（`AUDIT_STATS`；int8 对最不利的诚实格）中查出每条裁决的对数似然比，截断到 −0.5 / +3.0 奈特。它累计 `S ← max(0, S + λ)`，单个审计员至多贡献判定界的三分之一。状态达到 24.7 奈特的判定界时，对其中的裁决开启**统计争议**。复核人由证据重算统计量并重放状态；确认：与其他争议相同地罚没并禁闭；驳回：不罚没任何人。若诚实一侧 `E[e^λ]` 不超过 1，误开争议的概率不超过每个提供者每年 52,560 × e^−24.7 ≈ 10⁻⁶；已校准的最不利格为 0.62。
-  - **开关**：`dev` 与 `local` 预设开启，正式链关闭，待校准覆盖主要 GPU 类别后再开启（`set_stats_config`）。全部 int8 的作弊约 2 小时判定，20% 请求作弊约 17 小时（中位数；[延迟报告](../guides/audit-detection-latency.zh-CN.md)）。
+  - **开关**：`dev` 与 `local` 预设开启，正式链关闭，待校准覆盖主要 GPU 类别后再开启（`set_stats_config`）。跨硬件校准得到的版本 1 在已测量的硬件上满足门槛（最不利的诚实 `E[e^λ]` 为 0.618，门槛 0.8）；正式链是否开启由治理决定。全部 int8 的作弊约 2 小时判定，20% 请求作弊约 17 小时（中位数；[延迟报告](../guides/audit-detection-latency.zh-CN.md)）。
 
 ### 5.6 `pallet-public-jobs`（精简版）
 

@@ -72,6 +72,13 @@ changed prompt's smallest prefill exponent mismatches 56, another model's decode
 (22, 13.17, 10). The band (150–300 tokens) stays part of the constant: audit prompts and the
 statistical judgment use it. Version 3's values are kept only to replay the runs judged under it.
 
+**Final (2026-10-15).** The full cross-hardware calibration
+([gpu-cal-v4-2026-10-15](../../plugins/vllm/ci/calibration-results/gpu-cal-v4-2026-10-15/README.md))
+keeps these values: in every cell (RTX 5090 and H800 PCIe re-checked by themselves, each other and
+CPUs without AMX; CPUs proving with and without AMX) no honest answer fails and no other model,
+int4 or changed prompt passes, in 47,620 honest re-checks judged by the thresholds. The "CPU AMX on → CPU AMX off"
+cell is short of samples (see [Cross-hardware result](#cross-hardware-result-2026-10-15)).
+
 Honest answers whose text re-tokenizes to other token IDs than the generated ones (issue I-023)
 fail a decode chunk under any bounds; the generation records it per case (`token_ids.json`) and
 the merge lists them apart (`token_mismatch`), out of the cells and the conclusion. Their root
@@ -93,11 +100,11 @@ calibration. `scripts/export-audit-stats.py` reads the merged reports' statistic
 With `--simulate` it checks every cell's honest `E[e^λ]` on the joint counts and simulates the
 audits a CUSUM needs to cross by share of int8 requests. **Gate:** the worst cell's `E[e^λ]` must
 be at most 0.8 for the parameters to cover a hardware class, and only then may a live chain
-enable the judgment. Version 1 (provisional, the GPU cells of `gpu-cal-v3-2026-10-09`) gives a
-worst `E[e^λ]` of 0.616. False disputes are then at most 9.9 × 10⁻⁷ per provider and year, and
-crossing takes 9 / 19 / 45 / 103 audits (median) at 100 / 50 / 30 / 20% int8. The CPU cells and
-the final report fix the published values; a test checks that the Rust constant equals what the
-committed report exports.
+enable the judgment. Version 1, exported from every cell of `gpu-cal-v4-2026-10-15`
+(`audit-stats-v1.json` there), gives a worst `E[e^λ]` of 0.618 (RTX 5090 → RTX 5090). False
+disputes are then at most 9.85 × 10⁻⁷ per provider and year, and crossing takes 9 / 19 / 41 / 102
+audits (median) at 100 / 50 / 30 / 20% int8. A test checks that the Rust constant `STATS_V1`
+equals what the committed report exports.
 
 The calibration's prompts are fitted to target lengths with the engine's own tokenizer: about
 80% in the band, 10% shorter (from 20 tokens) and 10% longer (up to 600), deterministic per
@@ -149,11 +156,22 @@ This rate is per auditor. Punishing a provider takes two independent auditors fa
 two rounds, then reviewers re-checking the evidence and reaching a quorum (`market/audit`), so
 a wrong punishment is far rarer still.
 
+### Cross-hardware result (2026-10-15)
+
+The cross-hardware calibration (below; results in
+[gpu-cal-v4-2026-10-15](../../plugins/vllm/ci/calibration-results/gpu-cal-v4-2026-10-15/README.md))
+covered every cell under version 4: no honest failure, no miss of another model, int4 or a changed
+prompt, int8 left to the statistical judgment. Its conclusion is `too few samples`, would be
+`keep`: "CPU AMX on → CPU AMX off" has 1,918 honest answers inside the band and 464 outside
+(3,000 and 500 required), all passing, because few runners have AMX and they cannot be chosen.
+By user decision (2026-10-14) the shortfall is recorded and version 4 stands; the 95% upper bound
+of that cell's honest failure rate is about 0.13%.
+
 ## Limits
 
-- Calibrated only on CPUs (GitHub runners), with prover and auditor on the same kind of CPU.
-  Providers on GPUs, an auditor on other hardware than the provider, and a provider proving with
-  AMX re-checked without it are not measured (I-012; required before the α testnet).
+- GPUs measured: one consumer (RTX 5090) and one data-center GPU (H800 PCIe), with vLLM's default
+  scheduling. Other GPU generations and engines need their own runs.
+- Providers proving on Intel CPUs with AMX are measured on 2,382 honest answers only (above).
 - The AMD EPYC 7763's inexact prefill chunks (about 4%) are not explained yet (I-012).
 - One small model (0.5B). Larger models and other architectures need their own runs.
 
