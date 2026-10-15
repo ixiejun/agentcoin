@@ -135,6 +135,18 @@
    }
   },
   "seed": 1,
-  "ok": true
+  "ok": true,
+  "exposure": {
+   "assign": 2,
+   "round_blocks": 1200,
+   "epoch_blocks": 3600,
+   "blocks_by_share": {
+    "100%": 6000,
+    "50%": 9600,
+    "30%": 15840,
+    "20%": 39120
+   },
+   "horizon_epochs": 11
+  }
  }
 }

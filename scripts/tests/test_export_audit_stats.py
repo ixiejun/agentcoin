@@ -152,6 +152,32 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual([int(x.replace("_", "")) for x in llr.split(",")], p["prefill_llr"])
 
 
+class ExposureTests(unittest.TestCase):
+    """m6-audit-hardening 1.2 (design D3): the exposure horizon H from the detection times."""
+
+    DETECTION = {"100%": {"median": 9, "p95": 9, "crossed": 1.0},
+                 "50%": {"median": 19, "p95": 32, "crossed": 1.0},
+                 "30%": {"median": 41, "p95": 87, "crossed": 1.0},
+                 "20%": {"median": 102, "p95": 326, "crossed": 1.0}}
+
+    def test_live_rounds(self):
+        e = ex.exposure(self.DETECTION, 2, 1_200, 3_600)
+        # 20%: 326 audits are 163 rounds of 2, 195,600 blocks, × 0.2 = 39,120 blocks: 10.9 epochs.
+        self.assertEqual(e["blocks_by_share"]["20%"], 39_120)
+        self.assertEqual(e["blocks_by_share"]["100%"], 6_000)
+        self.assertEqual(e["horizon_epochs"], 11)
+
+    def test_rounds_are_whole(self):
+        # 9 audits at 2 a round take 5 rounds, not 4.5.
+        e = ex.exposure({"100%": {"median": 9, "p95": 9, "crossed": 1.0}}, 2, 100, 100)
+        self.assertEqual((e["blocks_by_share"]["100%"], e["horizon_epochs"]), (500, 5))
+
+    def test_undetectable_shares_are_left_out(self):
+        d = dict(self.DETECTION, **{"10%": {"median": 5_000, "p95": 5_000, "crossed": 0.4}})
+        self.assertNotIn("10%", ex.exposure(d, 2, 1_200, 3_600)["blocks_by_share"])
+        self.assertEqual(ex.exposure({"10%": d["10%"]}, 2, 1_200, 3_600)["horizon_epochs"], 0)
+
+
 class PublishedVersionTests(unittest.TestCase):
     """m6-audit-sprt 2.3: the published version 1 is what the committed calibration exports."""
 
@@ -190,6 +216,8 @@ class PublishedVersionTests(unittest.TestCase):
         self.assertTrue(sim["ok"])
         self.assertLessEqual(sim["worst_e_lambda"], 0.8)
         self.assertLessEqual(sim["false_alarms_per_year"], 1e-6)
+        # m6-audit-hardening 1.2: the live chain's H (11 epochs) covers the committed simulation.
+        self.assertEqual(sim["exposure"]["horizon_epochs"], 11)
 
 
 if __name__ == "__main__":

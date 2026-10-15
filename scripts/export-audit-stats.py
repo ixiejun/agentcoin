@@ -24,13 +24,19 @@ It writes them as JSON (--json) and as a Rust constant for `ac-primitives` (--ru
   they are correlated;
 - the yearly false-alarm bound;
 - the audits a CUSUM needs to cross the bound when a share of the requests (100%, 50%, 30%,
-  20%) use int8, with a fixed seed.
+  20%) use int8, with a fixed seed;
+- the exposure horizon H (OpenSpec change m6-audit-hardening design D3): over the shares whose
+  runs cross (at least 95% of them), the largest share × p95 detection time, with `--assign`
+  audits per provider and round of `--round-blocks` blocks, in emission epochs of
+  `--epoch-blocks` blocks, rounded up. A provider cheating on a share p of its requests gains
+  for p × T(p); H bounds that over the detectable shares.
 
 It fails when the worst cell's `E[e^λ]` is above 0.8, the gate for enabling the judgment
 (design D4).
 
 Usage: scripts/export-audit-stats.py REPORT... [--version N] [--thresholds-version N]
        [--band MIN,MAX] [--json OUT] [--rust OUT] [--simulate OUT] [--seed N] [--runs N]
+       [--assign M] [--round-blocks R] [--epoch-blocks E]
 """
 
 from __future__ import annotations
@@ -221,6 +227,22 @@ def detection(p: dict, honest: list, int8: list, share: float, seed: int, runs: 
             "crossed": sum(1 for n in need if n < limit) / runs}
 
 
+def exposure(detection_by_share: dict, assign: int, round_blocks: int, epoch_blocks: int) -> dict:
+    """The exposure horizon of design D3: per detectable share (runs crossing in at least 95% of
+    the cases), share × p95 detection time in blocks (whole rounds of `assign` audits), and the
+    largest of them in epochs, rounded up. Integer arithmetic on the share in percent."""
+    by_share = {}
+    for key, d in detection_by_share.items():
+        if d["crossed"] < 0.95:
+            continue
+        percent = int(key.rstrip("%"))
+        rounds = -(-d["p95"] // assign)
+        by_share[key] = rounds * round_blocks * percent // 100
+    worst = max(by_share.values(), default=0)
+    return {"assign": assign, "round_blocks": round_blocks, "epoch_blocks": epoch_blocks,
+            "blocks_by_share": by_share, "horizon_epochs": -(-worst // epoch_blocks)}
+
+
 def simulate(cells: dict, p: dict, seed: int, runs: int) -> dict:
     honest = {cell: lambdas(p, g) for cell, g in inside(cells, "honest").items()}
     int8: list = []
@@ -274,6 +296,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--simulate", type=pathlib.Path)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--runs", type=int, default=1_000)
+    ap.add_argument("--assign", type=int, default=2, help="audits per provider and round")
+    ap.add_argument("--round-blocks", type=int, default=1_200)
+    ap.add_argument("--epoch-blocks", type=int, default=3_600)
     a = ap.parse_args(argv)
     lo, hi = (int(x) for x in a.band.split(","))
     cells = load(a.reports)
@@ -285,11 +310,13 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps(p))
     if a.simulate:
         sim = simulate(cells, p, a.seed, a.runs)
+        sim["exposure"] = exposure(sim["detection"], a.assign, a.round_blocks, a.epoch_blocks)
         a.simulate.write_text(json.dumps({"params": p, "simulation": sim}, indent=1) + "\n")
         print(f"worst E[e^λ] {sim['worst_e_lambda']} ({sim['worst_cell']}), gate {GATE}; "
               f"false alarms per provider and year ≤ {sim['false_alarms_per_year']:.2e}")
         for share, d in sim["detection"].items():
             print(f"int8 on {share} of requests: {d['median']} audits (median), {d['p95']} (p95)")
+        print(f"exposure horizon H: {sim['exposure']['horizon_epochs']} epochs")
         if not sim["ok"]:
             print(f"FAIL: E[e^λ] {sim['worst_e_lambda']} above the gate {GATE}", file=sys.stderr)
             return 1

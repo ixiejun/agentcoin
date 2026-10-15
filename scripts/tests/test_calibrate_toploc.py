@@ -232,6 +232,30 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(kept["unexpected"][0]["chunks"], bad["chunks"])
 
 
+class SpreadTests(unittest.TestCase):
+    """m6-audit-hardening 1.3: how far two auditors' statistics of the same cases differ."""
+
+    def test_pairs_cases_and_takes_the_largest(self):
+        def judged(case, prefill_err, decode_err):
+            x = sample(case, [chunk(total=prefill_err), chunk(total=decode_err)], "pass", "")
+            return dict(x, prompt_tokens=200, thresholds_version=4)
+        a = {"samples": [judged("honest-00000.json", 64, 128), judged("honest-00001.json", 0, 0),
+                         judged("int8-00000.json", 160, 320)]}
+        b = {"samples": [judged("honest-00000.json", 128, 128), judged("honest-00001.json", 0, 256),
+                         judged("int8-00000.json", 160, 320)]}
+        out = cal.stat_spread(a, b)
+        # 64 and 128 of 128 mantissas are means of 0.50 and 1.00: 50 hundredths apart.
+        self.assertEqual(out["honest"]["prefill"], {"cases": 2, "max": 50, "p999": 50, "p99": 50})
+        self.assertEqual(out["honest"]["decode"]["max"], 200)
+        self.assertEqual(out["int8"]["prefill"]["max"], 0)
+        self.assertEqual(out["all"]["prefill"]["cases"], 3)
+
+    def test_unjudged_cases_are_left_out(self):
+        x = dict(sample("honest-00000.json", [EXACT], "inconclusive", "tokens cannot be re-created"),
+                 prompt_tokens=200, thresholds_version=4)
+        self.assertEqual(cal.stat_spread({"samples": [x]}, {"samples": [x]}), {})
+
+
 class TokenMismatchTests(unittest.TestCase):
     """m6-toploc-gpu-calibration 11.1 (design D15): honest answers whose text re-tokenizes to other
     token IDs are listed apart (issue I-023)."""

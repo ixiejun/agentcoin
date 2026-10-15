@@ -31,6 +31,7 @@ Usage: scripts/calibrate-toploc.py [--quick] [--honest N] [--cheat N] [--seed N]
        scripts/calibrate-toploc.py --generate-only [--honest N] [--cheat N] [--seed N] --out BUNDLE
        scripts/calibrate-toploc.py --recheck-only BUNDLE [--shard K/N] --out DIR
        scripts/calibrate-toploc.py --compare A.json B.json   (same cases, same outcomes)
+       scripts/calibrate-toploc.py --spread A.json B.json    (statistics of the same cases on two auditors)
        scripts/calibrate-toploc.py --merge SHARD.json... [--thresholds prefill=E,M,D decode=E,M,D]
                                    [--summary-out FILE] [--out DIR]
        (after scripts/setup-vllm-cpu.sh or scripts/gpu-calibration.sh setup, and
@@ -697,6 +698,33 @@ def audit_stats(x: dict) -> dict | None:
             "decode": sum(decode) // len(decode) if decode else 0, "decode_chunks": len(decode)}
 
 
+def stat_spread(a: dict, b: dict) -> dict:
+    """How far the statistics of the same cases differ when two auditors re-check one bundle (the
+    statistic tolerance of OpenSpec change m6-audit-hardening, design D5): per statistic, the
+    largest, p99.9 and p99 absolute difference in hundredths over the cases both judged by the
+    thresholds, by variant and in all."""
+    other = {(x["case"]): x for x in b["samples"]}
+    diffs: dict = {}
+    for x in a["samples"]:
+        y = other.get(x["case"])
+        sx, sy = audit_stats(x), audit_stats(y) if y else None
+        if sx is None or sy is None:
+            continue
+        for k in ("prefill", "decode"):
+            d = abs(sx[k] - sy[k])
+            diffs.setdefault("all", {}).setdefault(k, []).append(d)
+            diffs.setdefault(variant_of(x["case"]), {}).setdefault(k, []).append(d)
+    out: dict = {}
+    for group, stats in sorted(diffs.items()):
+        out[group] = {}
+        for k, ds in stats.items():
+            ds.sort()
+            def q(f):
+                return ds[min(len(ds) - 1, len(ds) * f // 1000)]
+            out[group][k] = {"cases": len(ds), "max": ds[-1], "p999": q(999), "p99": q(990)}
+    return out
+
+
 def statistics(samples: list[dict]) -> dict:
     """Per cell, side of the band and variant (honest and int8), histograms of the prefill and decode
     statistics in bins of STAT_BIN hundredths ({bin start: count}) and their joint counts ("pairs",
@@ -1338,7 +1366,13 @@ def main() -> int:
                     help="with --merge: write the condensed report kept in the repository")
     ap.add_argument("--compare", type=Path, nargs=2, metavar="JSON",
                     help="fail unless two reports of the same cases have the same outcomes")
+    ap.add_argument("--spread", type=Path, nargs=2, metavar="JSON",
+                    help="how far two auditors' statistics of the same cases differ (hundredths)")
     args = ap.parse_args()
+    if args.spread:
+        a, b = (json.loads(f.read_text()) for f in args.spread)
+        print(json.dumps(stat_spread(a, b), indent=1))
+        return 0
     if args.compare:
         a, b = (json.loads(f.read_text()) for f in args.compare)
         differ = same_outcomes(a, b)

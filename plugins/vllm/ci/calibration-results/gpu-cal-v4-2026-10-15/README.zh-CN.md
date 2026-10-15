@@ -50,7 +50,7 @@
 
 ## 统计判定参数
 
-`audit-stats-v1.json` 即 `scripts/export-audit-stats.py summary.json` 的结果（版本 1，阈值版本 4，区间 150–300），也就是 `ac-primitives` 中发布的 `STATS_V1`（有测试检查两者一致）。`audit-stats-v1-simulation.json`（`--simulate`，种子 1，1,000 次）：最不利的诚实 `E[e^λ]` 为 0.618（RTX 5090 → RTX 5090；门槛 0.8），误开争议的概率不超过每个提供者每年 9.85 × 10⁻⁷；int8 占请求的 100% / 50% / 30% / 20% 时，CUSUM 越界需要 9 / 19 / 41 / 102 次审计（中位数；p95 为 9 / 32 / 87 / 326）。
+`audit-stats-v1.json` 即 `scripts/export-audit-stats.py summary.json` 的结果（版本 1，阈值版本 4，区间 150–300），也就是 `ac-primitives` 中发布的 `STATS_V1`（有测试检查两者一致）。`audit-stats-v1-simulation.json`（`--simulate`，种子 1，1,000 次）：最不利的诚实 `E[e^λ]` 为 0.618（RTX 5090 → RTX 5090；门槛 0.8），误开争议的概率不超过每个提供者每年 9.85 × 10⁻⁷；int8 占请求的 100% / 50% / 30% / 20% 时，CUSUM 越界需要 9 / 19 / 41 / 102 次审计（中位数；p95 为 9 / 32 / 87 / 326）。“作弊比例 × p95 检出用时”的最大值出现在 20%：326 次审计为 163 个 20 分钟的轮次，乘 0.2 得 10.9 小时，因此暴露期 H 为 11 个纪元（报告中的 `exposure`；OpenSpec 变更 `m6-audit-hardening` design D3）。
 
 ## 文件
 
