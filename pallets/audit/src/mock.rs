@@ -23,9 +23,10 @@ use ac_crypto::sig::SigningKey;
 use ac_primitives::market::audit::{
     AuditStats, CURRENT_STATS, RoundIndex, VerdictOutcome, VerdictStats,
 };
+use ac_primitives::market::model::QuantType;
 use ac_primitives::market::receipt::RECEIPT_CONTEXT;
 use ac_primitives::market::traits::{
-    AccountKeys, GatewayLookup, PriceSource, ProviderAudit, ProviderPenalty,
+    AccountKeys, GatewayLookup, ModelQuantization, PriceSource, ProviderAudit, ProviderPenalty,
 };
 use ac_primitives::market::voucher::key_fingerprint;
 use ac_primitives::market::work::JobKind;
@@ -78,6 +79,8 @@ parameter_types! {
     pub const RetentionRounds: u32 = 3;
     pub const MaxVerdictsPerRound: u32 = 64;
     pub const PruneLimit: u32 = 4;
+    /// Providers unbond for 7 days, which covers both the tests' windows and the live ones.
+    pub const ProviderUnbondBlocks: u64 = 604_800;
 }
 
 #[derive_impl(pallet_balances::config_preludes::TestDefaultConfig)]
@@ -100,6 +103,20 @@ std::thread_local! {
     static JAILED: RefCell<BTreeSet<AccountId32>> = const { RefCell::new(BTreeSet::new()) };
     static RANDOM: RefCell<Option<H256>> = const { RefCell::new(Some(H256([7; 32]))) };
     static BURNED: RefCell<u128> = const { RefCell::new(0) };
+    static QUANT: RefCell<BTreeMap<ModelId, QuantType>> = const { RefCell::new(BTreeMap::new()) };
+}
+
+/// Registered models: [`MODEL`] and [`OTHER_MODEL`] are bf16 unless a test says otherwise.
+pub struct TestModels;
+impl ModelQuantization for TestModels {
+    fn quantization(model: &ModelId) -> Option<QuantType> {
+        QUANT.with(|q| q.borrow().get(model).copied())
+    }
+}
+
+/// Registers `model` with `quant`.
+pub fn set_model(model: ModelId, quant: QuantType) {
+    QUANT.with(|q| q.borrow_mut().insert(model, quant));
 }
 
 /// Rate settable by tests (smallest units per dollar).
@@ -144,7 +161,7 @@ impl ProviderAudit<AccountId32> for TestProviders {
         PROVIDERS.with(|p| p.borrow().contains_key(who))
     }
     fn price(who: &AccountId32, model: &ModelId) -> Option<PricePerMTok> {
-        (*model == MODEL)
+        (*model == MODEL || *model == OTHER_MODEL)
             .then(|| PROVIDERS.with(|p| p.borrow().get(who).copied()))
             .flatten()
     }
@@ -213,6 +230,8 @@ impl pallet_audit::Config for Test {
     type Price = TestPrice;
     type Randomness = TestRandomness;
     type Slash = Burn;
+    type Models = TestModels;
+    type ProviderUnbondBlocks = ProviderUnbondBlocks;
     type AdminOrigin = EnsureRoot<AccountId32>;
     type RetentionRounds = RetentionRounds;
     type MaxVerdictsPerRound = MaxVerdictsPerRound;
@@ -239,10 +258,15 @@ impl crate::BenchmarkHelper for () {
     fn set_randomness(seed: H256) {
         set_randomness(Some(seed));
     }
+    fn register_bf16_model(model: ModelId) {
+        set_model(model, QuantType::Bf16);
+    }
 }
 
 /// The model every mock provider serves.
 pub const MODEL: ModelId = ModelId([0x42; 32]);
+/// A second bf16 model the mock providers serve.
+pub const OTHER_MODEL: ModelId = ModelId([0x43; 32]);
 /// The mock providers' price.
 pub const PRICE: PricePerMTok = PricePerMTok {
     input: MicroUsd(100_000),
@@ -252,8 +276,9 @@ pub const PRICE: PricePerMTok = PricePerMTok {
 pub const ROUND: u64 = 10;
 
 /// Test parameters: rounds of 10 blocks, 2 auditors per provider, 3 reviewers deciding by 2,
-/// votes within 5 blocks, 20-block unbonding, $1,000 stake, $0.05 payments, thresholds v4,
-/// statistical judgment version 1 enabled.
+/// votes within 5 blocks, 30-block unbonding, $1,000 stake, $0.05 payments, the statistical
+/// judgment enabled, a default profile of thresholds v4 and statistics v1, no spot checks
+/// (tests that want them raise the rate).
 pub fn genesis() -> AuditGenesis {
     AuditGenesis {
         round_blocks: 10,
@@ -261,8 +286,13 @@ pub fn genesis() -> AuditGenesis {
         reviewers: 3,
         quorum: 2,
         vote_blocks: 5,
-        unbond_blocks: 20,
+        unbond_blocks: 30,
         stats_enabled: true,
+        default_profile: Some(crate::ProfileGenesis {
+            thresholds_version: 4,
+            stats_version: CURRENT_STATS.version,
+        }),
+        spot_check_bps: 0,
         ..AuditGenesis::LIVE
     }
 }
@@ -296,12 +326,17 @@ pub const GATEWAY: u8 = 210;
 
 /// A receipt of `provider` through `gateway` with request ID `[id; 32]`, signed by both.
 pub fn receipt(provider: u8, gateway: u8, id: u8) -> SignedReceipt {
+    receipt_on(MODEL, provider, gateway, id)
+}
+
+/// A receipt for `model`.
+pub fn receipt_on(model: ModelId, provider: u8, gateway: u8, id: u8) -> SignedReceipt {
     let body = ReceiptBody {
         genesis: crate::Pallet::<Test>::genesis(),
         gateway: acc(gateway),
         provider: acc(provider),
         kind: JobKind::Inference,
-        model: MODEL,
+        model,
         request_id: [id; 32],
         in_tokens: 100,
         out_tokens: 50,
@@ -352,6 +387,17 @@ pub fn submission_with(
     outcome: VerdictOutcome,
     stats: Option<AuditStats>,
 ) -> Box<VerdictSubmission> {
+    submission_on(MODEL, provider, id, outcome, stats)
+}
+
+/// A verdict submission on a receipt for `model`.
+pub fn submission_on(
+    model: ModelId,
+    provider: u8,
+    id: u8,
+    outcome: VerdictOutcome,
+    stats: Option<AuditStats>,
+) -> Box<VerdictSubmission> {
     let evidence = outcome.judged_by_thresholds() || matches!(outcome, VerdictOutcome::Fail(_));
     Box::new(VerdictSubmission {
         provider: acc(provider),
@@ -359,7 +405,7 @@ pub fn submission_with(
         outcome,
         thresholds_version: 4,
         evidence: evidence.then_some([id; 32]),
-        receipt: receipt(provider, GATEWAY, id),
+        receipt: receipt_on(model, provider, GATEWAY, id),
         stats: stats.map(|stats| VerdictStats {
             version: CURRENT_STATS.version,
             stats,
@@ -411,6 +457,12 @@ pub fn new_test_ext(auditors: u8) -> sp_io::TestExternalities {
         PENALTIES.with(|p| p.borrow_mut().clear());
         JAILED.with(|j| j.borrow_mut().clear());
         BURNED.with(|b| *b.borrow_mut() = 0);
+        QUANT.with(|q| {
+            let mut q = q.borrow_mut();
+            q.clear();
+            q.insert(MODEL, QuantType::Bf16);
+            q.insert(OTHER_MODEL, QuantType::Bf16);
+        });
         KEYS.with(|k| k.borrow_mut().clear());
         GATEWAYS.with(|g| g.borrow_mut().clear());
         PROVIDERS.with(|p| {

@@ -15,6 +15,7 @@ use alloc::vec::Vec;
 
 pub mod evidence_availability;
 pub mod profile;
+pub mod review;
 pub mod spot_check;
 pub mod stats;
 pub mod windows;
@@ -24,8 +25,10 @@ pub use evidence_availability::{
     unavailable_penalty,
 };
 pub use profile::{
-    AuditProfile, ProfileError, ProfileSource, THRESHOLDS_VERSIONS, resolve, thresholds_known,
+    AuditProfile, CURRENT_THRESHOLDS_VERSION, ProfileError, ProfileSource, THRESHOLDS_VERSIONS,
+    resolve, thresholds_known,
 };
+pub use review::{PenaltyParams, ReviewOutcome, ReviewRecord, ReviewStats, ReviewVote};
 pub use spot_check::{MAX_SPOT_CHECK_BPS, SPOT_CHECK_CONTEXT, spot_checked};
 pub use windows::{WindowError, WindowParams, check_windows, citation_window};
 
@@ -49,6 +52,9 @@ pub type RoundIndex = u32;
 pub const ASSIGN_CONTEXT: &str = "agentcoin 2026-10 audit-assign v1";
 /// Hashing context of the reviewer draw: `seed ‖ provider ‖ u64_le(dispute) ‖ u32_le(i)`.
 pub const REVIEW_CONTEXT: &str = "agentcoin 2026-10 audit-review v1";
+/// Hashing context of the spot-check reviewer draw: `seed ‖ provider ‖ u64_le(spot check) ‖
+/// u32_le(i)` (m6-audit-hardening design D5): spot checks number apart from disputes.
+pub const SPOT_REVIEWERS_CONTEXT: &str = "agentcoin 2026-10 audit-spot-reviewers v1";
 /// Subject of a round's seed in the chain's randomness: this prefix ‖ `u32_le(round)`.
 pub const ROUND_SEED_SUBJECT: &[u8] = b"agentcoin/audit-round";
 
@@ -406,17 +412,20 @@ pub struct AdjustableParams {
     pub stake_usd: MicroUsd,
     /// Payment per accepted verdict or winning vote, converted rounding down.
     pub payment_usd: MicroUsd,
-    /// The re-check thresholds version verdicts must use.
-    pub thresholds_version: u16,
+    /// Share of the verdicts judged by the thresholds that are spot-checked, in basis points
+    /// (m6-audit-hardening; at most [`MAX_SPOT_CHECK_BPS`]). The thresholds version that used
+    /// to be here is per model now, in each model's audit profile.
+    pub spot_check_bps: u16,
 }
 
 impl AdjustableParams {
-    /// `true` if the stake and payment are within their guardrails.
+    /// `true` if the stake, the payment and the spot-check rate are within their guardrails.
     #[must_use]
     pub fn within_bounds(&self) -> bool {
         self.stake_usd >= STAKE_USD_BOUNDS.0
             && self.stake_usd <= STAKE_USD_BOUNDS.1
             && self.payment_usd <= MAX_PAYMENT_USD
+            && self.spot_check_bps <= MAX_SPOT_CHECK_BPS
     }
 }
 
@@ -508,12 +517,41 @@ pub enum DisputeKind {
     /// Failing verdicts of two auditors.
     #[codec(index = 0)]
     Fail,
-    /// The provider's statistical state crossed the bound (m6-audit-sprt design D7).
+    /// The provider's statistical state crossed the bound (m6-audit-sprt design D7). Only in
+    /// records from before per-model states; no longer opened.
     #[codec(index = 1)]
     Statistical {
         /// The parameter version reviewers replay the state with.
         stats_version: u16,
     },
+    /// The provider's statistical state on `model` crossed the bound (m6-audit-hardening
+    /// design D2).
+    #[codec(index = 2)]
+    ModelStatistical {
+        /// The parameter version reviewers replay the state with.
+        stats_version: u16,
+        /// The model the state is about.
+        model: crate::market::model::ModelId,
+    },
+}
+
+impl DisputeKind {
+    /// The parameter version of a statistical dispute; `None` for a failure dispute.
+    #[must_use]
+    pub fn stats_version(&self) -> Option<u16> {
+        match self {
+            Self::Fail => None,
+            Self::Statistical { stats_version } | Self::ModelStatistical { stats_version, .. } => {
+                Some(*stats_version)
+            }
+        }
+    }
+
+    /// Whether the chain opened it from a statistical state rather than two accusations.
+    #[must_use]
+    pub fn is_statistical(&self) -> bool {
+        self.stats_version().is_some()
+    }
 }
 
 /// A dispute, open or closed.
@@ -595,6 +633,8 @@ pub enum Draw {
     Assign,
     /// The reviewers of dispute `0`.
     Review(u64),
+    /// The reviewers of spot check `0` (m6-audit-hardening).
+    SpotCheck(u64),
 }
 
 /// The accounts a draw picks from.
@@ -628,6 +668,10 @@ pub fn sample<A: Encode + PartialEq + Clone>(
         Draw::Review(dispute) => {
             prefix.extend_from_slice(&dispute.to_le_bytes());
             REVIEW_CONTEXT
+        }
+        Draw::SpotCheck(review) => {
+            prefix.extend_from_slice(&review.to_le_bytes());
+            SPOT_REVIEWERS_CONTEXT
         }
     };
     draw_distinct(
@@ -810,9 +854,16 @@ mod tests {
         let ok = AdjustableParams {
             stake_usd: MicroUsd(1_000 * MICRO_USD_PER_USD),
             payment_usd: MicroUsd(50_000),
-            thresholds_version: 2,
+            spot_check_bps: 500,
         };
         assert!(ok.within_bounds());
+        assert!(
+            !AdjustableParams {
+                spot_check_bps: 5_001,
+                ..ok
+            }
+            .within_bounds()
+        );
         assert!(
             !AdjustableParams {
                 payment_usd: MicroUsd(2 * MICRO_USD_PER_USD),

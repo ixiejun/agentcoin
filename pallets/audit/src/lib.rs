@@ -22,14 +22,26 @@
 //!   (live: $0.05, rounded down) from the audit pot, which the treasury floor funds ("audit"
 //!   spends). The pot never mints; an empty pot skips the payment.
 //! - **Statistical judgment** (m6-audit-sprt): verdicts judged by the thresholds carry
-//!   [`AuditStats`]; each adds its log-likelihood ratio to the provider's CUSUM
-//!   ([`SprtState`]). When enabled, a state at the bound opens a statistical dispute, decided
-//!   like the others; a rejected one slashes no auditor. Verdicts a state or an open dispute
-//!   still refers to outlive their retention until it lets them go.
+//!   [`AuditStats`]; each adds its log-likelihood ratio to the CUSUM ([`SprtState`]) of its
+//!   provider on its model. When enabled, a state at the bound opens a statistical dispute,
+//!   decided like the others; a rejected one slashes no auditor for its statistics. Verdicts a
+//!   state, an open dispute or an open spot check still refers to outlive their retention until
+//!   it lets them go.
+//! - **Audit profiles** (m6-audit-hardening): each model is audited under its own thresholds and
+//!   statistical parameter versions, its profile, or the chain's default for bf16 models. A
+//!   model without one is uncalibrated: verdicts on it are refused and it earns no market work.
+//! - **Spot checks**: a share of the verdicts judged by the thresholds, drawn with the next
+//!   round's seed, is re-checked by reviewers who compare the outcome. An overturned verdict's
+//!   auditor is slashed and made to exit. Reviewers say whether they obtained the evidence, in
+//!   disputes too; an auditor whose evidence was unavailable takes a light slash instead, the
+//!   full one from its third such finding within the retention.
+//! - **Locks**: an auditor whose verdict an open dispute or spot check cites, and a provider with
+//!   an open dispute, cannot withdraw unbonding stake. Genesis checks that both unbonding periods
+//!   and the retention cover the time a verdict can be cited.
 //!
-//! No call slashes, jails or decides a dispute directly, and the administration only adjusts
-//! the stake threshold, the payment, the accepted thresholds version and the statistical
-//! judgment's version and switch, within guardrails (D6).
+//! No call slashes, jails or decides a dispute or spot check directly, and the administration
+//! only adjusts the stake threshold, the payment, the spot-check rate, the models' audit
+//! profiles and the statistical judgment's switch, within guardrails (D6).
 //!
 //! [`sample`]: ac_primitives::market::audit::sample
 //! [`AuditStats`]: ac_primitives::market::audit::AuditStats
@@ -57,6 +69,8 @@ mod mock;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_hardening;
+#[cfg(test)]
 mod tests_stats;
 pub mod weights;
 
@@ -75,8 +89,15 @@ pub const MAX_OPEN_DISPUTES_PAGE: u32 = 256;
 /// may release up to `MAX_SPRT_ENTRIES` retained verdict lists, so a few fill a block's share.
 pub const STALE_CLEAR_LIMIT: u32 = 2;
 
+/// Most verdict lists of the previous round drawn for spot checks per block (m6-audit-hardening
+/// design D5): a round's lists are drawn within its first blocks.
+pub const SPOT_CHECK_BATCH: u32 = 16;
+
+/// Most open spot checks one `open_reviews` query returns.
+pub const MAX_OPEN_REVIEWS_PAGE: u32 = 256;
+
 use ac_primitives::market::audit::{
-    AdjustableParams, AuditParams, CURRENT_STATS, StatsConfig, VerdictStats,
+    AdjustableParams, AuditParams, AuditProfile, PenaltyParams, VerdictStats,
 };
 use ac_primitives::market::{MicroUsd, SignedReceipt};
 use parity_scale_codec::{Decode, DecodeWithMemTracking, Encode};
@@ -109,16 +130,42 @@ pub struct AuditGenesis {
     pub stake_usd: MicroUsd,
     /// Payment per accepted verdict or winning vote.
     pub payment_usd: MicroUsd,
-    /// Re-check thresholds version verdicts must use.
-    pub thresholds_version: u16,
-    /// The statistical judgment's parameter version verdicts must use (m6-audit-sprt design
-    /// D10).
-    #[serde(default = "AuditGenesis::current_stats_version")]
-    pub stats_version: u16,
     /// Whether the statistical judgment opens disputes (live chains: off until calibrated
     /// hardware covers them).
     #[serde(default)]
     pub stats_enabled: bool,
+    /// The audit profile of bf16 models without their own (live chains: none, every model's
+    /// profile is set once its calibration report is in; m6-audit-hardening design D1).
+    #[serde(default)]
+    pub default_profile: Option<ProfileGenesis>,
+    /// Share of the verdicts judged by the thresholds that are spot-checked, in basis points
+    /// (0 to 5,000).
+    pub spot_check_bps: u16,
+    /// Percent of the stake an auditor whose evidence was unavailable loses (at most the
+    /// auditor slash).
+    pub light_slash_percent: u8,
+    /// Findings of unavailable evidence within the retention at which the full penalty applies
+    /// (1 to 10).
+    pub unavailable_limit: u8,
+}
+
+/// An audit profile as written in a chain specification.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileGenesis {
+    /// Re-check thresholds version.
+    pub thresholds_version: u16,
+    /// Statistical judgment parameter version.
+    pub stats_version: u16,
+}
+
+impl From<ProfileGenesis> for AuditProfile {
+    fn from(p: ProfileGenesis) -> Self {
+        Self {
+            thresholds_version: p.thresholds_version,
+            stats_version: p.stats_version,
+        }
+    }
 }
 
 impl AuditGenesis {
@@ -134,22 +181,19 @@ impl AuditGenesis {
         unbond_blocks: 604_800,
         stake_usd: MicroUsd(1_000_000_000),
         payment_usd: MicroUsd(50_000),
-        // ac_market_proto::AUDIT_THRESHOLDS (m6-toploc-gpu-calibration: calibrated single-audit bounds).
-        thresholds_version: 4,
-        stats_version: CURRENT_STATS.version,
         stats_enabled: false,
+        default_profile: None,
+        spot_check_bps: 500,
+        light_slash_percent: 1,
+        unavailable_limit: 3,
     };
 
-    fn current_stats_version() -> u16 {
-        CURRENT_STATS.version
-    }
-
-    /// The statistical judgment's configuration.
+    /// The light penalty's parameters.
     #[must_use]
-    pub fn stats(&self) -> StatsConfig {
-        StatsConfig {
-            version: self.stats_version,
-            enabled: self.stats_enabled,
+    pub fn penalty(&self) -> PenaltyParams {
+        PenaltyParams {
+            light_slash: Perbill::from_percent(u32::from(self.light_slash_percent)),
+            unavailable_limit: self.unavailable_limit,
         }
     }
 
@@ -170,7 +214,7 @@ impl AuditGenesis {
             AdjustableParams {
                 stake_usd: self.stake_usd,
                 payment_usd: self.payment_usd,
-                thresholds_version: self.thresholds_version,
+                spot_check_bps: self.spot_check_bps,
             },
         )
     }
@@ -219,6 +263,8 @@ pub trait BenchmarkHelper {
     fn register_gateway(who: &AccountId32);
     /// Makes randomness available.
     fn set_randomness(seed: H256);
+    /// Registers `model` as a bf16 model, so it can have an audit profile.
+    fn register_bf16_model(model: ac_primitives::market::ModelId);
 }
 
 /// Randomness the rounds are seeded from.
@@ -234,23 +280,27 @@ pub trait AuditRandomness {
 #[frame_support::pallet]
 pub mod pallet {
     use super::{
-        AuditGenesis, AuditRandomness, AuditorEndpoint, MAX_OPEN_DISPUTES_PAGE, STALE_CLEAR_LIMIT,
-        VerdictSubmission, WeightInfo,
+        AuditGenesis, AuditRandomness, AuditorEndpoint, MAX_OPEN_DISPUTES_PAGE, SPOT_CHECK_BATCH,
+        STALE_CLEAR_LIMIT, VerdictSubmission, WeightInfo,
     };
     use ac_crypto::KemAlg;
     use ac_primitives::market::audit::{
-        Accuser, AdjustableParams, AuditParams, AuditorRecord, AuditorStats, AuditorStatus,
-        DisputeKind, DisputeOutcome, DisputeRecord, Draw, MAX_ASSIGN, MAX_AUDITORS,
-        MAX_DISPUTE_ACCUSERS, MAX_REVIEWERS, Pool, ProviderAuditStats, ROUND_SEED_SUBJECT,
-        RoundIndex, SprtEntry, SprtState, StatsConfig, VerdictOutcome, VerdictRecord, VerdictStats,
-        Vote, round_of, round_start, sample, stats_params,
+        Accuser, AdjustableParams, AuditParams, AuditProfile, AuditorRecord, AuditorStats,
+        AuditorStatus, DisputeKind, DisputeOutcome, DisputeRecord, Draw, MAX_ASSIGN, MAX_AUDITORS,
+        MAX_DISPUTE_ACCUSERS, MAX_MARKED, MAX_REVIEWERS, MAX_UNAVAILABLE_LIMIT, PenaltyParams,
+        Pool, ProfileError, ProfileSource, ProviderAuditStats, ROUND_SEED_SUBJECT, ReviewOutcome,
+        ReviewRecord, ReviewStats, ReviewVote, RoundIndex, SprtEntry, SprtState,
+        UnavailablePenalty, VerdictOutcome, VerdictRecord, VerdictStats, Vote, WindowParams,
+        check_windows, recent_findings, resolve, round_of, round_start, sample, spot_checked,
+        stats_params, unavailable, unavailable_penalty,
     };
+    use ac_primitives::market::model::ModelId;
     use ac_primitives::market::receipt::{ReceiptContext, check_receipt};
     use ac_primitives::market::records::{
         UnlockingList, schedule_unlock, take_due, take_for_slash, unlocking_total,
     };
     use ac_primitives::market::traits::{
-        AccountKeys, GatewayLookup, PriceSource, ProviderAudit, ProviderPenalty,
+        AccountKeys, GatewayLookup, ModelQuantization, PriceSource, ProviderAudit, ProviderPenalty,
     };
     use ac_primitives::market::usd::Rounding;
     use ac_primitives::market::{PriceError, ReceiptError};
@@ -269,6 +319,7 @@ pub mod pallet {
     use frame_system::pallet_prelude::{BlockNumberFor, OriginFor};
     use parity_scale_codec::Encode;
     use sp_core::H256;
+    use sp_runtime::Perbill;
     use sp_runtime::traits::{AccountIdConversion, Zero};
     use sp_runtime::{AccountId32, SaturatedConversion, Saturating};
 
@@ -278,6 +329,10 @@ pub mod pallet {
     pub type AuditorOf<T> = AuditorRecord<BlockNumberFor<T>>;
     /// A dispute record of this runtime.
     pub type DisputeOf<T> = DisputeRecord<AccountId32, BlockNumberFor<T>>;
+    /// A spot-check record of this runtime.
+    pub type ReviewOf<T> = ReviewRecord<AccountId32, BlockNumberFor<T>>;
+    /// Rounds of an auditor's recent findings of unavailable evidence, oldest first.
+    pub type Findings = BoundedVec<RoundIndex, ConstU32<{ MAX_UNAVAILABLE_LIMIT as u32 }>>;
     /// A round's roster.
     pub type Roster = BoundedVec<AccountId32, ConstU32<MAX_AUDITORS>>;
     /// A provider's statistical state and the parameter version it was built with.
@@ -291,8 +346,10 @@ pub mod pallet {
     pub const POT_ID: PalletId = PalletId(*b"ac/audit");
 
     /// Storage version 1 adds the statistics to verdicts and the kind to disputes
-    /// (m6-audit-sprt, [`crate::migrations::v1`]).
-    pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+    /// (m6-audit-sprt, [`crate::migrations::v1`]); version 2 moves the thresholds and statistical
+    /// versions into audit profiles, adds the spot-check rate and the light penalty and keeps
+    /// statistical states per model (m6-audit-hardening, [`crate::migrations::v2`]).
+    pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]
@@ -324,7 +381,12 @@ pub mod pallet {
         type Randomness: AuditRandomness;
         /// Where slashed auditor stake goes; the runtime burns it through `Emission`.
         type Slash: OnUnbalanced<Credit<AccountId32, Self::Currency>>;
-        /// Who may adjust the stake threshold, the payment and the thresholds version.
+        /// Registered models' quantization: only bf16 models get audit profiles.
+        type Models: ModelQuantization;
+        /// Blocks a provider's stake unbonds for, to check the time windows at genesis.
+        type ProviderUnbondBlocks: Get<u64>;
+        /// Who may adjust the stake threshold, the payment, the spot-check rate, the models'
+        /// audit profiles and the statistical judgment's switch.
         type AdminOrigin: EnsureOrigin<Self::RuntimeOrigin>;
         /// Rounds verdicts and used request IDs are kept for.
         #[pallet::constant]
@@ -434,15 +496,70 @@ pub mod pallet {
     pub type AuditorEndpoints<T: Config> =
         StorageMap<_, Identity, AccountId32, AuditorEndpoint, OptionQuery>;
 
-    /// The statistical judgment's parameter version and switch (m6-audit-sprt design D10).
+    /// Whether the statistical judgment opens disputes.
     #[pallet::storage]
-    pub type StatsSettings<T: Config> = StorageValue<_, StatsConfig, OptionQuery>;
+    pub type StatsEnabled<T: Config> = StorageValue<_, bool, ValueQuery>;
 
-    /// Each provider's statistical state, with the parameter version it was built with; a state
-    /// of another version than the current one counts as empty (design D6).
+    /// Each model's own audit profile (m6-audit-hardening design D1).
     #[pallet::storage]
-    pub type SprtStates<T: Config> =
-        StorageMap<_, Identity, AccountId32, VersionedSprt, OptionQuery>;
+    pub type AuditProfiles<T: Config> = StorageMap<_, Identity, ModelId, AuditProfile, OptionQuery>;
+
+    /// The profile of bf16 models without their own.
+    #[pallet::storage]
+    pub type DefaultProfile<T: Config> = StorageValue<_, AuditProfile, OptionQuery>;
+
+    /// Each provider's statistical state on each model, with the parameter version it was built
+    /// with; a state of another version than its model's profile counts as empty (design D2).
+    #[pallet::storage]
+    pub type ModelSprtStates<T: Config> =
+        StorageDoubleMap<_, Identity, AccountId32, Identity, ModelId, VersionedSprt, OptionQuery>;
+
+    /// The light penalty's parameters, fixed at genesis.
+    #[pallet::storage]
+    pub type Penalty<T: Config> = StorageValue<_, PenaltyParams, OptionQuery>;
+
+    /// Each dispute ballot's marks of the cited verdicts whose evidence the reviewer did not
+    /// obtain (bit `i`: the dispute's accuser `i`); absent means all obtained (design D6).
+    #[pallet::storage]
+    pub type DisputeMarks<T: Config> =
+        StorageDoubleMap<_, Twox64Concat, u64, Identity, AccountId32, u128, OptionQuery>;
+
+    /// Spot checks, open and closed (design D5).
+    #[pallet::storage]
+    pub type Reviews<T: Config> = StorageMap<_, Twox64Concat, u64, ReviewOf<T>, OptionQuery>;
+
+    /// Identifier of the next spot check.
+    #[pallet::storage]
+    pub type NextReview<T: Config> = StorageValue<_, u64, ValueQuery>;
+
+    /// Open spot checks.
+    #[pallet::storage]
+    pub type OpenReviews<T: Config> = StorageMap<_, Twox64Concat, u64, (), OptionQuery>;
+
+    /// Open spot checks citing a verdict of (round, provider), which keeps its list.
+    #[pallet::storage]
+    pub type ReviewRefs<T: Config> =
+        StorageDoubleMap<_, Twox64Concat, RoundIndex, Identity, AccountId32, u32, OptionQuery>;
+
+    /// The round whose verdicts are being drawn for spot checks, and the raw key of the last
+    /// verdict list drawn (empty: none yet).
+    #[pallet::storage]
+    pub type SpotCheckCursor<T: Config> = StorageValue<_, (RoundIndex, ClearCursor), OptionQuery>;
+
+    /// Open disputes and spot checks citing an auditor's verdicts: while positive, its
+    /// unbonding stake stays (design D8).
+    #[pallet::storage]
+    pub type Locks<T: Config> = StorageMap<_, Identity, AccountId32, u32, OptionQuery>;
+
+    /// Rounds of each auditor's recent findings of unavailable evidence (design D7).
+    #[pallet::storage]
+    pub type UnavailableFindings<T: Config> =
+        StorageMap<_, Identity, AccountId32, Findings, OptionQuery>;
+
+    /// Spot-check counts of auditors.
+    #[pallet::storage]
+    pub type ReviewActivity<T: Config> =
+        StorageMap<_, Identity, AccountId32, ReviewStats, ValueQuery>;
 
     /// Verdict lists past their retention that a statistical state or an open dispute still
     /// refers to, by round and provider; removed once nothing does.
@@ -457,8 +574,8 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// While set, states of an older parameter version are being removed, from this key on
-    /// (empty: from the start).
+    /// While set, states of another parameter version than their model's profile are being
+    /// removed, from this key on (empty: from the start).
     #[pallet::storage]
     pub type StaleClearing<T: Config> = StorageValue<_, ClearCursor, OptionQuery>;
 
@@ -484,20 +601,46 @@ pub mod pallet {
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
             let (fixed, adjustable) = self.params.split();
+            let penalty = self.params.penalty();
             let percents_ok = self.params.provider_slash_percent <= 100
-                && self.params.auditor_slash_percent <= 100;
-            let stats_ok = stats_params(self.params.stats_version).is_some();
-            if fixed.check().is_err() || !percents_ok || !adjustable.within_bounds() || !stats_ok {
+                && self.params.auditor_slash_percent <= 100
+                && self.params.light_slash_percent <= 100;
+            let profile_ok = self
+                .params
+                .default_profile
+                .is_none_or(|p| AuditProfile::from(p).check_known().is_ok());
+            let windows = check_windows(&WindowParams {
+                round_blocks: u64::from(fixed.round_blocks),
+                vote_blocks: u64::from(fixed.vote_blocks),
+                auditor_unbond: u64::from(fixed.unbond_blocks),
+                provider_unbond: T::ProviderUnbondBlocks::get(),
+                retention: u64::from(T::RetentionRounds::get())
+                    .saturating_mul(u64::from(fixed.round_blocks)),
+            });
+            if fixed.check().is_err()
+                || !percents_ok
+                || !adjustable.within_bounds()
+                || !penalty.is_valid(fixed.auditor_slash)
+                || !profile_ok
+                || windows.is_err()
+            {
                 // Genesis is built once, off chain: a bad parameter must stop the chain from
-                // being created at all (spec "参数与护栏", "创世参数不满足护栏").
+                // being created at all (spec "参数与护栏", "创世参数不满足护栏", "时间窗口的耦合约束").
                 #[allow(clippy::panic)]
                 {
-                    panic!("invalid audit genesis parameters: {:?}", self.params);
+                    panic!(
+                        "invalid audit genesis parameters: {:?} ({windows:?})",
+                        self.params
+                    );
                 }
             }
             Params::<T>::put(fixed);
             Adjustable::<T>::put(adjustable);
-            StatsSettings::<T>::put(self.params.stats());
+            Penalty::<T>::put(penalty);
+            StatsEnabled::<T>::put(self.params.stats_enabled);
+            if let Some(p) = self.params.default_profile {
+                DefaultProfile::<T>::put(AuditProfile::from(p));
+            }
         }
     }
 
@@ -633,10 +776,60 @@ pub mod pallet {
             /// Whether an endpoint is now set.
             set: bool,
         },
-        /// The administration set the statistical judgment's version and switch.
-        StatsConfigSet {
-            /// The new configuration.
-            config: StatsConfig,
+        /// The administration switched the statistical judgment on or off.
+        StatsEnabledSet {
+            /// Whether it opens disputes now.
+            enabled: bool,
+        },
+        /// The administration set a model's audit profile.
+        ProfileSet {
+            /// The model.
+            model: ModelId,
+            /// Its profile.
+            profile: AuditProfile,
+        },
+        /// A verdict was drawn for a spot check.
+        SpotCheckOpened {
+            /// The spot check.
+            id: u64,
+            /// The verdict's provider.
+            provider: AccountId32,
+            /// The verdict's round.
+            round: RoundIndex,
+            /// The verdict's auditor.
+            auditor: AccountId32,
+        },
+        /// A verdict was drawn for a spot check but too few auditors are eligible to review.
+        SpotCheckNotOpened {
+            /// The verdict's provider.
+            provider: AccountId32,
+            /// The verdict's auditor.
+            auditor: AccountId32,
+        },
+        /// A spot-check reviewer voted.
+        ReviewVoted {
+            /// The spot check.
+            id: u64,
+            /// The reviewer.
+            reviewer: AccountId32,
+            /// The vote.
+            vote: ReviewVote,
+            /// Whether the reviewer obtained the evidence.
+            obtained: bool,
+        },
+        /// A spot check was decided or closed.
+        SpotCheckClosed {
+            /// The spot check.
+            id: u64,
+            /// How it ended.
+            outcome: ReviewOutcome,
+        },
+        /// An auditor's evidence was found unavailable in a decided dispute or spot check.
+        EvidenceUnavailable {
+            /// The auditor.
+            who: AccountId32,
+            /// Whether the full penalty applied (its findings reached the limit).
+            full: bool,
         },
     }
 
@@ -721,6 +914,27 @@ pub mod pallet {
         WrongStatsVersion,
         /// The runtime does not know this parameter version, or it decreases.
         UnknownStatsVersion,
+        /// The receipt's model has no audit profile (it is uncalibrated).
+        Uncalibrated,
+        /// Only bf16 models get audit profiles.
+        NotBf16,
+        /// A profile version is not built into the runtime, or it decreases.
+        BadProfile,
+        /// No such open spot check.
+        NoReview,
+        /// The marks name a verdict the dispute does not cite.
+        BadMarks,
+        /// An open dispute or spot check cites the auditor's verdicts: its unbonding stake stays.
+        Locked,
+    }
+
+    impl<T> From<ProfileError> for Error<T> {
+        fn from(e: ProfileError) -> Self {
+            match e {
+                ProfileError::NotBf16 => Self::NotBf16,
+                _ => Self::BadProfile,
+            }
+        }
     }
 
     impl<T> From<PriceError> for Error<T> {
@@ -756,6 +970,15 @@ pub mod pallet {
             if LastRound::<T>::get() != Some(round) {
                 let auditors = Self::start_round(round);
                 weight = weight.saturating_add(T::WeightInfo::start_round(auditors));
+                // The previous round's verdicts are drawn for spot checks with this round's
+                // seed, which did not exist when they were submitted (design D5).
+                if let Some(previous) = round.checked_sub(1) {
+                    SpotCheckCursor::<T>::put((previous, ClearCursor::new()));
+                }
+            }
+            if SpotCheckCursor::<T>::exists() {
+                let (lists, opened) = Self::spot_check_step(&params, round);
+                weight = weight.saturating_add(T::WeightInfo::spot_check(lists, opened));
             }
             let pruned = Self::prune_step(round);
             weight = weight.saturating_add(T::WeightInfo::prune(pruned));
@@ -863,6 +1086,8 @@ pub mod pallet {
         pub fn withdraw_unbonded(origin: OriginFor<T>) -> DispatchResult {
             let who = frame_system::ensure_signed(origin)?;
             let mut a = Auditors::<T>::get(&who).ok_or(Error::<T>::NotAuditor)?;
+            // Spec "争议当事方的罚没锁": cited verdicts keep the stake slashable.
+            ensure!(!Locks::<T>::contains_key(&who), Error::<T>::Locked);
             let due = take_due(&mut a.unlocking, frame_system::Pallet::<T>::block_number());
             ensure!(due > 0, Error::<T>::NothingToWithdraw);
             T::Currency::release(&HoldReason::Stake.into(), &who, due, Precision::BestEffort)?;
@@ -906,8 +1131,11 @@ pub mod pallet {
                 !list.iter().any(|v| v.auditor == who),
                 Error::<T>::AlreadySubmitted
             );
+            // Spec "裁决": the versions are those of the receipt's model's profile.
+            let model = receipt.body.model;
+            let (profile, _) = Self::profile(&model).ok_or(Error::<T>::Uncalibrated)?;
             ensure!(
-                thresholds_version == adjustable.thresholds_version,
+                thresholds_version == profile.thresholds_version,
                 Error::<T>::WrongThresholdsVersion
             );
             let judged = outcome.judged_by_thresholds();
@@ -915,11 +1143,13 @@ pub mod pallet {
                 (judged || matches!(outcome, VerdictOutcome::Fail(_))) == evidence.is_some(),
                 Error::<T>::BadEvidence
             );
-            let settings = StatsSettings::<T>::get().ok_or(Error::<T>::NotConfigured)?;
             match stats {
                 Some(s) => {
                     ensure!(judged && s.stats.is_valid(), Error::<T>::BadStats);
-                    ensure!(s.version == settings.version, Error::<T>::WrongStatsVersion);
+                    ensure!(
+                        s.version == profile.stats_version,
+                        Error::<T>::WrongStatsVersion
+                    );
                 }
                 None => ensure!(!judged, Error::<T>::BadStats),
             }
@@ -973,19 +1203,22 @@ pub mod pallet {
                 Self::maybe_open_dispute(&params, round, &provider);
             }
             if let Some(s) = stats {
-                Self::record_stats(&params, settings, (round, &provider), &who, s);
+                Self::record_stats(&params, (round, &provider, model), &who, s);
             }
             Ok(())
         }
 
-        /// Votes in `provider`'s open dispute `id`; `Q` votes on one side decide it at once.
-        #[pallet::call_index(6)]
-        #[pallet::weight(T::WeightInfo::vote())]
-        pub fn vote(
+        /// Votes in `provider`'s open dispute `id`, marking in `unavailable` the cited verdicts
+        /// whose evidence the caller did not obtain (bit `i`: the dispute's accuser `i`); `Q`
+        /// votes on one side decide it at once (spec "争议与升级复核").
+        #[pallet::call_index(11)]
+        #[pallet::weight(T::WeightInfo::vote_dispute())]
+        pub fn vote_dispute(
             origin: OriginFor<T>,
             provider: AccountId32,
             id: u64,
             vote: Vote,
+            unavailable: u128,
         ) -> DispatchResult {
             let who = frame_system::ensure_signed(origin)?;
             let params = Params::<T>::get().ok_or(Error::<T>::NotConfigured)?;
@@ -998,12 +1231,21 @@ pub mod pallet {
                 frame_system::Pallet::<T>::block_number() <= d.deadline,
                 Error::<T>::DeadlinePassed
             );
+            // Only the cited verdicts can be marked.
+            let cited = u32::try_from(d.accusers.len()).unwrap_or(u32::MAX);
+            ensure!(
+                cited >= 128 || unavailable.checked_shr(cited).unwrap_or(0) == 0,
+                Error::<T>::BadMarks
+            );
             let slot = d
                 .reviewers
                 .iter_mut()
                 .find(|(r, v)| *r == who && v.is_none())
                 .ok_or(Error::<T>::NotReviewer)?;
             slot.1 = Some(vote);
+            if unavailable != 0 {
+                DisputeMarks::<T>::insert(id, &who, unavailable);
+            }
             Activity::<T>::mutate(&who, |s| s.votes = s.votes.saturating_add(1));
             Self::deposit_event(Event::Voted {
                 id,
@@ -1049,17 +1291,14 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Adjusts the stake threshold, the payment and the accepted thresholds version within
-        /// their guardrails; the version never decreases.
+        /// Adjusts the stake threshold, the payment and the spot-check rate within their
+        /// guardrails.
         #[pallet::call_index(8)]
         #[pallet::weight(T::WeightInfo::set_params())]
         pub fn set_params(origin: OriginFor<T>, params: AdjustableParams) -> DispatchResult {
             T::AdminOrigin::ensure_origin(origin)?;
-            let old = Adjustable::<T>::get().ok_or(Error::<T>::NotConfigured)?;
-            ensure!(
-                params.within_bounds() && params.thresholds_version >= old.thresholds_version,
-                Error::<T>::OutOfBounds
-            );
+            ensure!(Adjustable::<T>::exists(), Error::<T>::NotConfigured);
+            ensure!(params.within_bounds(), Error::<T>::OutOfBounds);
             Adjustable::<T>::put(params);
             Self::deposit_event(Event::ParamsSet { params });
             Ok(())
@@ -1094,23 +1333,91 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Sets the statistical judgment's parameter version and switch (spec `market/audit`
-        /// "参数与护栏"). The version never decreases and must be built into the runtime;
-        /// changing it empties every provider's state (removed over the next blocks).
-        #[pallet::call_index(10)]
-        #[pallet::weight(T::WeightInfo::set_stats_config())]
-        pub fn set_stats_config(origin: OriginFor<T>, config: StatsConfig) -> DispatchResult {
-            T::AdminOrigin::ensure_origin(origin)?;
-            let old = StatsSettings::<T>::get().ok_or(Error::<T>::NotConfigured)?;
+        /// Votes in open spot check `id` and says whether the caller obtained the verdict's
+        /// evidence; `Q` votes on one side decide it at once (spec "裁决抽查").
+        #[pallet::call_index(12)]
+        #[pallet::weight(T::WeightInfo::vote_review())]
+        pub fn vote_review(
+            origin: OriginFor<T>,
+            id: u64,
+            vote: ReviewVote,
+            obtained: bool,
+        ) -> DispatchResult {
+            let who = frame_system::ensure_signed(origin)?;
+            let params = Params::<T>::get().ok_or(Error::<T>::NotConfigured)?;
+            ensure!(OpenReviews::<T>::contains_key(id), Error::<T>::NoReview);
+            let mut r = Reviews::<T>::get(id).ok_or(Error::<T>::NoReview)?;
             ensure!(
-                config.version >= old.version && stats_params(config.version).is_some(),
-                Error::<T>::UnknownStatsVersion
+                frame_system::Pallet::<T>::block_number() <= r.deadline,
+                Error::<T>::DeadlinePassed
             );
-            if config.version != old.version {
+            let slot = r
+                .reviewers
+                .iter_mut()
+                .find(|(reviewer, b)| *reviewer == who && b.is_none())
+                .ok_or(Error::<T>::NotReviewer)?;
+            slot.1 = Some((vote, obtained));
+            Activity::<T>::mutate(&who, |s| s.votes = s.votes.saturating_add(1));
+            Self::deposit_event(Event::ReviewVoted {
+                id,
+                reviewer: who,
+                vote,
+                obtained,
+            });
+            match r.decided(params.quorum) {
+                Some(outcome) => Self::close_review(&params, id, r, outcome),
+                None => Reviews::<T>::insert(id, r),
+            }
+            Ok(())
+        }
+
+        /// Closes open spot check `id` as undecided once its deadline has passed.
+        #[pallet::call_index(13)]
+        #[pallet::weight(T::WeightInfo::close_review())]
+        pub fn close_spot_check(origin: OriginFor<T>, id: u64) -> DispatchResult {
+            frame_system::ensure_signed(origin)?;
+            let params = Params::<T>::get().ok_or(Error::<T>::NotConfigured)?;
+            ensure!(OpenReviews::<T>::contains_key(id), Error::<T>::NoReview);
+            let r = Reviews::<T>::get(id).ok_or(Error::<T>::NoReview)?;
+            ensure!(
+                frame_system::Pallet::<T>::block_number() > r.deadline,
+                Error::<T>::DeadlineNotPassed
+            );
+            Self::close_review(&params, id, r, ReviewOutcome::Undecided);
+            Ok(())
+        }
+
+        /// Sets `model`'s audit profile (spec "按模型的审计档案"): a bf16 model, versions built
+        /// into the runtime, neither lower than its profile now. Raising the statistical version
+        /// empties the model's statistical states (removed over the next blocks).
+        #[pallet::call_index(14)]
+        #[pallet::weight(T::WeightInfo::set_audit_profile())]
+        pub fn set_audit_profile(
+            origin: OriginFor<T>,
+            model: ModelId,
+            profile: AuditProfile,
+        ) -> DispatchResult {
+            T::AdminOrigin::ensure_origin(origin)?;
+            let quant = T::Models::quantization(&model).ok_or(Error::<T>::NotBf16)?;
+            let current = Self::profile(&model).map(|(p, _)| p);
+            profile
+                .check_update(quant, current.as_ref())
+                .map_err(Error::<T>::from)?;
+            AuditProfiles::<T>::insert(model, profile);
+            if current.is_some_and(|c| c.stats_version != profile.stats_version) {
                 StaleClearing::<T>::put(ClearCursor::new());
             }
-            StatsSettings::<T>::put(config);
-            Self::deposit_event(Event::StatsConfigSet { config });
+            Self::deposit_event(Event::ProfileSet { model, profile });
+            Ok(())
+        }
+
+        /// Switches the statistical judgment on or off (spec "参数与护栏").
+        #[pallet::call_index(15)]
+        #[pallet::weight(T::WeightInfo::set_stats_enabled())]
+        pub fn set_stats_enabled(origin: OriginFor<T>, enabled: bool) -> DispatchResult {
+            T::AdminOrigin::ensure_origin(origin)?;
+            StatsEnabled::<T>::put(enabled);
+            Self::deposit_event(Event::StatsEnabledSet { enabled });
             Ok(())
         }
     }
@@ -1145,6 +1452,17 @@ pub mod pallet {
         pub fn threshold() -> Result<Balance, PriceError> {
             let usd = Adjustable::<T>::get().ok_or(PriceError::NotSet)?.stake_usd;
             T::Price::to_atc(usd, Rounding::Threshold)
+        }
+
+        /// `model`'s audit profile and where it comes from: its own, else the default for a
+        /// bf16 model; `None` for an uncalibrated or unregistered model.
+        #[must_use]
+        pub fn profile(model: &ModelId) -> Option<(AuditProfile, ProfileSource)> {
+            resolve(
+                AuditProfiles::<T>::get(model),
+                DefaultProfile::<T>::get(),
+                T::Models::quantization(model)?,
+            )
         }
 
         /// The auditors assigned to `provider` in `round` (empty without a seed).
@@ -1294,14 +1612,16 @@ pub mod pallet {
             handled
         }
 
-        /// Whether `provider`'s statistical state (of the current version) or its open dispute
-        /// refers to a verdict of `round`.
+        /// Whether one of `provider`'s statistical states, its open dispute or an open spot
+        /// check refers to a verdict of `round`.
+        pub(crate) fn is_referenced(round: RoundIndex, provider: &AccountId32) -> bool {
+            Self::referenced(round, provider)
+        }
+
         fn referenced(round: RoundIndex, provider: &AccountId32) -> bool {
-            let current = StatsSettings::<T>::get().map(|c| c.version);
-            let in_state = SprtStates::<T>::get(provider).is_some_and(|(v, s)| {
-                Some(v) == current && s.entries.iter().any(|e| e.round == round)
-            });
-            in_state
+            ReviewRefs::<T>::contains_key(round, provider)
+                || ModelSprtStates::<T>::iter_prefix_values(provider)
+                    .any(|(_, s)| s.entries.iter().any(|e| e.round == round))
                 || OpenDispute::<T>::get(provider)
                     .and_then(Disputes::<T>::get)
                     .is_some_and(|d| d.accusers.iter().any(|a| a.round == round))
@@ -1324,51 +1644,52 @@ pub mod pallet {
             }
         }
 
-        /// Removes at most [`STALE_CLEAR_LIMIT`] states of an older parameter version after a
-        /// version change (design D10), releasing the verdicts they kept. Returns the number of
-        /// states read.
+        /// Removes at most [`STALE_CLEAR_LIMIT`] states of another parameter version than their
+        /// model's profile after a profile change (design D2), releasing the verdicts they kept.
+        /// Returns the number of states read.
         pub(crate) fn clear_stale_step() -> u32 {
             let Some(cursor) = StaleClearing::<T>::get() else {
                 return 0;
             };
-            let current = StatsSettings::<T>::get().map(|c| c.version);
             let limit = usize::try_from(STALE_CLEAR_LIMIT).unwrap_or(1);
             let mut iter = if cursor.is_empty() {
-                SprtStates::<T>::iter()
+                ModelSprtStates::<T>::iter()
             } else {
-                SprtStates::<T>::iter_from(cursor.into_inner())
+                ModelSprtStates::<T>::iter_from(cursor.into_inner())
             };
-            let seen: Vec<(AccountId32, VersionedSprt)> = iter.by_ref().take(limit).collect();
+            let seen: Vec<(AccountId32, ModelId, VersionedSprt)> =
+                iter.by_ref().take(limit).collect();
             let last = iter.last_raw_key().to_vec();
-            for (provider, (version, state)) in &seen {
+            for (provider, model, (version, state)) in &seen {
+                let current = Self::profile(model).map(|(p, _)| p.stats_version);
                 if Some(*version) != current {
-                    SprtStates::<T>::remove(provider);
+                    ModelSprtStates::<T>::remove(provider, model);
                     Self::release(provider, state.entries.iter().map(|e| e.round));
                 }
             }
             if seen.len() < limit {
                 StaleClearing::<T>::kill();
             } else {
-                // A map key (prefix and account) is 64 bytes, within the cursor's bound.
+                // A double-map key (prefix, account and model) is 96 bytes, within the cursor's
+                // bound.
                 StaleClearing::<T>::put(ClearCursor::truncate_from(last));
             }
             u32::try_from(seen.len()).unwrap_or(u32::MAX)
         }
 
-        /// Adds a verdict's statistics to `provider`'s state (spec "统计判定") and opens a
-        /// statistical dispute when the state reaches the bound, the judgment is enabled and
-        /// no dispute is open.
+        /// Adds a verdict's statistics to `provider`'s state on `model` (spec "统计判定") and
+        /// opens a statistical dispute when the state reaches the bound, the judgment is enabled
+        /// and no dispute is open.
         fn record_stats(
             params: &AuditParams,
-            settings: StatsConfig,
-            (round, provider): (RoundIndex, &AccountId32),
+            (round, provider, model): (RoundIndex, &AccountId32, ModelId),
             auditor: &AccountId32,
             stats: VerdictStats,
         ) {
             let Some(sp) = stats_params(stats.version) else {
                 return;
             };
-            let (mut state, mut released) = match SprtStates::<T>::take(provider) {
+            let (mut state, mut released) = match ModelSprtStates::<T>::take(provider, model) {
                 Some((v, s)) if v == stats.version => (s, Vec::new()),
                 // A state of an older version counts as empty.
                 Some((_, s)) => (
@@ -1387,14 +1708,19 @@ pub mod pallet {
                 },
             );
             if state.crossed(sp)
-                && settings.enabled
+                && StatsEnabled::<T>::get()
                 && !OpenDispute::<T>::contains_key(provider)
-                && Self::open_statistical_dispute(params, round, provider, &state, stats.version)
+                && Self::open_statistical_dispute(
+                    params,
+                    (round, provider, model),
+                    &state,
+                    stats.version,
+                )
             {
                 state.reset();
             }
             if state.cumulative > 0 {
-                SprtStates::<T>::insert(provider, (stats.version, state));
+                ModelSprtStates::<T>::insert(provider, model, (stats.version, state));
             }
             Self::release(provider, released);
         }
@@ -1403,8 +1729,7 @@ pub mod pallet {
         /// reviewers are eligible or the round has no seed.
         fn open_statistical_dispute(
             params: &AuditParams,
-            round: RoundIndex,
-            provider: &AccountId32,
+            (round, provider, model): (RoundIndex, &AccountId32, ModelId),
             state: &SprtState<AccountId32>,
             stats_version: u16,
         ) -> bool {
@@ -1430,7 +1755,10 @@ pub mod pallet {
                 round,
                 provider,
                 (accusers, gateways),
-                DisputeKind::Statistical { stats_version },
+                DisputeKind::ModelStatistical {
+                    stats_version,
+                    model,
+                },
             )
         }
 
@@ -1534,6 +1862,7 @@ pub mod pallet {
             );
             let deadline = frame_system::Pallet::<T>::block_number()
                 .saturating_add(params.vote_blocks.saturated_into());
+            let cited = Self::distinct_auditors(&accusers);
             Disputes::<T>::insert(
                 id,
                 DisputeOf::<T> {
@@ -1547,6 +1876,7 @@ pub mod pallet {
                     kind,
                 },
             );
+            Self::lock(&cited);
             OpenDispute::<T>::insert(provider, id);
             NextDispute::<T>::put(id.saturating_add(1));
             Self::deposit_event(Event::DisputeOpened {
@@ -1574,6 +1904,22 @@ pub mod pallet {
                     Some(_) => {}
                 }
             }
+            // Spec "争议与升级复核": a cited verdict marked by at least `Q` ballots is evidence
+            // unavailable.
+            let masks: Vec<u128> = d
+                .reviewers
+                .iter()
+                .filter(|(_, v)| v.is_some())
+                .filter_map(|(r, _)| DisputeMarks::<T>::get(id, r))
+                .collect();
+            let lost = unavailable(&masks, d.accusers.len().min(MAX_MARKED), params.quorum);
+            let unavailable_of = |who: &AccountId32| {
+                d.accusers
+                    .iter()
+                    .zip(lost.iter())
+                    .any(|(a, l)| a.auditor == *who && *l)
+            };
+            let cited = Self::distinct_auditors(&d.accusers);
             match outcome {
                 DisputeOutcome::Confirmed => {
                     T::Providers::slash(&d.provider, params.provider_slash);
@@ -1585,16 +1931,31 @@ pub mod pallet {
                     ProviderStats::<T>::mutate(&d.provider, |s| {
                         s.confirmed = s.confirmed.saturating_add(1);
                     });
+                    Self::penalize_unavailable(params, &cited, unavailable_of);
                 }
-                // A statistical dispute is the chain's own conclusion, not an auditor's
-                // accusation: rejecting it slashes nobody (design D8).
+                // An accusation the evidence refutes costs the full slash; one whose evidence
+                // was unavailable only the light one (spec "处罚").
                 DisputeOutcome::Rejected if d.kind == DisputeKind::Fail => {
-                    for a in &d.accusers {
-                        Self::punish_auditor(&a.auditor, params);
+                    for who in &cited {
+                        if unavailable_of(who) {
+                            Self::penalize_unavailable(params, core::slice::from_ref(who), |_| {
+                                true
+                            });
+                        } else {
+                            Self::punish_auditor(who, params);
+                        }
                     }
                 }
-                DisputeOutcome::Rejected | DisputeOutcome::Undecided => {}
+                // A statistical dispute is the chain's own conclusion, not an auditor's
+                // accusation: rejecting it slashes nobody for the statistics (m6-audit-sprt
+                // design D8), only for evidence that was unavailable.
+                DisputeOutcome::Rejected => {
+                    Self::penalize_unavailable(params, &cited, unavailable_of);
+                }
+                DisputeOutcome::Undecided => {}
             }
+            Self::unlock(&cited);
+            let _ = DisputeMarks::<T>::clear_prefix(id, u32::from(MAX_REVIEWERS), None);
             OpenDispute::<T>::remove(&d.provider);
             let rounds: Vec<RoundIndex> = d.accusers.iter().map(|a| a.round).collect();
             Self::release(&d.provider, rounds);
@@ -1609,13 +1970,87 @@ pub mod pallet {
             });
         }
 
-        /// Slashes an accuser of a rejected dispute and makes it exit.
+        /// The distinct auditors of `accusers`, in order.
+        fn distinct_auditors(accusers: &[Accuser<AccountId32>]) -> Vec<AccountId32> {
+            let mut out: Vec<AccountId32> = Vec::new();
+            for a in accusers {
+                if !out.contains(&a.auditor) {
+                    out.push(a.auditor.clone());
+                }
+            }
+            out
+        }
+
+        /// One more open dispute or spot check cites each of `auditors`.
+        fn lock(auditors: &[AccountId32]) {
+            for who in auditors {
+                Locks::<T>::mutate(who, |n| *n = Some(n.unwrap_or(0).saturating_add(1)));
+            }
+        }
+
+        /// One fewer open dispute or spot check cites each of `auditors`.
+        fn unlock(auditors: &[AccountId32]) {
+            for who in auditors {
+                Locks::<T>::mutate_exists(who, |n| {
+                    *n = n.map(|v| v.saturating_sub(1)).filter(|v| *v > 0);
+                });
+            }
+        }
+
+        /// Penalizes each of `auditors` for which `lost` holds for unavailable evidence: the
+        /// light slash, or the full one and exit once its findings within the retention reach
+        /// the limit (spec "处罚", design D7).
+        fn penalize_unavailable(
+            params: &AuditParams,
+            auditors: &[AccountId32],
+            lost: impl Fn(&AccountId32) -> bool,
+        ) {
+            let penalty = Penalty::<T>::get().unwrap_or(PenaltyParams::LIVE);
+            let now = Self::current_round(params);
+            let retention = T::RetentionRounds::get();
+            for who in auditors.iter().filter(|w| lost(w)) {
+                let history = UnavailableFindings::<T>::get(who).unwrap_or_default();
+                let full = unavailable_penalty(&history, now, retention, penalty.unavailable_limit)
+                    == UnavailablePenalty::Full;
+                let mut kept: Vec<RoundIndex> = recent_findings(&history, now, retention).collect();
+                kept.push(now);
+                // Keep the newest findings that fit; older ones no longer matter once the limit
+                // is the bound.
+                let skip = kept
+                    .len()
+                    .saturating_sub(usize::from(MAX_UNAVAILABLE_LIMIT));
+                UnavailableFindings::<T>::insert(
+                    who,
+                    Findings::truncate_from(kept.into_iter().skip(skip).collect()),
+                );
+                ReviewActivity::<T>::mutate(who, |s| {
+                    s.unavailable = s.unavailable.saturating_add(1)
+                });
+                Self::deposit_event(Event::EvidenceUnavailable {
+                    who: who.clone(),
+                    full,
+                });
+                if full {
+                    Self::punish_auditor(who, params);
+                } else {
+                    Self::slash_auditor(who, penalty.light_slash, false);
+                }
+            }
+        }
+
+        /// Slashes `who` (the auditor slash) and makes it exit: an accusation refuted, or a
+        /// verdict overturned, with the evidence at hand.
         fn punish_auditor(who: &AccountId32, params: &AuditParams) {
+            Self::slash_auditor(who, params.auditor_slash, true);
+        }
+
+        /// Slashes `ratio` of `who`'s whole stake and burns it; with `exit`, makes it exit too.
+        fn slash_auditor(who: &AccountId32, ratio: Perbill, exit: bool) {
             let Some(mut a) = Auditors::<T>::get(who) else {
                 return;
             };
             let total = a.stake.saturating_add(unlocking_total(&a.unlocking));
-            let target = params.auditor_slash.mul_floor(total);
+            let target = ratio.mul_floor(total);
             let taken = take_for_slash(&mut a.stake, &mut a.unlocking, target);
             let (credit, _) = T::Currency::slash(&HoldReason::Stake.into(), who, taken);
             let burned = credit.peek();
@@ -1624,11 +2059,172 @@ pub mod pallet {
                 who: who.clone(),
                 amount: burned,
             });
-            if a.status == AuditorStatus::Active {
-                // `start_exit` only fails without parameters, which were just read.
+            if exit && a.status == AuditorStatus::Active {
+                // `start_exit` only fails without parameters, which the caller read.
                 let _ = Self::start_exit(who, &mut a);
             }
             Self::store_or_remove(who, a);
+        }
+
+        /// Draws at most [`SPOT_CHECK_BATCH`] verdict lists of the cursor's round for spot
+        /// checks with the seed of `round`, the next one (spec "裁决抽查", design D5). Returns
+        /// the lists read and the spot checks opened.
+        pub(crate) fn spot_check_step(params: &AuditParams, round: RoundIndex) -> (u32, u32) {
+            let Some((verdict_round, cursor)) = SpotCheckCursor::<T>::get() else {
+                return (0, 0);
+            };
+            let rate = Adjustable::<T>::get().map_or(0, |a| a.spot_check_bps);
+            let (Some(seed), true) = (Seeds::<T>::get(round), rate > 0) else {
+                SpotCheckCursor::<T>::kill();
+                return (0, 0);
+            };
+            let limit = usize::try_from(SPOT_CHECK_BATCH).unwrap_or(1);
+            let mut iter = if cursor.is_empty() {
+                Verdicts::<T>::iter_prefix(verdict_round)
+            } else {
+                Verdicts::<T>::iter_prefix_from(verdict_round, cursor.into_inner())
+            };
+            let lists: Vec<(AccountId32, VerdictList)> = iter.by_ref().take(limit).collect();
+            let last = iter.last_raw_key().to_vec();
+            let mut opened = 0u32;
+            for (provider, list) in &lists {
+                for v in list.iter().filter(|v| v.stats.is_some()) {
+                    if spot_checked(&seed, &v.request_id, rate)
+                        && Self::open_review(params, (round, verdict_round), provider, v)
+                    {
+                        opened = opened.saturating_add(1);
+                    }
+                }
+            }
+            if lists.len() < limit {
+                SpotCheckCursor::<T>::kill();
+            } else {
+                // A double-map key suffix is at most 64 bytes, within the cursor's bound.
+                SpotCheckCursor::<T>::put((verdict_round, ClearCursor::truncate_from(last)));
+            }
+            (u32::try_from(lists.len()).unwrap_or(u32::MAX), opened)
+        }
+
+        /// Opens a spot check of `verdict` on `provider` from `verdict_round`, with reviewers
+        /// drawn from `round`'s roster and seed, excluding its auditor, the provider and the
+        /// receipt's gateway; `false` if too few are eligible.
+        fn open_review(
+            params: &AuditParams,
+            (round, verdict_round): (RoundIndex, RoundIndex),
+            provider: &AccountId32,
+            verdict: &VerdictRecord<AccountId32>,
+        ) -> bool {
+            let (Some(seed), Some(roster)) = (Seeds::<T>::get(round), Rosters::<T>::get(round))
+            else {
+                return false;
+            };
+            let id = NextReview::<T>::get();
+            let excluded = [
+                verdict.auditor.clone(),
+                provider.clone(),
+                verdict.gateway.clone(),
+            ];
+            let reviewers = sample(
+                Pool {
+                    roster: &roster,
+                    excluded: &excluded,
+                },
+                &seed,
+                provider,
+                Draw::SpotCheck(id),
+                usize::from(params.reviewers),
+            );
+            if reviewers.len() < usize::from(params.reviewers) {
+                Self::deposit_event(Event::SpotCheckNotOpened {
+                    provider: provider.clone(),
+                    auditor: verdict.auditor.clone(),
+                });
+                return false;
+            }
+            let deadline = frame_system::Pallet::<T>::block_number()
+                .saturating_add(params.vote_blocks.saturated_into());
+            Reviews::<T>::insert(
+                id,
+                ReviewOf::<T> {
+                    provider: provider.clone(),
+                    round: verdict_round,
+                    auditor: verdict.auditor.clone(),
+                    // At most MAX_REVIEWERS by the genesis guardrail.
+                    reviewers: BoundedVec::truncate_from(
+                        reviewers.into_iter().map(|r| (r, None)).collect(),
+                    ),
+                    deadline,
+                    outcome: None,
+                    closed_at: None,
+                },
+            );
+            OpenReviews::<T>::insert(id, ());
+            NextReview::<T>::put(id.saturating_add(1));
+            ReviewRefs::<T>::mutate(verdict_round, provider, |n| {
+                *n = Some(n.unwrap_or(0).saturating_add(1));
+            });
+            Self::lock(core::slice::from_ref(&verdict.auditor));
+            ReviewActivity::<T>::mutate(&verdict.auditor, |s| {
+                s.spot_checked = s.spot_checked.saturating_add(1);
+            });
+            Self::deposit_event(Event::SpotCheckOpened {
+                id,
+                provider: provider.clone(),
+                round: verdict_round,
+                auditor: verdict.auditor.clone(),
+            });
+            true
+        }
+
+        /// Ends spot check `id` with `outcome`: pays the winning reviewers, counts the missed
+        /// ballots, and slashes the auditor of an overturned verdict (spec "处罚").
+        fn close_review(params: &AuditParams, id: u64, mut r: ReviewOf<T>, outcome: ReviewOutcome) {
+            let winners = match outcome {
+                ReviewOutcome::Upheld => Some(ReviewVote::Uphold),
+                ReviewOutcome::Overturned => Some(ReviewVote::Overturn),
+                ReviewOutcome::Undecided => None,
+            };
+            let payment = Adjustable::<T>::get()
+                .map_or(ac_primitives::market::MicroUsd(0), |a| a.payment_usd);
+            for (reviewer, ballot) in &r.reviewers {
+                match ballot {
+                    None => Activity::<T>::mutate(reviewer, |s| {
+                        s.missed_votes = s.missed_votes.saturating_add(1);
+                    }),
+                    Some((v, _)) if Some(*v) == winners => Self::pay(reviewer, payment),
+                    Some(_) => {}
+                }
+            }
+            let lost = r.evidence_unavailable(params.quorum);
+            let auditor = r.auditor.clone();
+            match outcome {
+                ReviewOutcome::Overturned => {
+                    ReviewActivity::<T>::mutate(&auditor, |s| {
+                        s.overturned = s.overturned.saturating_add(1);
+                    });
+                    if lost {
+                        Self::penalize_unavailable(params, core::slice::from_ref(&auditor), |_| {
+                            true
+                        });
+                    } else {
+                        Self::punish_auditor(&auditor, params);
+                    }
+                }
+                ReviewOutcome::Upheld if lost => {
+                    Self::penalize_unavailable(params, core::slice::from_ref(&auditor), |_| true);
+                }
+                ReviewOutcome::Upheld | ReviewOutcome::Undecided => {}
+            }
+            Self::unlock(core::slice::from_ref(&auditor));
+            OpenReviews::<T>::remove(id);
+            ReviewRefs::<T>::mutate_exists(r.round, &r.provider, |n| {
+                *n = n.map(|v| v.saturating_sub(1)).filter(|v| *v > 0);
+            });
+            Self::release(&r.provider, [r.round]);
+            r.outcome = Some(outcome);
+            r.closed_at = Some(frame_system::Pallet::<T>::block_number());
+            Reviews::<T>::insert(id, r);
+            Self::deposit_event(Event::SpotCheckClosed { id, outcome });
         }
 
         /// An auditor's record.
@@ -1687,15 +2283,52 @@ pub mod pallet {
             }
         }
 
-        /// `provider`'s statistical state under the current parameter version (empty for a
-        /// state of an older one).
+        /// `provider`'s statistical state on `model` under the model's profile (empty for a
+        /// state of another version, or an uncalibrated model).
         #[must_use]
-        pub fn sprt_state(provider: &AccountId32) -> SprtState<AccountId32> {
-            let current = StatsSettings::<T>::get().map(|c| c.version);
-            match SprtStates::<T>::get(provider) {
+        pub fn sprt_state(provider: &AccountId32, model: &ModelId) -> SprtState<AccountId32> {
+            let current = Self::profile(model).map(|(p, _)| p.stats_version);
+            match ModelSprtStates::<T>::get(provider, model) {
                 Some((v, s)) if Some(v) == current => s,
                 _ => SprtState::default(),
             }
+        }
+
+        /// `provider`'s statistical states, by model, under each model's profile; states of
+        /// another version (not yet cleared) are left out. For the runtime API only.
+        #[must_use]
+        pub fn sprt_states(provider: &AccountId32) -> Vec<(ModelId, SprtState<AccountId32>)> {
+            ModelSprtStates::<T>::iter_prefix(provider)
+                .filter(|(model, (v, _))| {
+                    Self::profile(model).is_some_and(|(p, _)| p.stats_version == *v)
+                })
+                .map(|(model, (_, s))| (model, s))
+                .collect()
+        }
+
+        /// Open spot checks in identifier order, after `after` if given, at most `limit` (capped
+        /// at [`MAX_OPEN_REVIEWS_PAGE`]). For the runtime API only.
+        #[must_use]
+        pub fn open_reviews(after: Option<u64>, limit: u32) -> Vec<u64> {
+            let limit = usize::try_from(limit.min(super::MAX_OPEN_REVIEWS_PAGE)).unwrap_or(0);
+            let mut all: Vec<u64> = OpenReviews::<T>::iter_keys()
+                .filter(|id| after.is_none_or(|a| *id > a))
+                .collect();
+            all.sort_unstable();
+            all.truncate(limit);
+            all
+        }
+
+        /// A spot check, open or closed.
+        #[must_use]
+        pub fn review(id: u64) -> Option<ReviewOf<T>> {
+            Reviews::<T>::get(id)
+        }
+
+        /// Open disputes and spot checks citing `who`'s verdicts.
+        #[must_use]
+        pub fn locks(who: &AccountId32) -> u32 {
+            Locks::<T>::get(who).unwrap_or(0)
         }
 
         /// The first block of the current round and of the next one.
@@ -1708,6 +2341,20 @@ pub mod pallet {
                 round_start(r, params.round_blocks),
                 round_start(r.saturating_add(1), params.round_blocks),
             ))
+        }
+    }
+
+    impl<T: Config> ac_primitives::market::traits::ModelCalibration for Pallet<T> {
+        fn is_calibrated(model: &ModelId) -> bool {
+            Self::profile(model).is_some()
+        }
+    }
+
+    impl<T: Config> ac_primitives::market::traits::DisputeLock<AccountId32> for Pallet<T> {
+        /// A provider with an open dispute, or an auditor whose verdicts an open dispute or spot
+        /// check cites.
+        fn is_locked(who: &AccountId32) -> bool {
+            OpenDispute::<T>::contains_key(who) || Locks::<T>::contains_key(who)
         }
     }
 }

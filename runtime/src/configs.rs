@@ -407,8 +407,8 @@ impl pallet_providers::Config for Runtime {
     type Revenue = crate::Work;
     type ChallengeEpochs = WorkChallengeEpochs;
     type ConfirmedSlash = AuditProviderSlash;
-    // Until the audit pallet reports open disputes (m6-audit-hardening group 5), nothing locks.
-    type DisputeLock = ();
+    /// A provider with an open audit dispute keeps its unbonding stake (m6-audit-hardening).
+    type DisputeLock = crate::Audit;
     type WeightInfo = pallet_providers::weights::SubstrateWeight<Runtime>;
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = MarketBenchmarkHelper;
@@ -470,9 +470,8 @@ impl pallet_work::Config for Runtime {
     type Providers = crate::Providers;
     type Price = crate::RefRate;
     type Epochs = Emission;
-    // Until the audit pallet keeps per-model profiles (m6-audit-hardening group 5), every model
-    // counts as calibrated, as before.
-    type Calibration = ac_primitives::market::traits::AllCalibrated;
+    /// Receipts of models without an audit profile earn no market work (m6-audit-hardening).
+    type Calibration = crate::Audit;
     /// Burned shares and the burn ratio go through `Emission`, counted in `TotalBurned`.
     type Burn = Emission;
     type PalletId = WorkPalletId;
@@ -511,6 +510,8 @@ impl pallet_audit::Config for Runtime {
     type Randomness = AuditRandomness;
     /// Slashed auditor stake is burned and counted in `Emission::TotalBurned`.
     type Slash = Emission;
+    type Models = RegisteredModels;
+    type ProviderUnbondBlocks = ProviderUnbondBlocks;
     type AdminOrigin = TreasuryAdminOrigin;
     type RetentionRounds = AuditRetentionRounds;
     type MaxVerdictsPerRound = AuditMaxVerdictsPerRound;
@@ -518,6 +519,25 @@ impl pallet_audit::Config for Runtime {
     type WeightInfo = pallet_audit::weights::SubstrateWeight<Runtime>;
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = MarketBenchmarkHelper;
+}
+
+/// Registered models' quantization, for the audit profiles (m6-audit-hardening).
+pub struct RegisteredModels;
+impl ac_primitives::market::traits::ModelQuantization for RegisteredModels {
+    fn quantization(
+        model: &ac_primitives::market::ModelId,
+    ) -> Option<ac_primitives::market::model::QuantType> {
+        pallet_model_registry::Models::<Runtime>::get(model).map(|r| r.manifest.quant)
+    }
+}
+
+/// Providers' unbonding period, for the audit time-window check at genesis: `pallet-providers`
+/// is built first, so its parameters are set by then.
+pub struct ProviderUnbondBlocks;
+impl frame_support::traits::Get<u64> for ProviderUnbondBlocks {
+    fn get() -> u64 {
+        pallet_providers::Params::<Runtime>::get().unbond_blocks
+    }
 }
 
 /// Verified work of an epoch: the market's from `pallet-work`, the public from
@@ -825,5 +845,8 @@ impl pallet_audit::BenchmarkHelper for MarketBenchmarkHelper {
     }
     fn set_randomness(seed: sp_core::H256) {
         pallet_randomness_cr::Latest::<Runtime>::put((0, seed));
+    }
+    fn register_bf16_model(model: ac_primitives::market::ModelId) {
+        <Self as pallet_providers::BenchmarkHelper>::register_model(model);
     }
 }

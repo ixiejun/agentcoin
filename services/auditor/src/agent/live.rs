@@ -14,7 +14,8 @@ use ac_market_proto::ErrorCode;
 use ac_market_proto::audit::{EvidenceRequest, EvidenceResponse};
 use ac_market_proto::toploc::AUDIT_THRESHOLDS;
 use ac_primitives::market::audit::{
-    AdjustableParams, AuditParams, AuditorStatus, RoundIndex, SprtState, StatsConfig, VerdictRecord,
+    AdjustableParams, AuditParams, AuditProfile, AuditorStatus, RoundIndex, SprtState,
+    VerdictRecord,
 };
 use ac_primitives::market::model::QuantType;
 use ac_primitives::market::{MicroUsd, ModelId};
@@ -133,20 +134,31 @@ impl AuditChain for NodeChain {
             .is_some_and(|a| a.status == AuditorStatus::Active))
     }
 
-    async fn stats_config(&self) -> Result<Option<StatsConfig>> {
-        self.node.audit_stats_config().await
+    async fn profile(&self, model: ModelId) -> Result<Option<AuditProfile>> {
+        Ok(self.node.audit_profile(&model).await?.map(|(p, _)| p))
     }
 
-    async fn sprt_state(&self, provider: &AccountId32) -> Result<SprtState<AccountId32>> {
-        self.node.audit_sprt_state(provider).await
+    async fn sprt_states(
+        &self,
+        provider: &AccountId32,
+    ) -> Result<Vec<(ModelId, SprtState<AccountId32>)>> {
+        self.node.audit_sprt_states(provider).await
     }
 
     async fn submit(&self, call: AuditCall) -> Result<bool> {
         let call = match call {
             AuditCall::Verdict(verdict) => pallet_audit::Call::submit_verdict { verdict },
-            AuditCall::Vote { provider, id, vote } => {
-                pallet_audit::Call::vote { provider, id, vote }
-            }
+            AuditCall::Vote {
+                provider,
+                id,
+                vote,
+                unavailable,
+            } => pallet_audit::Call::vote_dispute {
+                provider,
+                id,
+                vote,
+                unavailable,
+            },
             AuditCall::Close { provider, id } => pallet_audit::Call::close_dispute { provider, id },
             AuditCall::SetEndpoint(endpoint) => pallet_audit::Call::set_endpoint { endpoint },
         };

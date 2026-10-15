@@ -187,7 +187,10 @@ fn staking_and_switch_parameters() {
 // draft live values, with it off.
 #[test]
 fn audit_parameters() {
-    use ac_primitives::market::audit::{AuditParams, CURRENT_STATS, StatsConfig};
+    use ac_primitives::market::audit::{
+        AuditParams, AuditProfile, CURRENT_STATS, CURRENT_THRESHOLDS_VERSION, PenaltyParams,
+        WindowParams, check_windows,
+    };
     use ac_runtime::Runtime;
     use sp_runtime::Perbill;
 
@@ -200,14 +203,28 @@ fn audit_parameters() {
             assert!(p.round_blocks <= 50 && p.vote_blocks <= 50 && p.unbond_blocks <= 100);
             assert_eq!((p.reviewers, p.quorum, p.assign), (3, 2, 2));
             assert_eq!(p.check(), Ok(()));
-            // m6-audit-sprt, scenario "本地链开启统计判定".
+            // Scenario "本地链开启统计判定" (m6-audit-sprt, m6-audit-hardening): enabled, with a
+            // default profile of the current versions and half the verdicts spot-checked.
+            assert!(pallet_audit::StatsEnabled::<Runtime>::get());
             assert_eq!(
-                pallet_audit::StatsSettings::<Runtime>::get(),
-                Some(StatsConfig {
-                    version: CURRENT_STATS.version,
-                    enabled: true
+                pallet_audit::DefaultProfile::<Runtime>::get(),
+                Some(AuditProfile {
+                    thresholds_version: CURRENT_THRESHOLDS_VERSION,
+                    stats_version: CURRENT_STATS.version,
                 })
             );
+            let a = pallet_audit::Adjustable::<Runtime>::get().unwrap();
+            assert_eq!(a.spot_check_bps, 5_000);
+            // Scenario "各链规格满足耦合约束".
+            let windows = WindowParams {
+                round_blocks: u64::from(p.round_blocks),
+                vote_blocks: u64::from(p.vote_blocks),
+                auditor_unbond: u64::from(p.unbond_blocks),
+                provider_unbond: pallet_providers::Params::<Runtime>::get().unbond_blocks,
+                retention: u64::from(ac_runtime::AuditRetentionRounds::get())
+                    * u64::from(p.round_blocks),
+            };
+            assert_eq!(check_windows(&windows), Ok(()));
         });
     }
     // Scenario "导出正式链审计参数".
@@ -221,19 +238,23 @@ fn audit_parameters() {
     assert_eq!(fixed.auditor_slash, Perbill::from_percent(10));
     assert_eq!(adjustable.stake_usd.0, 1_000_000_000);
     assert_eq!(adjustable.payment_usd.0, 50_000);
-    // The accepted thresholds version is the one the auditors' software publishes.
-    assert_eq!(
-        adjustable.thresholds_version,
-        ac_market_proto::AUDIT_THRESHOLDS.version
-    );
-    // The statistical judgment is off, at the latest built-in parameter version.
-    assert_eq!(
-        live.stats(),
-        StatsConfig {
-            version: CURRENT_STATS.version,
-            enabled: false
-        }
-    );
+    // m6-audit-hardening, scenario "导出正式链审计参数": 5% spot checks, the light penalty of 1%
+    // turning full at the third finding, the statistical judgment off and no default profile
+    // (every model's profile is set once its calibration report is in).
+    assert_eq!(adjustable.spot_check_bps, 500);
+    assert_eq!(live.penalty(), PenaltyParams::LIVE);
+    assert!(!live.stats_enabled);
+    assert_eq!(live.default_profile, None);
+    // Scenario "各链规格满足耦合约束", for the live values.
+    let windows = WindowParams {
+        round_blocks: u64::from(fixed.round_blocks),
+        vote_blocks: u64::from(fixed.vote_blocks),
+        auditor_unbond: u64::from(fixed.unbond_blocks),
+        provider_unbond: pallet_providers::ProviderParams::LIVE.unbond_blocks,
+        retention: u64::from(ac_runtime::AuditRetentionRounds::get())
+            * u64::from(fixed.round_blocks),
+    };
+    assert_eq!(check_windows(&windows), Ok(()));
 }
 
 // m6-public-jobs, spec node/chain-spec "公共任务参数": test presets use rounds and locks of tens

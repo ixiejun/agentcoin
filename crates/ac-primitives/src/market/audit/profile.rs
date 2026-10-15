@@ -19,6 +19,9 @@ use crate::market::model::QuantType;
 /// checks that its current version is listed and is the newest.
 pub const THRESHOLDS_VERSIONS: &[u16] = &[4];
 
+/// The newest of [`THRESHOLDS_VERSIONS`]: test chains audit under it by default.
+pub const CURRENT_THRESHOLDS_VERSION: u16 = 4;
+
 /// Whether `version` is a re-check thresholds version the runtime knows.
 #[must_use]
 pub fn thresholds_known(version: u16) -> bool {
@@ -167,6 +170,10 @@ mod tests {
 
     #[test]
     fn current_versions_are_known() {
+        assert_eq!(
+            THRESHOLDS_VERSIONS.iter().max(),
+            Some(&CURRENT_THRESHOLDS_VERSION)
+        );
         assert!(thresholds_known(4));
         assert!(!thresholds_known(3));
         assert_eq!(

@@ -84,6 +84,7 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 | `agentcoin 2026-10 audit-evidence v1` | 哈希 | 审计证据的承诺：证据的 SCALE 编码（`ac-market-proto::audit`） | 自 M6 起使用 |
 | `agentcoin 2026-10 audit-assign v1` | 哈希 | 审计分配抽样：`种子 ‖ 提供者 ‖ u32_le(i)` | 自 M6 起使用（链上） |
 | `agentcoin 2026-10 audit-review v1` | 哈希 | 争议复核人抽样：`种子 ‖ 提供者 ‖ u64_le(争议编号) ‖ u32_le(i)` | 自 M6 起使用（链上） |
+| `agentcoin 2026-10 audit-spot-reviewers v1` | 哈希 | 抽查复核人抽样：`种子 ‖ 提供者 ‖ u64_le(抽查编号) ‖ u32_le(i)` | 自 M6 起使用（链上，m6-audit-hardening） |
 | `agentcoin 2026-10 audit-spot-check v1` | 哈希 | 裁决抽查抽签：`下一轮种子 ‖ 请求 ID` | 自 M6 起使用（链上，m6-audit-hardening） |
 | `agentcoin 2026-10 public-commit v1` | 哈希 | 公共任务承诺：`SCALE(任务, 单元, 尝试序号, 工作者, 摘要, 结果哈希, 随机数)` | 自 M6 起使用（链上） |
 | `agentcoin 2026-10 public-canary v1` | 哈希 | 金丝雀树：叶子 `0x00 ‖ SCALE(任务, 单元, 摘要, 随机数)`，内部节点 `0x01 ‖ 左 ‖ 右` | 自 M6 起使用（链上） |

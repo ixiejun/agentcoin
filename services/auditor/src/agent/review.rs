@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use ac_market_proto::audit::{AuditEvidence, EvidenceResponse};
 use ac_market_proto::toploc::AUDIT_THRESHOLDS;
 use ac_primitives::market::audit::{
-    DisputeKind, RoundIndex, SprtEntry, SprtState, StatsParams, Vote, stats_params,
+    RoundIndex, SprtEntry, SprtState, StatsParams, Vote, stats_params,
 };
 use parity_scale_codec::Encode;
 use sp_runtime::AccountId32;
@@ -155,10 +155,13 @@ impl Agent {
             let final_try = now.saturating_add(2) >= d.deadline;
             match self.review(id, &d, final_try).await {
                 Decision::Vote(vote) => {
+                    // Every cited verdict counts as obtained until the agent tells unavailable
+                    // evidence apart from refuted evidence (m6-audit-hardening 7.2).
                     let call = AuditCall::Vote {
                         provider: provider.clone(),
                         id,
                         vote,
+                        unavailable: 0,
                     };
                     match self.chain.submit(call).await {
                         Ok(true) => {
@@ -182,9 +185,9 @@ impl Agent {
 
     /// Reviews one dispute.
     pub async fn review(&self, id: u64, d: &Dispute, final_try: bool) -> Decision {
-        let params = match d.kind {
-            DisputeKind::Fail => None,
-            DisputeKind::Statistical { stats_version } => match stats_params(stats_version) {
+        let params = match d.kind.stats_version() {
+            None => None,
+            Some(stats_version) => match stats_params(stats_version) {
                 Some(p) => Some(p),
                 None => return Decision::Abstain("unknown statistical parameter version"),
             },

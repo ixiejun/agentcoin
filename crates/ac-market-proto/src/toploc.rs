@@ -727,7 +727,8 @@ mod tests {
     // knows.
     #[test]
     fn the_runtime_knows_these_thresholds() {
-        use ac_primitives::market::audit::THRESHOLDS_VERSIONS;
+        use ac_primitives::market::audit::{CURRENT_THRESHOLDS_VERSION, THRESHOLDS_VERSIONS};
+        assert_eq!(CURRENT_THRESHOLDS_VERSION, AUDIT_THRESHOLDS.version);
         assert!(THRESHOLDS_VERSIONS.contains(&AUDIT_THRESHOLDS.version));
         assert_eq!(
             THRESHOLDS_VERSIONS.iter().max(),

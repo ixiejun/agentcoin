@@ -116,6 +116,10 @@ pub enum AuditCommand {
         /// `confirm` or `reject`.
         #[arg(long)]
         vote: String,
+        /// Positions (from 0) of the dispute's cited verdicts whose evidence you did not
+        /// obtain, comma-separated.
+        #[arg(long, value_delimiter = ',')]
+        unavailable: Vec<u32>,
     },
     /// Close a provider's dispute after its deadline (undecided).
     Close {
@@ -160,6 +164,21 @@ pub enum AuditCommand {
 /// # Errors
 ///
 /// Anything else.
+/// The marks of a dispute ballot from the positions of the verdicts whose evidence was not
+/// obtained.
+///
+/// # Errors
+///
+/// A position of 128 or more.
+pub fn unavailable_mask(positions: &[u32]) -> Result<u128> {
+    positions.iter().try_fold(0u128, |mask, &i| {
+        let bit = 1u128
+            .checked_shl(i)
+            .with_context(|| format!("a dispute cites at most 128 verdicts, not position {i}"))?;
+        Ok(mask | bit)
+    })
+}
+
 pub fn parse_vote(text: &str) -> Result<Vote> {
     match text {
         "confirm" => Ok(Vote::Confirm),
@@ -275,12 +294,14 @@ pub async fn run(command: AuditCommand) -> Result<()> {
             provider,
             id,
             vote,
+            unavailable,
         } => (
             signed,
-            pallet_audit::Call::vote {
+            pallet_audit::Call::vote_dispute {
                 provider: parse_address(&provider)?,
                 id,
                 vote: parse_vote(&vote)?,
+                unavailable: unavailable_mask(&unavailable)?,
             },
         ),
         AuditCommand::Close {
@@ -384,10 +405,21 @@ pub async fn run(command: AuditCommand) -> Result<()> {
                 "verdicts: {} pass, {} fail, {} inconclusive; {} confirmed disputes",
                 s.pass, s.fail, s.inconclusive, s.confirmed
             );
-            let config = client.audit_stats_config().await?;
-            let params = config.and_then(|c| ac_primitives::market::audit::stats_params(c.version));
-            let state = client.audit_sprt_state(&provider).await?;
-            println!("{}", audit::format_state(&state, params));
+            let states = client.audit_sprt_states(&provider).await?;
+            if states.is_empty() {
+                println!("statistical state: none");
+            }
+            for (model, state) in &states {
+                let params = client
+                    .audit_profile(model)
+                    .await?
+                    .and_then(|(p, _)| ac_primitives::market::audit::stats_params(p.stats_version));
+                println!(
+                    "model {}: {}",
+                    hex::encode(model.0),
+                    audit::format_state(state, params)
+                );
+            }
             match client.audit_open_dispute(&provider).await? {
                 None => println!("open dispute: none"),
                 Some(id) => {
@@ -431,11 +463,20 @@ pub async fn run(command: AuditCommand) -> Result<()> {
             );
             println!("auditor stake: {}", format_usd(a.stake_usd));
             println!("payment: {}", format_usd(a.payment_usd));
-            println!("thresholds version: {}", a.thresholds_version);
+            println!(
+                "spot checks: {}.{:02}% of the verdicts judged by the thresholds",
+                a.spot_check_bps / 100,
+                a.spot_check_bps % 100
+            );
             let client = NodeClient::new(&node.node)?;
-            if let Some(c) = client.audit_stats_config().await? {
-                let state = if c.enabled { "enabled" } else { "disabled" };
-                println!("statistical judgment: {state}, parameters v{}", c.version);
+            let enabled = client.audit_stats_enabled().await?;
+            println!(
+                "statistical judgment: {}",
+                if enabled { "enabled" } else { "disabled" }
+            );
+            {
+                let c = ac_primitives::market::audit::CURRENT_STATS;
+                println!("statistical parameters built in: v{}", c.version);
                 if let Some(sp) = ac_primitives::market::audit::stats_params(c.version) {
                     println!(
                         "statistical bound: {} nats, per verdict {} to {}, per auditor {}",

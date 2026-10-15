@@ -774,12 +774,57 @@ impl_runtime_apis! {
             Audit::open_disputes(after.as_ref(), limit)
         }
 
-        fn sprt_state(provider: AccountId) -> ac_primitives::market::audit::SprtState<AccountId> {
-            Audit::sprt_state(&provider)
+        fn sprt_states(
+            provider: AccountId,
+        ) -> Vec<(ac_primitives::market::ModelId, ac_primitives::market::audit::SprtState<AccountId>)> {
+            Audit::sprt_states(&provider)
         }
 
-        fn stats_config() -> Option<ac_primitives::market::audit::StatsConfig> {
-            pallet_audit::StatsSettings::<Runtime>::get()
+        fn stats_enabled() -> bool {
+            pallet_audit::StatsEnabled::<Runtime>::get()
+        }
+
+        fn profile(
+            model: ac_primitives::market::ModelId,
+        ) -> Option<(ac_primitives::market::audit::AuditProfile, ac_primitives::market::audit::ProfileSource)> {
+            Audit::profile(&model)
+        }
+
+        fn open_reviews(after: Option<u64>, limit: u32) -> Vec<u64> {
+            Audit::open_reviews(after, limit)
+        }
+
+        fn review(
+            id: u64,
+        ) -> Option<ac_primitives::market::audit::ReviewRecord<AccountId, BlockNumber>> {
+            Audit::review(id)
+        }
+
+        fn locks(who: AccountId) -> u32 {
+            Audit::locks(&who)
+        }
+
+        fn review_stats(who: AccountId) -> ac_primitives::market::audit::ReviewStats {
+            pallet_audit::ReviewActivity::<Runtime>::get(who)
+        }
+
+        fn unavailable_findings(who: AccountId) -> Vec<ac_primitives::market::audit::RoundIndex> {
+            pallet_audit::UnavailableFindings::<Runtime>::get(who)
+                .map(|f| f.into_inner())
+                .unwrap_or_default()
+        }
+
+        fn required_stake(
+            provider: AccountId,
+        ) -> Option<(
+            ac_primitives::market::MicroUsd,
+            ac_primitives::market::MicroUsd,
+            ac_primitives::market::MicroUsd,
+        )> {
+            use ac_primitives::market::traits::SettlementHistory;
+            let record = pallet_providers::Providers::<Runtime>::get(&provider)?;
+            let (deterrent, required) = Providers::required_usd(&provider, record.tier);
+            Some((deterrent, required, <crate::Work as SettlementHistory<AccountId>>::avg_per_epoch(&provider)))
         }
     }
 

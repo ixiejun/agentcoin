@@ -178,7 +178,10 @@ pub type UncheckedExtrinsic =
 
 /// Storage migrations run on the next runtime upgrade (each checks its pallet's storage
 /// version, so it runs once).
-pub type Migrations = (pallet_audit::migrations::v1::MigrateToV1<Runtime>,);
+pub type Migrations = (
+    pallet_audit::migrations::v1::MigrateToV1<Runtime>,
+    pallet_audit::migrations::v2::MigrateToV2<Runtime>,
+);
 
 /// Executive: dispatches extrinsics to the pallets.
 pub type Executive = frame_executive::Executive<

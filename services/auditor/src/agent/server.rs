@@ -98,7 +98,7 @@ impl Agent {
             }
             mine_open.extend(rounds.into_iter().map(|r| (provider.clone(), r)));
         }
-        let mut states: BTreeMap<AccountId32, SprtState<AccountId32>> = BTreeMap::new();
+        let mut states: BTreeMap<AccountId32, Vec<SprtState<AccountId32>>> = BTreeMap::new();
         for s in self.store.list() {
             if current < s.round.saturating_add(2) {
                 continue;
@@ -109,15 +109,19 @@ impl Agent {
                         true
                     } else {
                         if !states.contains_key(p) {
-                            let Ok(state) = self.chain.sprt_state(p).await else {
+                            let Ok(by_model) = self.chain.sprt_states(p).await else {
                                 continue;
                             };
-                            states.insert(p.clone(), state);
+                            states
+                                .insert(p.clone(), by_model.into_iter().map(|(_, s)| s).collect());
                         }
-                        states.get(p).is_some_and(|st| {
-                            st.entries
-                                .iter()
-                                .any(|e| e.auditor == self.me && e.round == s.round)
+                        // In the participation list of the provider's state on any model.
+                        states.get(p).is_some_and(|all| {
+                            all.iter().any(|st| {
+                                st.entries
+                                    .iter()
+                                    .any(|e| e.auditor == self.me && e.round == s.round)
+                            })
                         })
                     }
                 }

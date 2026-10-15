@@ -2,12 +2,12 @@
 //! the verdict an auditor submits from an `ac-auditor` re-check report and its case.
 
 use ac_market_proto::audit::evidence_from_case;
-use ac_primitives::market::PriceError;
 use ac_primitives::market::audit::{
-    AdjustableParams, AuditParams, AuditorRecord, AuditorStats, DisputeKind, DisputeRecord,
-    ProviderAuditStats, RoundIndex, SprtState, StatsConfig, StatsParams, VerdictOutcome,
-    VerdictRecord, VerdictStats,
+    AdjustableParams, AuditParams, AuditProfile, AuditorRecord, AuditorStats, DisputeKind,
+    DisputeRecord, ProfileSource, ProviderAuditStats, ReviewRecord, ReviewStats, RoundIndex,
+    SprtState, StatsParams, VerdictOutcome, VerdictRecord, VerdictStats,
 };
+use ac_primitives::market::{MicroUsd, ModelId, PriceError};
 use anyhow::{Context, Result, bail};
 use pallet_audit::VerdictSubmission;
 use parity_scale_codec::{Decode, Encode};
@@ -19,6 +19,8 @@ use crate::client::NodeClient;
 
 /// A dispute as the chain stores it.
 pub type Dispute = DisputeRecord<AccountId32, u32>;
+/// A spot check as the chain stores it.
+pub type Review = ReviewRecord<AccountId32, u32>;
 
 impl NodeClient {
     async fn audit_api<T: Decode>(&self, method: &str, args: &impl Encode) -> Result<T> {
@@ -171,23 +173,88 @@ impl NodeClient {
         self.audit_api("pot", &()).await
     }
 
-    /// The statistical judgment's parameter version and switch (`AuditApi` version 3).
+    /// Whether the statistical judgment opens disputes (`AuditApi` version 4).
     ///
     /// # Errors
     ///
     /// RPC failures.
-    pub async fn audit_stats_config(&self) -> Result<Option<StatsConfig>> {
-        self.audit_api("stats_config", &()).await
+    pub async fn audit_stats_enabled(&self) -> Result<bool> {
+        self.audit_api("stats_enabled", &()).await
     }
 
-    /// `provider`'s statistical state under the current parameter version (`AuditApi`
-    /// version 3).
+    /// `provider`'s statistical states by model, under each model's profile (`AuditApi`
+    /// version 4).
     ///
     /// # Errors
     ///
     /// RPC failures.
-    pub async fn audit_sprt_state(&self, provider: &AccountId32) -> Result<SprtState<AccountId32>> {
-        self.audit_api("sprt_state", provider).await
+    pub async fn audit_sprt_states(
+        &self,
+        provider: &AccountId32,
+    ) -> Result<Vec<(ModelId, SprtState<AccountId32>)>> {
+        self.audit_api("sprt_states", provider).await
+    }
+
+    /// `model`'s audit profile and where it comes from; `None` when it is uncalibrated
+    /// (`AuditApi` version 4).
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn audit_profile(
+        &self,
+        model: &ModelId,
+    ) -> Result<Option<(AuditProfile, ProfileSource)>> {
+        self.audit_api("profile", model).await
+    }
+
+    /// Open spot checks after `after`, at most `limit` (`AuditApi` version 4).
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn audit_open_reviews(&self, after: Option<u64>, limit: u32) -> Result<Vec<u64>> {
+        self.audit_api("open_reviews", &(after, limit)).await
+    }
+
+    /// A spot check (`AuditApi` version 4).
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn audit_review(&self, id: u64) -> Result<Option<Review>> {
+        self.audit_api("review", &id).await
+    }
+
+    /// Open disputes and spot checks citing `who`'s verdicts (`AuditApi` version 4).
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn audit_locks(&self, who: &AccountId32) -> Result<u32> {
+        self.audit_api("locks", who).await
+    }
+
+    /// An auditor's spot-check counts (`AuditApi` version 4).
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn audit_review_stats(&self, who: &AccountId32) -> Result<ReviewStats> {
+        self.audit_api("review_stats", who).await
+    }
+
+    /// A provider's deterrent, required stake and recent revenue per epoch, in dollars
+    /// (`AuditApi` version 4).
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn audit_required_stake(
+        &self,
+        provider: &AccountId32,
+    ) -> Result<Option<(MicroUsd, MicroUsd, MicroUsd)>> {
+        self.audit_api("required_stake", provider).await
     }
 }
 
@@ -286,6 +353,13 @@ pub fn format_kind(kind: &DisputeKind) -> String {
         DisputeKind::Statistical { stats_version } => {
             format!("statistical (parameters v{stats_version})")
         }
+        DisputeKind::ModelStatistical {
+            stats_version,
+            model,
+        } => format!(
+            "statistical on model {} (parameters v{stats_version})",
+            hex::encode(model.0)
+        ),
     }
 }
 

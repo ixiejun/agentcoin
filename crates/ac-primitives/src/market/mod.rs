@@ -79,9 +79,10 @@ sp_api::decl_runtime_apis! {
 
     /// Read access to audits (m6-audit-chain; version 2 adds the evidence endpoints and the
     /// open dispute list of m6-auditor-agent; version 3 the statistical judgment of
-    /// m6-audit-sprt: verdicts carry statistics, disputes their kind, a provider's state and the
-    /// judgment's configuration).
-    #[api_version(3)]
+    /// m6-audit-sprt; version 4 the audit profiles, spot checks, locks and required provider
+    /// stakes of m6-audit-hardening, with statistical states per model and the switch alone in
+    /// place of the global statistical configuration).
+    #[api_version(4)]
     pub trait AuditApi<AccountId, BlockNumber>
     where
         AccountId: parity_scale_codec::Codec,
@@ -122,13 +123,37 @@ sp_api::decl_runtime_apis! {
         /// Open disputes (provider, dispute) in provider order after `after`, at most `limit`
         /// (capped at 256; since version 2).
         fn open_disputes(after: Option<AccountId>, limit: u32) -> Vec<(AccountId, u64)>;
-        /// `provider`'s statistical state under the current parameter version.
-        #[api_version(3)]
-        fn sprt_state(provider: AccountId) -> audit::SprtState<AccountId>;
-        /// The statistical judgment's parameter version and whether it opens disputes; the
-        /// parameters themselves are `audit::stats_params(version)`.
-        #[api_version(3)]
-        fn stats_config() -> Option<audit::StatsConfig>;
+        /// `provider`'s statistical states, by model, under each model's profile (since
+        /// version 4).
+        #[api_version(4)]
+        fn sprt_states(provider: AccountId) -> Vec<(model::ModelId, audit::SprtState<AccountId>)>;
+        /// Whether the statistical judgment opens disputes (since version 4).
+        #[api_version(4)]
+        fn stats_enabled() -> bool;
+        /// `model`'s audit profile and where it comes from; `None` when it is uncalibrated
+        /// (since version 4). The parameters are `audit::stats_params(stats_version)`.
+        #[api_version(4)]
+        fn profile(model: model::ModelId) -> Option<(audit::AuditProfile, audit::ProfileSource)>;
+        /// Open spot checks in identifier order after `after`, at most `limit` (capped at 256;
+        /// since version 4).
+        #[api_version(4)]
+        fn open_reviews(after: Option<u64>, limit: u32) -> Vec<u64>;
+        /// A spot check (since version 4).
+        #[api_version(4)]
+        fn review(id: u64) -> Option<audit::ReviewRecord<AccountId, BlockNumber>>;
+        /// Open disputes and spot checks citing `who`'s verdicts (since version 4).
+        #[api_version(4)]
+        fn locks(who: AccountId) -> u32;
+        /// Spot-check counts of an auditor (since version 4).
+        #[api_version(4)]
+        fn review_stats(who: AccountId) -> audit::ReviewStats;
+        /// Rounds of an auditor's recent findings of unavailable evidence (since version 4).
+        #[api_version(4)]
+        fn unavailable_findings(who: AccountId) -> Vec<audit::RoundIndex>;
+        /// A provider's deterrent, required stake and recent revenue per epoch, in dollars;
+        /// `None` if it is not registered (since version 4).
+        #[api_version(4)]
+        fn required_stake(provider: AccountId) -> Option<(MicroUsd, MicroUsd, MicroUsd)>;
     }
 
     /// Read access to work settlement (m5-work-settlement).

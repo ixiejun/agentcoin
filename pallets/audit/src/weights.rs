@@ -27,11 +27,19 @@ pub trait WeightInfo {
     /// Benchmarked weight of `submit_verdict`.
     fn submit_verdict() -> Weight;
     /// Benchmarked weight of `vote`.
-    fn vote() -> Weight;
+    fn vote_dispute() -> Weight;
     /// Benchmarked weight of `close_dispute`.
     fn close_dispute() -> Weight;
     /// Benchmarked weight of `set_stats_config`.
-    fn set_stats_config() -> Weight;
+    fn set_stats_enabled() -> Weight;
+    /// Weight of `vote_review`.
+    fn vote_review() -> Weight;
+    /// Weight of `close_spot_check`.
+    fn close_review() -> Weight;
+    /// Weight of `set_audit_profile`.
+    fn set_audit_profile() -> Weight;
+    /// Drawing `l` verdict lists for spot checks and opening `o` of them.
+    fn spot_check(l: u32, o: u32) -> Weight;
     /// Benchmarked weight of `clear_stale`.
     fn clear_stale(n: u32) -> Weight;
     /// Benchmarked weight of `set_params`.
@@ -183,7 +191,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     /// Proof: `Emission::TotalBurned` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
     /// Storage: `Audit::RetainedVerdicts` (r:1 w:0)
     /// Proof: `Audit::RetainedVerdicts` (`max_values`: None, `max_size`: Some(1509), added: 3984, mode: `MaxEncodedLen`)
-    fn vote() -> Weight {
+    fn vote_dispute() -> Weight {
         Weight::from_parts(381_801_000, 14005)
             .saturating_add(T::DbWeight::get().reads(18_u64))
             .saturating_add(T::DbWeight::get().writes(14_u64))
@@ -207,10 +215,37 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
     }
     /// Storage: `Audit::StatsSettings` (r:1 w:1)
     /// Proof: `Audit::StatsSettings` (`max_values`: Some(1), `max_size`: Some(3), added: 498, mode: `MaxEncodedLen`)
-    fn set_stats_config() -> Weight {
+    fn set_stats_enabled() -> Weight {
         Weight::from_parts(19_795_000, 1488)
             .saturating_add(T::DbWeight::get().reads(1_u64))
             .saturating_add(T::DbWeight::get().writes(1_u64))
+    }
+    // Interim values (m6-audit-hardening 5.9 regenerates them from the benchmarks): those of
+    // the dispute vote, the dispute close and the profile write they mirror.
+    fn vote_review() -> Weight {
+        Weight::from_parts(381_801_000, 14005)
+            .saturating_add(T::DbWeight::get().reads(18_u64))
+            .saturating_add(T::DbWeight::get().writes(14_u64))
+    }
+    fn close_review() -> Weight {
+        Weight::from_parts(95_449_000, 8652)
+            .saturating_add(T::DbWeight::get().reads(8_u64))
+            .saturating_add(T::DbWeight::get().writes(5_u64))
+    }
+    fn set_audit_profile() -> Weight {
+        Weight::from_parts(25_000_000, 3_000)
+            .saturating_add(T::DbWeight::get().reads(3_u64))
+            .saturating_add(T::DbWeight::get().writes(2_u64))
+    }
+    fn spot_check(l: u32, o: u32) -> Weight {
+        Weight::from_parts(10_000_000, 4_000)
+            .saturating_add(Weight::from_parts(5_000_000, 1_600).saturating_mul(l.into()))
+            .saturating_add(Weight::from_parts(60_000_000, 6_000).saturating_mul(o.into()))
+            .saturating_add(T::DbWeight::get().reads(4_u64))
+            .saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(l.into())))
+            .saturating_add(T::DbWeight::get().reads((3_u64).saturating_mul(o.into())))
+            .saturating_add(T::DbWeight::get().writes(1_u64))
+            .saturating_add(T::DbWeight::get().writes((5_u64).saturating_mul(o.into())))
     }
     /// Storage: `Audit::StaleClearing` (r:1 w:1)
     /// Proof: `Audit::StaleClearing` (`max_values`: Some(1), `max_size`: Some(130), added: 625, mode: `MaxEncodedLen`)
@@ -326,7 +361,7 @@ impl WeightInfo for () {
             .saturating_add(RocksDbWeight::get().reads(275_u64))
             .saturating_add(RocksDbWeight::get().writes(13_u64))
     }
-    fn vote() -> Weight {
+    fn vote_dispute() -> Weight {
         Weight::from_parts(381_801_000, 14005)
             .saturating_add(RocksDbWeight::get().reads(18_u64))
             .saturating_add(RocksDbWeight::get().writes(14_u64))
@@ -336,10 +371,24 @@ impl WeightInfo for () {
             .saturating_add(RocksDbWeight::get().reads(8_u64))
             .saturating_add(RocksDbWeight::get().writes(5_u64))
     }
-    fn set_stats_config() -> Weight {
+    fn set_stats_enabled() -> Weight {
         Weight::from_parts(19_795_000, 1488)
             .saturating_add(RocksDbWeight::get().reads(1_u64))
             .saturating_add(RocksDbWeight::get().writes(1_u64))
+    }
+    fn vote_review() -> Weight {
+        Weight::from_parts(381_801_000, 14005)
+    }
+    fn close_review() -> Weight {
+        Weight::from_parts(95_449_000, 8652)
+    }
+    fn set_audit_profile() -> Weight {
+        Weight::from_parts(25_000_000, 3_000)
+    }
+    fn spot_check(l: u32, o: u32) -> Weight {
+        Weight::from_parts(10_000_000, 4_000)
+            .saturating_add(Weight::from_parts(5_000_000, 1_600).saturating_mul(l.into()))
+            .saturating_add(Weight::from_parts(60_000_000, 6_000).saturating_mul(o.into()))
     }
     fn clear_stale(n: u32) -> Weight {
         Weight::from_parts(220_636_946, 8629)

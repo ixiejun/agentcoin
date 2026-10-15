@@ -99,12 +99,12 @@ fn stake_cannot_be_withdrawn_while_unbonding() {
             Audit::withdraw_unbonded(RuntimeOrigin::signed(acc(1))),
             Error::<Test>::NothingToWithdraw
         );
-        run_to(exit_block + 19);
+        run_to(exit_block + 29);
         assert_noop!(
             Audit::withdraw_unbonded(RuntimeOrigin::signed(acc(1))),
             Error::<Test>::NothingToWithdraw
         );
-        run_to(exit_block + 20);
+        run_to(exit_block + 30);
         let before = Balances::balance(&acc(1));
         assert_ok!(Audit::withdraw_unbonded(RuntimeOrigin::signed(acc(1))));
         assert_eq!(Balances::balance(&acc(1)), before + 1_010 * ATC);
@@ -287,22 +287,13 @@ fn bad_receipt_signature_is_refused() {
 
 #[test]
 fn outdated_thresholds_version_is_refused() {
-    // "裁决" / "阈值版本过期".
+    // "裁决" / "阈值版本过期": the model's profile names version 4, the verdict version 3.
     new_test_ext(6).execute_with(|| {
-        assert_ok!(Audit::set_params(
-            RuntimeOrigin::root(),
-            AdjustableParams {
-                stake_usd: MicroUsd(1_000_000_000),
-                payment_usd: MicroUsd(50_000),
-                thresholds_version: 5,
-            }
-        ));
         let a = assigned(PROVIDER)[0].clone();
+        let mut v = submission(PROVIDER, 1, VerdictOutcome::Pass);
+        v.thresholds_version = 3;
         assert_noop!(
-            Audit::submit_verdict(
-                RuntimeOrigin::signed(a),
-                submission(PROVIDER, 1, VerdictOutcome::Pass)
-            ),
+            Audit::submit_verdict(RuntimeOrigin::signed(a), v),
             Error::<Test>::WrongThresholdsVersion
         );
     });
@@ -468,23 +459,25 @@ fn non_reviewers_cannot_vote() {
             .find(|a| !d.reviewers.iter().any(|(r, _)| r == a))
             .unwrap();
         assert_noop!(
-            Audit::vote(
+            Audit::vote_dispute(
                 RuntimeOrigin::signed(outsider),
                 acc(PROVIDER),
                 id,
-                Vote::Confirm
+                Vote::Confirm,
+                0
             ),
             Error::<Test>::NotReviewer
         );
         let r = d.reviewers[0].0.clone();
-        assert_ok!(Audit::vote(
+        assert_ok!(Audit::vote_dispute(
             RuntimeOrigin::signed(r.clone()),
             acc(PROVIDER),
             id,
-            Vote::Confirm
+            Vote::Confirm,
+            0
         ));
         assert_noop!(
-            Audit::vote(RuntimeOrigin::signed(r), acc(PROVIDER), id, Vote::Reject),
+            Audit::vote_dispute(RuntimeOrigin::signed(r), acc(PROVIDER), id, Vote::Reject, 0),
             Error::<Test>::NotReviewer
         );
     });
@@ -496,11 +489,12 @@ fn undecided_after_the_deadline() {
     new_test_ext(8).execute_with(|| {
         let id = open_dispute();
         let d = Disputes::<Test>::get(id).unwrap();
-        assert_ok!(Audit::vote(
+        assert_ok!(Audit::vote_dispute(
             RuntimeOrigin::signed(d.reviewers[0].0.clone()),
             acc(PROVIDER),
             id,
-            Vote::Confirm
+            Vote::Confirm,
+            0
         ));
         assert_noop!(
             Audit::close_dispute(RuntimeOrigin::signed(acc(1)), acc(PROVIDER), id),
@@ -508,11 +502,12 @@ fn undecided_after_the_deadline() {
         );
         run_to(d.deadline + 1);
         assert_noop!(
-            Audit::vote(
+            Audit::vote_dispute(
                 RuntimeOrigin::signed(d.reviewers[1].0.clone()),
                 acc(PROVIDER),
                 id,
-                Vote::Confirm
+                Vote::Confirm,
+                0
             ),
             Error::<Test>::DeadlinePassed
         );
@@ -563,24 +558,27 @@ fn confirmation_slashes_and_jails_the_provider() {
         let d = Disputes::<Test>::get(id).unwrap();
         let reviewers: Vec<_> = d.reviewers.iter().map(|(r, _)| r.clone()).collect();
         let before: Vec<_> = reviewers.iter().map(Balances::balance).collect();
-        assert_ok!(Audit::vote(
+        assert_ok!(Audit::vote_dispute(
             RuntimeOrigin::signed(reviewers[0].clone()),
             acc(PROVIDER),
             id,
-            Vote::Reject
+            Vote::Reject,
+            0
         ));
-        assert_ok!(Audit::vote(
+        assert_ok!(Audit::vote_dispute(
             RuntimeOrigin::signed(reviewers[1].clone()),
             acc(PROVIDER),
             id,
-            Vote::Confirm
+            Vote::Confirm,
+            0
         ));
         assert!(penalties().is_empty());
-        assert_ok!(Audit::vote(
+        assert_ok!(Audit::vote_dispute(
             RuntimeOrigin::signed(reviewers[2].clone()),
             acc(PROVIDER),
             id,
-            Vote::Confirm
+            Vote::Confirm,
+            0
         ));
         assert_eq!(
             penalties(),
@@ -607,11 +605,12 @@ fn rejection_slashes_the_accusers() {
         let d = Disputes::<Test>::get(id).unwrap();
         let issuance = Balances::total_issuance();
         for (r, _) in d.reviewers.iter().take(2) {
-            assert_ok!(Audit::vote(
+            assert_ok!(Audit::vote_dispute(
                 RuntimeOrigin::signed(r.clone()),
                 acc(PROVIDER),
                 id,
-                Vote::Reject
+                Vote::Reject,
+                0
             ));
         }
         assert!(penalties().is_empty() && !jailed(&acc(PROVIDER)));
@@ -649,19 +648,20 @@ fn administration_cannot_punish() {
             "exit",
             "withdraw_unbonded",
             "submit_verdict",
-            "vote",
+            "vote_dispute",
             "close_dispute",
             "set_params",
-            // m6-auditor-agent: an auditor's own evidence endpoint; moves no funds.
             "set_endpoint",
-            // m6-audit-sprt: the statistical judgment's version and switch; decides nothing.
-            "set_stats_config"
+            "vote_review",
+            "close_spot_check",
+            "set_audit_profile",
+            "set_stats_enabled",
         ]
     );
     new_test_ext(8).execute_with(|| {
         let id = open_dispute();
         assert_noop!(
-            Audit::vote(RuntimeOrigin::root(), acc(PROVIDER), id, Vote::Confirm),
+            Audit::vote_dispute(RuntimeOrigin::root(), acc(PROVIDER), id, Vote::Confirm, 0),
             sp_runtime::DispatchError::BadOrigin
         );
     });
@@ -699,12 +699,12 @@ fn empty_pot_skips_payment() {
 
 #[test]
 fn adjustments_stay_within_guardrails() {
-    // "参数与护栏" / "护栏外的支付金额", "阈值版本不能回退".
+    // "参数与护栏" / "护栏外的支付金额", "护栏外的抽查比例".
     new_test_ext(0).execute_with(|| {
         let ok = AdjustableParams {
             stake_usd: MicroUsd(1_000_000_000),
             payment_usd: MicroUsd(50_000),
-            thresholds_version: 5,
+            spot_check_bps: 500,
         };
         assert_noop!(
             Audit::set_params(RuntimeOrigin::signed(acc(1)), ok),
@@ -721,16 +721,18 @@ fn adjustments_stay_within_guardrails() {
             Error::<Test>::OutOfBounds
         );
         assert_ok!(Audit::set_params(RuntimeOrigin::root(), ok));
+        // 60% is above the 50% guardrail; the parameters stay.
         assert_noop!(
             Audit::set_params(
                 RuntimeOrigin::root(),
                 AdjustableParams {
-                    thresholds_version: 4,
+                    spot_check_bps: 6_000,
                     ..ok
                 }
             ),
             Error::<Test>::OutOfBounds
         );
+        assert_eq!(crate::Adjustable::<Test>::get(), Some(ok));
     });
 }
 
@@ -860,7 +862,7 @@ fn the_endpoint_goes_with_the_auditor() {
             RuntimeOrigin::signed(acc(1)),
             Some(endpoint(b"http://b"))
         ));
-        run_to(System::block_number() + 20);
+        run_to(System::block_number() + 30);
         assert_ok!(Audit::withdraw_unbonded(RuntimeOrigin::signed(acc(1))));
         assert_eq!(Audit::endpoint(&acc(1)), None);
     });
@@ -878,11 +880,12 @@ fn open_disputes_are_listed_until_decided() {
         assert_eq!(Audit::open_disputes(None, 10), expected);
         let d = Disputes::<Test>::get(id).unwrap();
         for (r, _) in d.reviewers.iter().take(2) {
-            assert_ok!(Audit::vote(
+            assert_ok!(Audit::vote_dispute(
                 RuntimeOrigin::signed(r.clone()),
                 acc(PROVIDER),
                 id,
-                Vote::Confirm
+                Vote::Confirm,
+                0
             ));
         }
         assert_eq!(Audit::open_disputes(None, 10), vec![(acc(PROVIDER2), 77)]);

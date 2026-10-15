@@ -6,7 +6,7 @@ use ac_market_proto::ErrorCode;
 use ac_market_proto::audit::EvidenceResponse;
 use ac_primitives::market::ModelId;
 use ac_primitives::market::audit::{
-    AdjustableParams, AuditParams, DisputeRecord, RoundIndex, SprtState, StatsConfig,
+    AdjustableParams, AuditParams, AuditProfile, DisputeRecord, RoundIndex, SprtState,
     VerdictRecord, Vote,
 };
 use ac_primitives::market::model::QuantType;
@@ -34,6 +34,8 @@ pub enum AuditCall {
         id: u64,
         /// The vote.
         vote: Vote,
+        /// The cited verdicts whose evidence was not obtained (bit `i`: accuser `i`).
+        unavailable: u128,
     },
     /// Closing an undecided dispute after its deadline.
     Close {
@@ -79,10 +81,14 @@ pub trait AuditChain: Send + Sync {
     async fn endpoint(&self, who: &AccountId32) -> Result<Option<AuditorEndpoint>>;
     /// Whether `who` is a registered, not exiting auditor.
     async fn is_active_auditor(&self, who: &AccountId32) -> Result<bool>;
-    /// The statistical judgment's parameter version and switch.
-    async fn stats_config(&self) -> Result<Option<StatsConfig>>;
-    /// `provider`'s statistical state under the current parameter version.
-    async fn sprt_state(&self, provider: &AccountId32) -> Result<SprtState<AccountId32>>;
+    /// `model`'s audit profile: the versions verdicts on it must use; `None` when it is
+    /// uncalibrated (m6-audit-hardening).
+    async fn profile(&self, model: ModelId) -> Result<Option<AuditProfile>>;
+    /// `provider`'s statistical states by model, under each model's profile.
+    async fn sprt_states(
+        &self,
+        provider: &AccountId32,
+    ) -> Result<Vec<(ModelId, SprtState<AccountId32>)>>;
     /// Sends an audit transaction; `Ok(false)` when it was included but failed.
     async fn submit(&self, call: AuditCall) -> Result<bool>;
 }

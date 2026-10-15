@@ -13,18 +13,21 @@ use frame_support::{assert_noop, assert_ok};
 use sp_runtime::AccountId32;
 
 use ac_primitives::market::audit::{
-    AuditStats, AuditorStatus, CURRENT_STATS, DisputeKind, DisputeOutcome, FailReason,
-    InconclusiveReason, SprtEntry, SprtState, StatsConfig, VerdictOutcome, Vote,
+    AuditProfile, AuditStats, AuditorStatus, CURRENT_STATS, DisputeKind, DisputeOutcome,
+    FailReason, InconclusiveReason, ProfileSource, SprtEntry, SprtState, StatsConfig,
+    VerdictOutcome, Vote,
 };
+use ac_primitives::market::model::QuantType;
 
 use crate::mock::{
     ATC, Audit, GATEWAY, HONEST_STATS, INT8_STATS, PROVIDER, ROUND, RuntimeOrigin, System, Test,
     acc, burned, current_round, jailed, new_test_ext, penalties, run_to, submission,
     submission_with,
 };
+use crate::mock::{MODEL, OTHER_MODEL, set_model};
 use crate::{
-    Disputes, Error, Event, HoldReason, OpenDispute, RetainedVerdicts, SprtStates, StaleClearing,
-    StatsSettings, Verdicts,
+    AuditProfiles, Disputes, Error, Event, HoldReason, ModelSprtStates, OpenDispute,
+    RetainedVerdicts, StaleClearing, Verdicts,
 };
 
 fn assigned(provider: u8) -> Vec<AccountId32> {
@@ -79,11 +82,8 @@ fn cross(ids: &mut Ids, max: u32) -> Option<u64> {
     None
 }
 
-fn set_stats(version: u16, enabled: bool) {
-    assert_ok!(Audit::set_stats_config(
-        RuntimeOrigin::root(),
-        StatsConfig { version, enabled }
-    ));
+fn set_stats(enabled: bool) {
+    assert_ok!(Audit::set_stats_enabled(RuntimeOrigin::root(), enabled));
 }
 
 // ---- 裁决 ----
@@ -129,7 +129,10 @@ fn an_inconclusive_verdict_carries_no_statistics() {
             submission(PROVIDER, 1, tokens)
         ));
         // "计数与查询" / "无法判定计数": the state does not change.
-        assert_eq!(Audit::sprt_state(&acc(PROVIDER)), SprtState::default());
+        assert_eq!(
+            Audit::sprt_state(&acc(PROVIDER), &MODEL),
+            SprtState::default()
+        );
     });
 }
 
@@ -186,7 +189,7 @@ fn a_verdict_adds_its_contribution() {
             RuntimeOrigin::signed(a[0].clone()),
             submission_with(PROVIDER, 1, VerdictOutcome::Pass, Some(INT8_STATS))
         ));
-        let s = Audit::sprt_state(&acc(PROVIDER));
+        let s = Audit::sprt_state(&acc(PROVIDER), &MODEL);
         assert_eq!(s.cumulative, 3_000);
         assert_eq!(
             s.entries.to_vec(),
@@ -201,7 +204,7 @@ fn a_verdict_adds_its_contribution() {
             RuntimeOrigin::signed(a[1].clone()),
             submission_with(PROVIDER, 2, VerdictOutcome::Pass, Some(HONEST_STATS))
         ));
-        let s = Audit::sprt_state(&acc(PROVIDER));
+        let s = Audit::sprt_state(&acc(PROVIDER), &MODEL);
         assert_eq!(s.cumulative, 2_500);
         assert_eq!(s, SprtState::replay(&CURRENT_STATS, s.entries.clone()));
     });
@@ -216,8 +219,11 @@ fn an_honest_provider_keeps_no_state() {
             submit_round(&mut ids, HONEST_STATS);
             next_round();
         }
-        assert!(!SprtStates::<Test>::contains_key(acc(PROVIDER)));
-        assert_eq!(Audit::sprt_state(&acc(PROVIDER)), SprtState::default());
+        assert!(!ModelSprtStates::<Test>::contains_key(acc(PROVIDER), MODEL));
+        assert_eq!(
+            Audit::sprt_state(&acc(PROVIDER), &MODEL),
+            SprtState::default()
+        );
     });
 }
 
@@ -230,8 +236,9 @@ fn crossing_the_bound_opens_a_statistical_dispute() {
         let d = Disputes::<Test>::get(id).unwrap();
         assert_eq!(
             d.kind,
-            DisputeKind::Statistical {
-                stats_version: CURRENT_STATS.version
+            DisputeKind::ModelStatistical {
+                stats_version: CURRENT_STATS.version,
+                model: MODEL
             }
         );
         assert!(d.accusers.len() >= 9, "{} verdicts", d.accusers.len());
@@ -256,17 +263,20 @@ fn crossing_the_bound_opens_a_statistical_dispute() {
                     .any(|v| v.auditor == a.auditor && v.stats.is_some())
             );
         }
-        assert_eq!(Audit::sprt_state(&acc(PROVIDER)), SprtState::default());
+        assert_eq!(
+            Audit::sprt_state(&acc(PROVIDER), &MODEL),
+            SprtState::default()
+        );
         assert!(has_event(Event::DisputeOpened {
             id,
             provider: acc(PROVIDER),
             kind: d.kind,
         }));
         // While the dispute is open, verdicts still count but open nothing new.
-        let before = Audit::sprt_state(&acc(PROVIDER)).cumulative;
+        let before = Audit::sprt_state(&acc(PROVIDER), &MODEL).cumulative;
         next_round();
         submit_round(&mut ids, INT8_STATS);
-        assert!(Audit::sprt_state(&acc(PROVIDER)).cumulative > before);
+        assert!(Audit::sprt_state(&acc(PROVIDER), &MODEL).cumulative > before);
         assert_eq!(OpenDispute::<Test>::get(acc(PROVIDER)), Some(id));
     });
 }
@@ -275,20 +285,15 @@ fn crossing_the_bound_opens_a_statistical_dispute() {
 fn a_disabled_judgment_only_computes() {
     // "统计判定" / "未启用时只计算不开争议".
     new_test_ext(20).execute_with(|| {
-        set_stats(CURRENT_STATS.version, false);
+        set_stats(false);
         let mut ids = Ids(0);
         assert_eq!(cross(&mut ids, 8), None);
-        let s = Audit::sprt_state(&acc(PROVIDER));
+        let s = Audit::sprt_state(&acc(PROVIDER), &MODEL);
         assert!(s.crossed(&CURRENT_STATS), "{}", s.cumulative);
         assert!(!s.entries.is_empty());
         // "参数与护栏" / "启用统计判定": enabled, the next verdict opens the dispute.
-        set_stats(CURRENT_STATS.version, true);
-        assert!(has_event(Event::StatsConfigSet {
-            config: StatsConfig {
-                version: CURRENT_STATS.version,
-                enabled: true
-            }
-        }));
+        set_stats(true);
+        assert!(has_event(Event::StatsEnabledSet { enabled: true }));
         next_round();
         submit_round(&mut ids, INT8_STATS);
         assert!(OpenDispute::<Test>::contains_key(acc(PROVIDER)));
@@ -301,7 +306,7 @@ fn too_few_reviewers_keep_the_state() {
     new_test_ext(4).execute_with(|| {
         let mut ids = Ids(0);
         assert_eq!(cross(&mut ids, 12), None);
-        assert!(Audit::sprt_state(&acc(PROVIDER)).crossed(&CURRENT_STATS));
+        assert!(Audit::sprt_state(&acc(PROVIDER), &MODEL).crossed(&CURRENT_STATS));
         assert!(has_event(Event::DisputeNotOpened {
             provider: acc(PROVIDER)
         }));
@@ -316,11 +321,12 @@ fn a_confirmed_statistical_dispute_slashes_and_jails() {
         let id = cross(&mut ids, 20).unwrap();
         let d = Disputes::<Test>::get(id).unwrap();
         for (r, _) in d.reviewers.iter().take(2) {
-            assert_ok!(Audit::vote(
+            assert_ok!(Audit::vote_dispute(
                 RuntimeOrigin::signed(r.clone()),
                 acc(PROVIDER),
                 id,
-                Vote::Confirm
+                Vote::Confirm,
+                0
             ));
         }
         let d = Disputes::<Test>::get(id).unwrap();
@@ -342,11 +348,12 @@ fn a_rejected_statistical_dispute_slashes_no_auditor() {
         let before: Vec<_> = d.accusers.iter().map(|a| held(&a.auditor)).collect();
         let issuance = pallet_balances::Pallet::<Test>::total_issuance();
         for (r, _) in d.reviewers.iter().take(2) {
-            assert_ok!(Audit::vote(
+            assert_ok!(Audit::vote_dispute(
                 RuntimeOrigin::signed(r.clone()),
                 acc(PROVIDER),
                 id,
-                Vote::Reject
+                Vote::Reject,
+                0
             ));
         }
         assert_eq!(
@@ -377,39 +384,51 @@ fn a_rejected_statistical_dispute_slashes_no_auditor() {
 // ---- 参数与护栏 ----
 
 #[test]
-fn unknown_statistics_versions_are_refused() {
-    // "参数与护栏" / "未内置的统计参数版本"; only the administration sets the configuration.
+fn profiles_take_only_built_in_increasing_versions() {
+    // "参数与护栏" / "未内置的统计参数版本", "阈值版本不能回退"; "按模型的审计档案" / "设定档案",
+    // "非 BF16 模型不能设定档案"; only the administration sets profiles.
     new_test_ext(6).execute_with(|| {
+        let p = |thresholds_version, stats_version| AuditProfile {
+            thresholds_version,
+            stats_version,
+        };
+        let v = CURRENT_STATS.version;
+        for bad in [p(4, v + 1), p(4, 0), p(5, v)] {
+            assert_noop!(
+                Audit::set_audit_profile(RuntimeOrigin::root(), OTHER_MODEL, bad),
+                Error::<Test>::BadProfile
+            );
+        }
         assert_noop!(
-            Audit::set_stats_config(
-                RuntimeOrigin::root(),
-                StatsConfig {
-                    version: CURRENT_STATS.version + 1,
-                    enabled: true
-                }
-            ),
-            Error::<Test>::UnknownStatsVersion
-        );
-        assert_noop!(
-            Audit::set_stats_config(
-                RuntimeOrigin::root(),
-                StatsConfig {
-                    version: 0,
-                    enabled: true
-                }
-            ),
-            Error::<Test>::UnknownStatsVersion
-        );
-        assert_noop!(
-            Audit::set_stats_config(
-                RuntimeOrigin::signed(acc(1)),
-                StatsConfig {
-                    version: CURRENT_STATS.version,
-                    enabled: false
-                }
-            ),
+            Audit::set_audit_profile(RuntimeOrigin::signed(acc(1)), OTHER_MODEL, p(4, v)),
             sp_runtime::DispatchError::BadOrigin
         );
+        set_model(OTHER_MODEL, QuantType::Int8);
+        assert_noop!(
+            Audit::set_audit_profile(RuntimeOrigin::root(), OTHER_MODEL, p(4, v)),
+            Error::<Test>::NotBf16
+        );
+        set_model(OTHER_MODEL, QuantType::Bf16);
+        assert_ok!(Audit::set_audit_profile(
+            RuntimeOrigin::root(),
+            OTHER_MODEL,
+            p(4, v)
+        ));
+        assert!(has_event(Event::ProfileSet {
+            model: OTHER_MODEL,
+            profile: p(4, v)
+        }));
+        assert_eq!(AuditProfiles::<Test>::get(OTHER_MODEL), Some(p(4, v)));
+        assert_eq!(
+            Audit::profile(&OTHER_MODEL),
+            Some((p(4, v), ProfileSource::Own))
+        );
+        // The same versions again change nothing; nothing is stale.
+        assert_ok!(Audit::set_audit_profile(
+            RuntimeOrigin::root(),
+            OTHER_MODEL,
+            p(4, v)
+        ));
         assert!(!StaleClearing::<Test>::exists());
     });
 }
@@ -430,21 +449,24 @@ fn states_of_an_older_version_count_as_empty_and_are_cleared() {
             .try_into()
             .unwrap(),
         };
-        SprtStates::<Test>::insert(acc(PROVIDER), (0, old.clone()));
-        SprtStates::<Test>::insert(acc(1), (0, old));
-        assert_eq!(Audit::sprt_state(&acc(PROVIDER)), SprtState::default());
+        ModelSprtStates::<Test>::insert(acc(PROVIDER), MODEL, (0, old.clone()));
+        ModelSprtStates::<Test>::insert(acc(1), MODEL, (0, old));
+        assert_eq!(
+            Audit::sprt_state(&acc(PROVIDER), &MODEL),
+            SprtState::default()
+        );
         // A verdict starts from empty under the current version.
         assert_ok!(Audit::submit_verdict(
             RuntimeOrigin::signed(a[0].clone()),
             submission_with(PROVIDER, 1, VerdictOutcome::Pass, Some(INT8_STATS))
         ));
-        assert_eq!(Audit::sprt_state(&acc(PROVIDER)).cumulative, 3_000);
+        assert_eq!(Audit::sprt_state(&acc(PROVIDER), &MODEL).cumulative, 3_000);
         // The clearing removes the stale state over the next blocks, not the current one.
         StaleClearing::<Test>::put(crate::ClearCursor::new());
         next_round();
         assert!(!StaleClearing::<Test>::exists());
-        assert!(!SprtStates::<Test>::contains_key(acc(1)));
-        assert_eq!(Audit::sprt_state(&acc(PROVIDER)).cumulative, 3_000);
+        assert!(!ModelSprtStates::<Test>::contains_key(acc(1), MODEL));
+        assert_eq!(Audit::sprt_state(&acc(PROVIDER), &MODEL).cumulative, 3_000);
     });
 }
 
@@ -475,13 +497,16 @@ fn verdicts_in_a_state_outlive_their_retention() {
         assert_eq!(Audit::verdict_list(first, &acc(PROVIDER)).len(), 2);
         // Honest verdicts bring the state back to 0 (−0.5 nats each against +6.0).
         for _ in 0..8 {
-            if Audit::sprt_state(&acc(PROVIDER)).entries.is_empty() {
+            if Audit::sprt_state(&acc(PROVIDER), &MODEL).entries.is_empty() {
                 break;
             }
             submit_round(&mut ids, HONEST_STATS);
             next_round();
         }
-        assert_eq!(Audit::sprt_state(&acc(PROVIDER)), SprtState::default());
+        assert_eq!(
+            Audit::sprt_state(&acc(PROVIDER), &MODEL),
+            SprtState::default()
+        );
         assert!(!RetainedVerdicts::<Test>::contains_key(
             first,
             acc(PROVIDER)
@@ -544,7 +569,7 @@ fn migration_to_v1_keeps_verdicts_and_disputes() {
             closed_at: Some(41),
         };
         unhashed::put_raw(&Disputes::<Test>::hashed_key_for(3), &dispute.encode());
-        StatsSettings::<Test>::kill();
+        crate::migrations::old::StatsSettings::<Test>::kill();
         frame_support::traits::StorageVersion::new(0).put::<Audit>();
 
         MigrateToV1::<Test>::on_runtime_upgrade();
@@ -561,7 +586,7 @@ fn migration_to_v1_keeps_verdicts_and_disputes() {
             (DisputeKind::Fail, 40, Some(41))
         );
         assert_eq!(
-            StatsSettings::<Test>::get(),
+            crate::migrations::old::StatsSettings::<Test>::get(),
             Some(StatsConfig {
                 version: CURRENT_STATS.version,
                 enabled: false

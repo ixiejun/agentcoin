@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ac_market_proto::toploc::AUDIT_THRESHOLDS;
 use ac_primitives::market::ModelId;
-use ac_primitives::market::audit::{CURRENT_STATS, RoundIndex, VerdictOutcome};
+use ac_primitives::market::audit::{AuditProfile, CURRENT_STATS, RoundIndex, VerdictOutcome};
 use pallet_audit::VerdictSubmission;
 use serde_json::{Value, json};
 use sp_runtime::AccountId32;
@@ -201,26 +201,33 @@ impl Agent {
     }
 
     async fn audit_inner(&self, round: RoundIndex, provider: &AccountId32) -> Audited {
-        let models: Vec<(ModelId, String)> = match self.chain.provider_models(provider).await {
+        let listed: Vec<(ModelId, String)> = match self.chain.provider_models(provider).await {
             Ok(m) => m
                 .into_iter()
                 .filter_map(|m| self.engines.engine_model(m).map(|e| (m, e)))
                 .collect(),
             Err(e) => return Audited::Missed(format!("provider lookup: {e:#}")),
         };
+        // Spec "神秘顾客请求" / "只审计已校准的模型": models without an audit profile are not
+        // audited (verdicts on them would be refused).
+        let mut models: Vec<(ModelId, String, AuditProfile)> = Vec::new();
+        for (m, e) in listed {
+            match self.chain.profile(m).await {
+                Ok(Some(p)) => models.push((m, e, p)),
+                Ok(None) => {}
+                Err(e) => return Audited::Missed(format!("profile lookup: {e:#}")),
+            }
+        }
         if models.is_empty() {
             return Audited::NoModel;
         }
         let pick = usize::try_from(self.below(models.len() as u64).await).unwrap_or(0);
-        let Some((model, engine_model)) = models.get(pick).cloned() else {
+        let Some((model, engine_model, profile)) = models.get(pick).cloned() else {
             return Audited::NoModel;
         };
-        // Spec "自动复核与提交裁决" / "阈值版本不符": checked before paying for a request.
-        let chain_version = match self.chain.params().await {
-            Ok(Some((_, a))) => a.thresholds_version,
-            Ok(None) => return Audited::Missed("audits are not configured".into()),
-            Err(e) => return Audited::Missed(format!("parameters: {e:#}")),
-        };
+        // Spec "自动复核与提交裁决" / "阈值版本不符": the model's profile, checked before paying
+        // for a request.
+        let chain_version = profile.thresholds_version;
         if chain_version != AUDIT_THRESHOLDS.version {
             log::warn!(
                 target: TARGET,
@@ -233,11 +240,7 @@ impl Agent {
             };
         }
         // Spec "自动复核与提交裁决" / "统计参数版本不符": also checked before paying.
-        let stats_version = match self.chain.stats_config().await {
-            Ok(Some(c)) => c.version,
-            Ok(None) => return Audited::Missed("statistics are not configured".into()),
-            Err(e) => return Audited::Missed(format!("statistics configuration: {e:#}")),
-        };
+        let stats_version = profile.stats_version;
         if stats_version != CURRENT_STATS.version {
             log::warn!(
                 target: TARGET,

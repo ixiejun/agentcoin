@@ -20,8 +20,9 @@ use ac_market_proto::ErrorCode;
 use ac_market_proto::audit::{AuditEvidence, EvidenceRequest, EvidenceResponse};
 use ac_market_proto::toploc::AUDIT_THRESHOLDS;
 use ac_primitives::market::audit::{
-    Accuser, AdjustableParams, AuditParams, CURRENT_STATS, DisputeKind, FailReason as ChainFail,
-    RoundIndex, SprtEntry, SprtState, StatsConfig, VerdictOutcome, VerdictRecord, Vote,
+    Accuser, AdjustableParams, AuditParams, AuditProfile, CURRENT_STATS, DisputeKind,
+    FailReason as ChainFail, RoundIndex, SprtEntry, SprtState, StatsConfig, VerdictOutcome,
+    VerdictRecord, Vote,
 };
 use ac_primitives::market::model::QuantType;
 use ac_primitives::market::receipt::RECEIPT_CONTEXT;
@@ -123,7 +124,7 @@ impl AuditChain for FakeChain {
         let a = AdjustableParams {
             stake_usd: MicroUsd(1_000_000_000),
             payment_usd: MicroUsd(50_000),
-            thresholds_version: self.version,
+            spot_check_bps: 500,
         };
         Ok(Some((AuditParams::LIVE, a)))
     }
@@ -172,16 +173,26 @@ impl AuditChain for FakeChain {
     async fn is_active_auditor(&self, _who: &AccountId32) -> Result<bool> {
         Ok(self.active)
     }
-    async fn stats_config(&self) -> Result<Option<StatsConfig>> {
-        Ok(self.stats)
+    /// Both registered models share the profile of `version` and `stats` (none without
+    /// `stats`).
+    async fn profile(&self, model: ModelId) -> Result<Option<AuditProfile>> {
+        let registered = model == MODEL || model == OTHER_MODEL;
+        Ok(self.stats.filter(|_| registered).map(|c| AuditProfile {
+            thresholds_version: self.version,
+            stats_version: c.version,
+        }))
     }
-    async fn sprt_state(&self, provider: &AccountId32) -> Result<SprtState<AccountId32>> {
+    async fn sprt_states(
+        &self,
+        provider: &AccountId32,
+    ) -> Result<Vec<(ModelId, SprtState<AccountId32>)>> {
         Ok(self
             .states
             .lock()
             .unwrap()
             .get(provider)
             .cloned()
+            .map(|s| vec![(MODEL, s)])
             .unwrap_or_default())
     }
     async fn submit(&self, call: AuditCall) -> Result<bool> {

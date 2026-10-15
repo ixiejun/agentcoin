@@ -168,3 +168,10 @@ impl<AccountId> DisputeLock<AccountId> for () {
         false
     }
 }
+
+/// The precision a registered model is quantized to: audits re-check bf16 models only, so only
+/// they get audit profiles (m6-audit-hardening design D1).
+pub trait ModelQuantization {
+    /// `model`'s quantization, if it is registered.
+    fn quantization(model: &ModelId) -> Option<super::model::QuantType>;
+}

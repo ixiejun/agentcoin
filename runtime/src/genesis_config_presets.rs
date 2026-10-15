@@ -104,12 +104,14 @@ pub const LOCAL_TRANSITION: TransitionParams = TransitionParams {
 /// Market delays of the test presets: rate interval, heartbeat interval and escrow withdrawal
 /// (live chains: one day, 600 blocks and one day).
 const DEV_MARKET_DELAY: u64 = 10;
-/// Unbonding period of providers and gateways on the test presets (live chains: seven days).
-const DEV_MARKET_UNBOND: u64 = 20;
+/// Unbonding period of providers and gateways on the test presets (live chains: seven days):
+/// two audit rounds and a vote, the time a verdict can be cited (m6-audit-hardening).
+const DEV_MARKET_UNBOND: u64 = 60;
 /// Audit round length on the test presets (live chains: 1,800 blocks).
 const DEV_AUDIT_ROUND: u32 = 20;
-/// Blocks auditor stake unbonds for on the test presets (live chains: 604,800).
-const DEV_AUDIT_UNBOND: u32 = 20;
+/// Blocks auditor stake unbonds for on the test presets (live chains: 604,800): two rounds and
+/// a vote, the time a verdict can be cited (m6-audit-hardening design D9).
+const DEV_AUDIT_UNBOND: u32 = 60;
 /// Blocks dispute reviewers have to vote on the test presets (live chains: 600).
 const DEV_AUDIT_VOTE: u32 = 20;
 /// Epochs a work report stays queryable after it matures, in the dev and local presets.
@@ -214,6 +216,14 @@ fn testnet_genesis(preset: &Preset<'_>) -> Result<Value, ac_crypto::Error> {
                 // The statistical judgment opens disputes on the test presets (m6-audit-sprt
                 // design D10); live chains keep it off until calibration covers their hardware.
                 stats_enabled: true,
+                // bf16 models are audited under the current versions without their own profile;
+                // live chains have no default (m6-audit-hardening design D1).
+                default_profile: Some(pallet_audit::ProfileGenesis {
+                    thresholds_version: ac_primitives::market::audit::CURRENT_THRESHOLDS_VERSION,
+                    stats_version: ac_primitives::market::audit::CURRENT_STATS.version,
+                }),
+                // Half the verdicts are spot-checked, so tests see spot checks within a round.
+                spot_check_bps: 5_000,
                 ..pallet_audit::AuditGenesis::LIVE
             }
         },

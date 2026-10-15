@@ -1,6 +1,7 @@
 //! Benchmarks: every call at its worst case under the guardrails, the round start by number of
-//! auditors, one pruning step by number of verdict lists handled, and one step clearing
-//! statistical states of an older version by number of states.
+//! auditors, one pruning step by number of verdict lists handled, one step clearing statistical
+//! states of another version than their model's profile by number of states, and one
+//! spot-check step by verdict lists read and spot checks opened (m6-audit-hardening 5.9).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)] // Benchmark setup.
 
 use frame_benchmarking::v2::benchmarks;
@@ -11,16 +12,18 @@ use crate::{Config, Pallet};
 mod benchmarks {
     use super::{Config, Pallet};
     use crate::{
-        Adjustable, AuditorEndpoints, BenchmarkHelper, Call, ClearCursor, Disputes, OpenDispute,
-        Params, PruneNext, RetainedVerdicts, SprtStates, StaleClearing, StatsSettings, VerdictList,
-        VerdictSubmission, Verdicts,
+        Adjustable, AuditProfiles, AuditorEndpoints, BenchmarkHelper, Call, ClearCursor,
+        DefaultProfile, Disputes, Locks, ModelSprtStates, OpenDispute, OpenReviews, Params,
+        PruneNext, RetainedVerdicts, ReviewOf, ReviewRefs, Reviews, Seeds, SpotCheckCursor,
+        StaleClearing, StatsEnabled, VerdictList, VerdictSubmission, Verdicts,
     };
     use ac_crypto::SigAlg;
     use ac_crypto::sig::SigningKey;
     use ac_primitives::market::audit::{
-        AuditMetric, AuditStats, CURRENT_STATS, DisputeKind, FailReason, MAX_AUDITORS,
-        MAX_SPRT_ENTRIES, RoundIndex, SprtEntry, SprtState, StatsConfig, VerdictOutcome,
-        VerdictRecord, VerdictStats, Vote, round_start,
+        AdjustableParams, AuditMetric, AuditProfile, AuditStats, CURRENT_STATS, DisputeKind,
+        FailReason, MAX_ASSIGN, MAX_AUDITORS, MAX_SPOT_CHECK_BPS, MAX_SPRT_ENTRIES, ReviewOutcome,
+        ReviewVote, RoundIndex, SprtEntry, SprtState, VerdictOutcome, VerdictRecord, VerdictStats,
+        Vote, round_start, spot_checked,
     };
     use ac_primitives::market::receipt::{RECEIPT_CONTEXT, fee_for};
     use ac_primitives::market::work::JobKind;
@@ -81,10 +84,17 @@ mod benchmarks {
         T::BenchmarkHelper::set_key(&provider(), &signer("bench-provider").public_key().unwrap());
         T::BenchmarkHelper::set_key(&gateway(), &signer("bench-gateway").public_key().unwrap());
         T::Currency::set_balance(&Pallet::<T>::pot(), 1_000_000 * ATC);
-        StatsSettings::<T>::put(StatsConfig {
-            version: CURRENT_STATS.version,
-            enabled: true,
+        T::BenchmarkHelper::register_bf16_model(MODEL);
+        StatsEnabled::<T>::put(true);
+        DefaultProfile::<T>::put(AuditProfile {
+            thresholds_version: 4,
+            stats_version: CURRENT_STATS.version,
         });
+        let max_rate = AdjustableParams {
+            spot_check_bps: MAX_SPOT_CHECK_BPS,
+            ..Adjustable::<T>::get().unwrap()
+        };
+        Adjustable::<T>::put(max_rate);
         for i in 0..n {
             let a = auditor(i);
             T::Currency::set_balance(&a, 10_000 * ATC);
@@ -139,7 +149,7 @@ mod benchmarks {
             provider: provider(),
             round,
             outcome,
-            thresholds_version: Adjustable::<T>::get().unwrap().thresholds_version,
+            thresholds_version: 4,
             evidence: Some([1; 32]),
             receipt: receipt::<T>(id),
             stats: Some(VerdictStats {
@@ -149,10 +159,16 @@ mod benchmarks {
         })
     }
 
-    /// A full statistical state of `who` (MAX_SPRT_ENTRIES verdicts of distinct auditors in
-    /// rounds `first..`), just below the bound, with the verdict lists it refers to stored in
-    /// `store` (`true`: retained past their retention; `false`: still in `Verdicts`).
+    /// A full statistical state of `who` on [`MODEL`] (MAX_SPRT_ENTRIES verdicts of distinct
+    /// auditors in rounds `first..`), just below the bound, with the verdict lists it refers to
+    /// stored in `store` (`true`: retained past their retention; `false`: still in `Verdicts`).
     fn full_state<T: Config>(who: &AccountId32, first: RoundIndex, retained: bool) {
+        state_of::<T>(who, first, retained, false);
+    }
+
+    /// [`full_state`]; with `registered`, the entries are those of registered auditors `0..`,
+    /// who can be slashed.
+    fn state_of<T: Config>(who: &AccountId32, first: RoundIndex, retained: bool, registered: bool) {
         let per = i32::try_from(
             CURRENT_STATS
                 .bound
@@ -163,7 +179,11 @@ mod benchmarks {
         .unwrap();
         let mut state = SprtState::default();
         for i in 0..MAX_SPRT_ENTRIES {
-            let entry_auditor: AccountId32 = account("entry", i, 0);
+            let entry_auditor: AccountId32 = if registered {
+                auditor(i)
+            } else {
+                account("entry", i, 0)
+            };
             let round = first.saturating_add(i);
             state
                 .entries
@@ -193,7 +213,7 @@ mod benchmarks {
             }
         }
         state.cumulative = i64::from(per).saturating_mul(i64::from(MAX_SPRT_ENTRIES));
-        SprtStates::<T>::insert(who, (CURRENT_STATS.version, state));
+        ModelSprtStates::<T>::insert(who, MODEL, (CURRENT_STATS.version, state));
     }
 
     /// Every assigned auditor fails the provider: the last verdict opens a dispute. Returns the
@@ -273,36 +293,187 @@ mod benchmarks {
         let id = OpenDispute::<T>::get(provider()).unwrap();
         assert!(matches!(
             Disputes::<T>::get(id).unwrap().kind,
-            DisputeKind::Statistical { .. }
+            DisputeKind::ModelStatistical { .. }
         ));
     }
 
-    /// The deciding vote of a rejection: every accuser is slashed and made to exit, the
-    /// winning reviewers are paid.
+    /// The deciding vote rejecting a statistical dispute on MAX_SPRT_ENTRIES verdicts of
+    /// registered auditors, every one marked unavailable by every ballot: each auditor takes
+    /// the light penalty, the winning reviewers are paid, the marks are cleared.
     #[benchmark]
-    fn vote() {
-        let (_, id) = disputed::<T>();
-        let params = Params::<T>::get().unwrap();
-        let reviewers: Vec<AccountId32> = Disputes::<T>::get(id)
-            .unwrap()
-            .reviewers
-            .iter()
-            .map(|(r, _)| r.clone())
-            .collect();
-        let quorum = usize::from(params.quorum);
-        for r in reviewers.iter().take(quorum.saturating_sub(1)) {
-            Pallet::<T>::vote(
-                RawOrigin::Signed(r.clone()).into(),
+    fn vote_dispute() {
+        world::<T>(MAX_AUDITORS);
+        let r = next_round::<T>();
+        state_of::<T>(&provider(), 0, true, true);
+        let last_verdict = Pallet::<T>::assignment(r, &provider())
+            .into_iter()
+            .find(|a| (0..MAX_SPRT_ENTRIES).all(|i| auditor(i) != *a))
+            .unwrap();
+        Pallet::<T>::submit_verdict(
+            RawOrigin::Signed(last_verdict).into(),
+            verdict::<T>(r, 1_000, VerdictOutcome::Pass),
+        )
+        .unwrap();
+        let id = OpenDispute::<T>::get(provider()).unwrap();
+        let d = Disputes::<T>::get(id).unwrap();
+        let cited = u32::try_from(d.accusers.len()).unwrap();
+        let marks = u128::MAX
+            .checked_shr(128u32.saturating_sub(cited))
+            .unwrap_or(u128::MAX);
+        let reviewers: Vec<AccountId32> = d.reviewers.iter().map(|(x, _)| x.clone()).collect();
+        let quorum = usize::from(Params::<T>::get().unwrap().quorum);
+        for x in reviewers.iter().take(quorum.saturating_sub(1)) {
+            Pallet::<T>::vote_dispute(
+                RawOrigin::Signed(x.clone()).into(),
                 provider(),
                 id,
                 Vote::Reject,
+                marks,
             )
             .unwrap();
         }
         let last = reviewers[quorum.saturating_sub(1)].clone();
         #[extrinsic_call]
-        _(RawOrigin::Signed(last), provider(), id, Vote::Reject);
+        _(RawOrigin::Signed(last), provider(), id, Vote::Reject, marks);
         assert!(OpenDispute::<T>::get(provider()).is_none());
+    }
+
+    /// A spot check of auditor `n`'s verdict on the provider in round 0, with the first `N`
+    /// registered auditors as reviewers, open until `deadline`.
+    fn spot_check_of<T: Config>(n: u32) -> u64 {
+        let params = Params::<T>::get().unwrap();
+        let verdict_auditor = auditor(n);
+        Verdicts::<T>::insert(
+            0,
+            provider(),
+            VerdictList::truncate_from(alloc::vec![VerdictRecord {
+                auditor: verdict_auditor.clone(),
+                outcome: VerdictOutcome::Pass,
+                thresholds_version: 4,
+                evidence: Some([1; 32]),
+                receipt_hash: H256([2; 32]),
+                request_id: [3; 32],
+                gateway: gateway(),
+                stats: Some(VerdictStats {
+                    version: CURRENT_STATS.version,
+                    stats: INT8,
+                }),
+            }]),
+        );
+        let reviewers = (0..u32::from(params.reviewers))
+            .map(|i| (auditor(i), None))
+            .collect::<Vec<_>>();
+        let deadline = frame_system::Pallet::<T>::block_number()
+            .saturating_add(params.vote_blocks.saturated_into());
+        Reviews::<T>::insert(
+            0,
+            ReviewOf::<T> {
+                provider: provider(),
+                round: 0,
+                auditor: verdict_auditor.clone(),
+                reviewers: frame_support::BoundedVec::truncate_from(reviewers),
+                deadline,
+                outcome: None,
+                closed_at: None,
+            },
+        );
+        OpenReviews::<T>::insert(0, ());
+        ReviewRefs::<T>::insert(0, provider(), 1);
+        Locks::<T>::insert(&verdict_auditor, 1);
+        0
+    }
+
+    /// The deciding ballot overturning a verdict with the evidence at hand: its auditor is
+    /// slashed and made to exit, the winning reviewers are paid.
+    #[benchmark]
+    fn vote_review() {
+        world::<T>(16);
+        let params = Params::<T>::get().unwrap();
+        let id = spot_check_of::<T>(u32::from(params.reviewers));
+        let quorum = u32::from(params.quorum);
+        for i in 0..quorum.saturating_sub(1) {
+            Pallet::<T>::vote_review(
+                RawOrigin::Signed(auditor(i)).into(),
+                id,
+                ReviewVote::Overturn,
+                true,
+            )
+            .unwrap();
+        }
+        let last = auditor(quorum.saturating_sub(1));
+        #[extrinsic_call]
+        _(RawOrigin::Signed(last), id, ReviewVote::Overturn, true);
+        assert_eq!(
+            Reviews::<T>::get(id).unwrap().outcome,
+            Some(ReviewOutcome::Overturned)
+        );
+    }
+
+    /// Closing an undecided spot check: every reviewer missed its ballot.
+    #[benchmark]
+    fn close_review() {
+        world::<T>(16);
+        let params = Params::<T>::get().unwrap();
+        let id = spot_check_of::<T>(u32::from(params.reviewers));
+        let deadline = Reviews::<T>::get(id).unwrap().deadline;
+        frame_system::Pallet::<T>::set_block_number(deadline.saturating_add(1u32.into()));
+        let caller: AccountId32 = whitelisted_caller();
+        #[extrinsic_call]
+        close_spot_check(RawOrigin::Signed(caller), id);
+        assert!(!OpenReviews::<T>::contains_key(id));
+    }
+
+    /// One spot-check step reading `l` verdict lists of the previous round, each full, and
+    /// opening `o` spot checks (the request IDs are chosen so that exactly `o` are drawn).
+    #[benchmark]
+    fn spot_check(
+        l: Linear<1, { crate::SPOT_CHECK_BATCH }>,
+        o: Linear<0, { crate::SPOT_CHECK_BATCH * MAX_ASSIGN as u32 }>,
+    ) {
+        world::<T>(MAX_AUDITORS);
+        let previous = next_round::<T>();
+        let r = next_round::<T>();
+        SpotCheckCursor::<T>::kill();
+        let seed = Seeds::<T>::get(r).unwrap();
+        let mut candidate = 0u32;
+        let mut next_id = |drawn: bool| loop {
+            candidate = candidate.saturating_add(1);
+            let mut id = [0xbb; 32];
+            id[..4].copy_from_slice(&candidate.to_le_bytes());
+            if spot_checked(&seed, &id, MAX_SPOT_CHECK_BPS) == drawn {
+                break id;
+            }
+        };
+        let mut to_draw = o;
+        for p in 0..l {
+            let who: AccountId32 = account("listed", p, 0);
+            let list: Vec<VerdictRecord<AccountId32>> = (0..u32::from(MAX_ASSIGN))
+                .map(|k| {
+                    let drawn = to_draw > 0;
+                    to_draw = to_draw.saturating_sub(u32::from(drawn));
+                    VerdictRecord {
+                        auditor: auditor(k),
+                        outcome: VerdictOutcome::Pass,
+                        thresholds_version: 4,
+                        evidence: Some([1; 32]),
+                        receipt_hash: H256([2; 32]),
+                        request_id: next_id(drawn),
+                        gateway: gateway(),
+                        stats: Some(VerdictStats {
+                            version: CURRENT_STATS.version,
+                            stats: INT8,
+                        }),
+                    }
+                })
+                .collect();
+            Verdicts::<T>::insert(previous, who, VerdictList::truncate_from(list));
+        }
+        SpotCheckCursor::<T>::put((previous, ClearCursor::new()));
+        let params = Params::<T>::get().unwrap();
+        #[block]
+        {
+            Pallet::<T>::spot_check_step(&params, r);
+        }
     }
 
     /// Closing an undecided dispute: every reviewer missed its vote.
@@ -319,47 +490,56 @@ mod benchmarks {
 
     /// Enabling the statistical judgment.
     #[benchmark]
-    fn set_stats_config() {
+    fn set_stats_enabled() {
         world::<T>(0);
-        StatsSettings::<T>::put(StatsConfig {
-            version: CURRENT_STATS.version,
-            enabled: false,
-        });
+        StatsEnabled::<T>::put(false);
         #[extrinsic_call]
-        _(
-            RawOrigin::Root,
-            StatsConfig {
-                version: CURRENT_STATS.version,
-                enabled: true,
-            },
-        );
-        assert!(StatsSettings::<T>::get().unwrap().enabled);
+        _(RawOrigin::Root, true);
+        assert!(StatsEnabled::<T>::get());
     }
 
-    /// One clearing step removing `n` full states of an older version, each releasing the
-    /// MAX_SPRT_ENTRIES verdict lists it retained.
+    /// Setting the profile of a bf16 model that has one already.
+    #[benchmark]
+    fn set_audit_profile() {
+        world::<T>(0);
+        let p = AuditProfile {
+            thresholds_version: 4,
+            stats_version: CURRENT_STATS.version,
+        };
+        AuditProfiles::<T>::insert(MODEL, p);
+        #[extrinsic_call]
+        _(RawOrigin::Root, MODEL, p);
+        assert_eq!(AuditProfiles::<T>::get(MODEL), Some(p));
+    }
+
+    /// One clearing step removing `n` full states of another version than their model's
+    /// profile, each releasing the MAX_SPRT_ENTRIES verdict lists it retained.
     #[benchmark]
     fn clear_stale(n: Linear<1, { crate::STALE_CLEAR_LIMIT }>) {
         world::<T>(0);
         for i in 0..n {
             let who: AccountId32 = account("stale", i, 0);
             full_state::<T>(&who, 0, true);
-            let (_, state) = SprtStates::<T>::get(&who).unwrap();
-            SprtStates::<T>::insert(&who, (CURRENT_STATS.version.saturating_sub(1), state));
+            let (_, state) = ModelSprtStates::<T>::get(&who, MODEL).unwrap();
+            ModelSprtStates::<T>::insert(
+                &who,
+                MODEL,
+                (CURRENT_STATS.version.saturating_sub(1), state),
+            );
         }
         StaleClearing::<T>::put(ClearCursor::new());
         #[block]
         {
             Pallet::<T>::clear_stale_step();
         }
-        assert_eq!(SprtStates::<T>::iter().count(), 0);
+        assert_eq!(ModelSprtStates::<T>::iter().count(), 0);
     }
 
     #[benchmark]
     fn set_params() {
         world::<T>(0);
         let mut p = Adjustable::<T>::get().unwrap();
-        p.thresholds_version = p.thresholds_version.saturating_add(1);
+        p.spot_check_bps = p.spot_check_bps.saturating_sub(1);
         #[extrinsic_call]
         _(RawOrigin::Root, p);
     }
