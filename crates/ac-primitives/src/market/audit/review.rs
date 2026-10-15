@@ -199,7 +199,7 @@ mod tests {
                 ballots
                     .iter()
                     .enumerate()
-                    .map(|(i, b)| (u8::try_from(i).unwrap() + 10, *b))
+                    .map(|(i, b)| (u8::try_from(i).unwrap().saturating_add(10), *b))
                     .collect(),
             ),
             deadline: 100,

@@ -93,6 +93,10 @@ pub const STALE_CLEAR_LIMIT: u32 = 2;
 /// design D5): a round's lists are drawn within its first blocks.
 pub const SPOT_CHECK_BATCH: u32 = 16;
 
+/// Most spot checks one step opens: every verdict of every list drawn.
+pub const MAX_SPOT_CHECKS_PER_STEP: u32 =
+    SPOT_CHECK_BATCH.saturating_mul(ac_primitives::market::audit::MAX_ASSIGN as u32);
+
 /// Most open spot checks one `open_reviews` query returns.
 pub const MAX_OPEN_REVIEWS_PAGE: u32 = 256;
 

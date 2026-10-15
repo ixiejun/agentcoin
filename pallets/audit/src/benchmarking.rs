@@ -428,7 +428,7 @@ mod benchmarks {
     #[benchmark]
     fn spot_check(
         l: Linear<1, { crate::SPOT_CHECK_BATCH }>,
-        o: Linear<0, { crate::SPOT_CHECK_BATCH * MAX_ASSIGN as u32 }>,
+        o: Linear<0, { crate::MAX_SPOT_CHECKS_PER_STEP }>,
     ) {
         world::<T>(MAX_AUDITORS);
         let previous = next_round::<T>();

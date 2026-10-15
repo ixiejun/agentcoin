@@ -80,7 +80,9 @@ fn register_model(signer: &Signer) -> ModelId {
     let m = ModelManifest::new(
         b"Qwen2.5-0.5B-Instruct",
         b"qwen2",
-        QuantType::Int4,
+        // bf16: the dev chain's default audit profile covers it, so its receipts earn market
+        // work (an uncalibrated model's would not; m6-audit-hardening).
+        QuantType::Bf16,
         vec![[1; 32]],
     )
     .unwrap();
