@@ -77,6 +77,12 @@ jobs:
         run: |
           scripts/check-release-runtime.sh target/release/wbuild/ac-runtime/ac_runtime.compact.wasm
           scripts/check-release-runtime.sh --self-test
+      # The runtime blob is built above; the auditor needs only the native runtime.
+      - run: SKIP_WASM_BUILD=1 cargo build -p ac-auditor --release
+      - name: The release auditor has no testing switch (m6-audit-hardening 7.5)
+        run: |
+          scripts/check-release-auditor.sh target/release/ac-auditor
+          scripts/check-release-auditor.sh --self-test
 
   e2e:
     runs-on: ubuntu-latest

@@ -4,6 +4,11 @@
 //! whose evidence fails confirm; anything else rejects. An unavailable engine of this agent is
 //! not the accusers' fault: the agent retries and, if it never recovers, does not vote.
 //!
+//! The ballot marks each cited verdict whose evidence was not obtained (m6-audit-hardening design
+//! D6): evidence counts as obtained only when it was fetched, opens against the commitment and
+//! carries the verdict's receipt. Evidence still unreachable is marked only on the final try; a
+//! dispute confirmed earlier leaves it unmarked, since the reviewer did not wait for it.
+//!
 //! A statistical dispute (m6-audit-sprt design D7) is reviewed verdict by verdict: the
 //! statistics are recomputed from each verdict's evidence on this agent's engine; a verdict whose
 //! evidence is missing or does not hold keeps only a non-positive contribution. The provider's
@@ -31,8 +36,10 @@ use crate::logging::TARGET;
 pub enum Finding {
     /// It re-checks as a failure.
     Fails,
-    /// It does not hold up: missing, not matching, not the verdict's receipt, or not failing.
+    /// It was obtained but does not re-check as a failure (or cannot be re-checked at all).
     DoesNotFail,
+    /// It was not obtained: no commitment, not opening against it, or not the verdict's receipt.
+    Unobtained,
     /// Not reachable yet (no endpoint, refused, transport error): retried until the deadline.
     Unreachable,
     /// This agent's engine failed: retried; never counted against the accuser.
@@ -59,6 +66,23 @@ pub enum Decision {
     Wait,
     /// Do not vote (and say why).
     Abstain(&'static str),
+}
+
+/// The ballot's bitmap of the cited verdicts whose evidence was not obtained (bit `i`: the
+/// dispute's accuser `i`; at most 128). Unreachable evidence counts only on the final try.
+#[must_use]
+pub fn unavailable_marks(findings: &[Finding], final_try: bool) -> u128 {
+    findings
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| match f {
+            Finding::Unobtained => true,
+            Finding::Unreachable => final_try,
+            _ => false,
+        })
+        .filter_map(|(i, _)| u32::try_from(i).ok())
+        .filter_map(|i| 1u128.checked_shl(i))
+        .fold(0, |marks, bit| marks | bit)
 }
 
 /// Combines the accusers' findings (`final_try`: the deadline is near).
@@ -153,15 +177,14 @@ impl Agent {
                 continue;
             }
             let final_try = now.saturating_add(2) >= d.deadline;
-            match self.review(id, &d, final_try).await {
+            let (decision, unavailable) = self.ballot(id, &d, final_try).await;
+            match decision {
                 Decision::Vote(vote) => {
-                    // Every cited verdict counts as obtained until the agent tells unavailable
-                    // evidence apart from refuted evidence (m6-audit-hardening 7.2).
                     let call = AuditCall::Vote {
                         provider: provider.clone(),
                         id,
                         vote,
-                        unavailable: 0,
+                        unavailable,
                     };
                     match self.chain.submit(call).await {
                         Ok(true) => {
@@ -185,11 +208,22 @@ impl Agent {
 
     /// Reviews one dispute.
     pub async fn review(&self, id: u64, d: &Dispute, final_try: bool) -> Decision {
+        self.ballot(id, d, final_try).await.0
+    }
+
+    /// Reviews one dispute: the decision and the bitmap of the cited verdicts whose evidence
+    /// was not obtained.
+    pub async fn ballot(&self, id: u64, d: &Dispute, final_try: bool) -> (Decision, u128) {
         let params = match d.kind.stats_version() {
             None => None,
             Some(stats_version) => match stats_params(stats_version) {
                 Some(p) => Some(p),
-                None => return Decision::Abstain("unknown statistical parameter version"),
+                None => {
+                    return (
+                        Decision::Abstain("unknown statistical parameter version"),
+                        0,
+                    );
+                }
             },
         };
         let mut reviewed = Vec::new();
@@ -234,13 +268,12 @@ impl Agent {
                 recorded,
             });
         }
-        match params {
-            None => {
-                let findings: Vec<Finding> = reviewed.iter().map(|r| r.finding).collect();
-                decide(&findings, final_try)
-            }
+        let findings: Vec<Finding> = reviewed.iter().map(|r| r.finding).collect();
+        let decision = match params {
+            None => decide(&findings, final_try),
             Some(p) => decide_statistical(&reviewed, p, final_try),
-        }
+        };
+        (decision, unavailable_marks(&findings, final_try))
     }
 
     /// One verdict of a statistical dispute: its recomputed contribution, or why there is none,
@@ -259,10 +292,12 @@ impl Agent {
             return (Finding::Counted(0), 0);
         };
         let recorded = v.stats.map_or(0, |s| params.contribution(&s.stats));
-        // Spec "统计争议中重算不过界": evidence that does not hold keeps no positive part.
+        // Spec "统计争议中重算不过界": evidence that does not hold, or was not obtained, keeps no
+        // positive part.
         let not_held = (Finding::Counted(recorded.min(0)), recorded);
+        let unobtained = (Finding::Unobtained, recorded);
         let Some(commitment) = v.evidence else {
-            return not_held;
+            return unobtained;
         };
         let Ok(Some(endpoint)) = self.chain.endpoint(auditor).await else {
             return (Finding::Unreachable, recorded);
@@ -272,11 +307,11 @@ impl Agent {
             Ok(EvidenceResponse::Refused) | Err(_) => return (Finding::Unreachable, recorded),
         };
         let Ok(evidence) = AuditEvidence::open(&bytes, &commitment) else {
-            return not_held;
+            return unobtained;
         };
         let hash = ac_crypto::hash::blake3_256(&evidence.receipt.encode());
         if hash != v.receipt_hash.0 || evidence.receipt.body.provider != d.provider {
-            return not_held;
+            return unobtained;
         }
         let model = evidence.receipt.body.model;
         let Some(engine_model) = self.engines.engine_model(model) else {
@@ -314,10 +349,10 @@ impl Agent {
             return Finding::Unreachable;
         };
         let Some(v) = verdicts.into_iter().find(|v| v.auditor == *accuser) else {
-            return Finding::DoesNotFail;
+            return Finding::Unobtained;
         };
         let Some(commitment) = v.evidence else {
-            return Finding::DoesNotFail;
+            return Finding::Unobtained;
         };
         if v.thresholds_version != AUDIT_THRESHOLDS.version {
             return Finding::CannotJudge;
@@ -330,11 +365,11 @@ impl Agent {
             Ok(EvidenceResponse::Refused) | Err(_) => return Finding::Unreachable,
         };
         let Ok(evidence) = AuditEvidence::open(&bytes, &commitment) else {
-            return Finding::DoesNotFail;
+            return Finding::Unobtained;
         };
         let hash = ac_crypto::hash::blake3_256(&evidence.receipt.encode());
         if hash != v.receipt_hash.0 || evidence.receipt.body.provider != d.provider {
-            return Finding::DoesNotFail;
+            return Finding::Unobtained;
         }
         let model = evidence.receipt.body.model;
         let Some(engine_model) = self.engines.engine_model(model) else {
@@ -362,7 +397,7 @@ mod tests {
 
     #[test]
     fn two_failing_accusers_confirm_anything_else_rejects() {
-        use Finding::{CannotJudge, DoesNotFail, EngineDown, Fails, Unreachable};
+        use Finding::{CannotJudge, DoesNotFail, EngineDown, Fails, Unobtained, Unreachable};
         assert_eq!(
             decide(&[Fails, Fails], false),
             Decision::Vote(Vote::Confirm)
@@ -391,5 +426,30 @@ mod tests {
             decide(&[CannotJudge, Fails], false),
             Decision::Abstain(_)
         ));
+        assert_eq!(
+            decide(&[Fails, Unobtained], false),
+            Decision::Vote(Vote::Reject)
+        );
+    }
+
+    #[test]
+    fn marks_name_the_verdicts_whose_evidence_was_not_obtained() {
+        use Finding::{DoesNotFail, Fails, Unobtained, Unreachable};
+        assert_eq!(unavailable_marks(&[Fails, Fails], true), 0);
+        assert_eq!(
+            unavailable_marks(&[Fails, Unobtained, DoesNotFail], false),
+            0b010
+        );
+        // Unreachable evidence counts only once the reviewer stops waiting for it.
+        assert_eq!(unavailable_marks(&[Unreachable, Fails, Fails], false), 0);
+        assert_eq!(
+            unavailable_marks(&[Unreachable, Fails, Unobtained], true),
+            0b101
+        );
+        // Bits past 128 cannot be marked (the chain cites at most 128 verdicts).
+        let mut many = vec![Fails; 130];
+        many[129] = Unobtained;
+        many[127] = Unobtained;
+        assert_eq!(unavailable_marks(&many, true), 1 << 127);
     }
 }

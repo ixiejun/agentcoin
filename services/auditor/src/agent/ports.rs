@@ -1,13 +1,13 @@
 //! What the agent needs from the outside world, as traits, so that its decisions can be tested
-//! with stand-ins: the chain, buying an inference, re-checking one, and fetching a dispute's
-//! evidence from an accuser.
+//! with stand-ins: the chain, buying an inference, re-checking one, and fetching the evidence of
+//! a verdict cited by a dispute or a spot check from its auditor.
 
 use ac_market_proto::ErrorCode;
 use ac_market_proto::audit::EvidenceResponse;
 use ac_primitives::market::ModelId;
 use ac_primitives::market::audit::{
-    AdjustableParams, AuditParams, AuditProfile, DisputeRecord, RoundIndex, SprtState,
-    VerdictRecord, Vote,
+    AdjustableParams, AuditParams, AuditProfile, DisputeRecord, ReviewRecord, ReviewVote,
+    RoundIndex, SprtState, VerdictRecord, Vote,
 };
 use ac_primitives::market::model::QuantType;
 use ac_wallet::proxy::Completed;
@@ -20,6 +20,9 @@ use crate::case::{RecheckCase, Report};
 
 /// A dispute as the chain stores it.
 pub type Dispute = DisputeRecord<AccountId32, u32>;
+
+/// A spot check as the chain stores it (m6-audit-hardening).
+pub type SpotCheck = ReviewRecord<AccountId32, u32>;
 
 /// The audit transactions the agent sends, signed by the auditor account.
 #[derive(Clone, Debug)]
@@ -42,6 +45,20 @@ pub enum AuditCall {
         /// The accused provider.
         provider: AccountId32,
         /// The dispute.
+        id: u64,
+    },
+    /// A spot-check reviewer's vote (m6-audit-hardening).
+    SpotVote {
+        /// The spot check.
+        id: u64,
+        /// The vote.
+        vote: ReviewVote,
+        /// Whether the checked verdict's evidence was obtained.
+        obtained: bool,
+    },
+    /// Closing an undecided spot check after its deadline.
+    CloseSpotCheck {
+        /// The spot check.
         id: u64,
     },
     /// Setting the evidence endpoint.
@@ -84,6 +101,10 @@ pub trait AuditChain: Send + Sync {
     /// `model`'s audit profile: the versions verdicts on it must use; `None` when it is
     /// uncalibrated (m6-audit-hardening).
     async fn profile(&self, model: ModelId) -> Result<Option<AuditProfile>>;
+    /// Every open spot check.
+    async fn open_spot_checks(&self) -> Result<Vec<u64>>;
+    /// A spot check, open or closed.
+    async fn spot_check(&self, id: u64) -> Result<Option<SpotCheck>>;
     /// `provider`'s statistical states by model, under each model's profile.
     async fn sprt_states(
         &self,
@@ -121,14 +142,14 @@ pub trait Recheck: Send + Sync {
     async fn prompt_tokens(&self, model: ModelId, messages: &serde_json::Value) -> Result<u32>;
 }
 
-/// Fetching evidence from an accuser's endpoint.
+/// Fetching evidence from an auditor's endpoint.
 #[async_trait]
 pub trait FetchEvidence: Send + Sync {
-    /// Asks `endpoint` for the evidence of `commitment` in dispute `dispute`.
+    /// Asks `endpoint` for the evidence of `commitment` cited by dispute or spot check `id`.
     async fn fetch(
         &self,
         endpoint: &AuditorEndpoint,
-        dispute: u64,
+        id: u64,
         commitment: [u8; 32],
     ) -> Result<EvidenceResponse>;
 }

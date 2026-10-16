@@ -316,6 +316,7 @@ cargo audit
 # Supply chain, licences and advisories
 scripts/check-license-boundary.sh [--self-test]     # licence zones (D47) and internal features
 scripts/check-release-runtime.sh <wasm>|--self-test # the release runtime has no benchmarking API
+scripts/check-release-auditor.sh <bin>|--self-test  # the release ac-auditor has no testing switch
 scripts/sync-audit-exceptions.py [--write]        # advisory exceptions (edit audit-exceptions.toml)
 scripts/benchmark-pallet.sh <pallet> <weights.rs> # regenerate benchmarked weights
 scripts/gen-toploc-vectors.sh                     # regenerate TOPLOC vectors from the reference (Python)

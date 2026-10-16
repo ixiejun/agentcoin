@@ -35,7 +35,7 @@ use sp_runtime::AccountId32;
 use tokio::sync::Mutex;
 
 use super::config::Config;
-use super::ports::{AuditCall, AuditChain, Dispute, FetchEvidence, Recheck, Shop};
+use super::ports::{AuditCall, AuditChain, Dispute, FetchEvidence, Recheck, Shop, SpotCheck};
 use super::prompts::{OutputRange, Prompts};
 use super::rand::OsRand;
 use super::store::EvidenceStore;
@@ -138,6 +138,25 @@ impl AuditChain for NodeChain {
         Ok(self.node.audit_profile(&model).await?.map(|(p, _)| p))
     }
 
+    async fn open_spot_checks(&self) -> Result<Vec<u64>> {
+        let page_len = pallet_audit::MAX_OPEN_REVIEWS_PAGE;
+        let mut all = Vec::new();
+        let mut after: Option<u64> = None;
+        loop {
+            let page = self.node.audit_open_reviews(after, page_len).await?;
+            let full = u32::try_from(page.len()).is_ok_and(|n| n == page_len);
+            after = page.last().copied();
+            all.extend(page);
+            if !full {
+                return Ok(all);
+            }
+        }
+    }
+
+    async fn spot_check(&self, id: u64) -> Result<Option<SpotCheck>> {
+        self.node.audit_review(id).await
+    }
+
     async fn sprt_states(
         &self,
         provider: &AccountId32,
@@ -160,6 +179,10 @@ impl AuditChain for NodeChain {
                 unavailable,
             },
             AuditCall::Close { provider, id } => pallet_audit::Call::close_dispute { provider, id },
+            AuditCall::SpotVote { id, vote, obtained } => {
+                pallet_audit::Call::vote_review { id, vote, obtained }
+            }
+            AuditCall::CloseSpotCheck { id } => pallet_audit::Call::close_spot_check { id },
             AuditCall::SetEndpoint(endpoint) => pallet_audit::Call::set_endpoint { endpoint },
         };
         let inclusion = self
@@ -287,12 +310,14 @@ impl FetchEvidence for SealedFetch {
     async fn fetch(
         &self,
         endpoint: &AuditorEndpoint,
-        dispute: u64,
+        id: u64,
         commitment: [u8; 32],
     ) -> Result<EvidenceResponse> {
         let base = String::from_utf8_lossy(&endpoint.0).into_owned();
+        // The request's `dispute` field names a dispute or a spot check: the auditor checks
+        // both (m6-audit-hardening 7.4).
         let request = EvidenceRequest {
-            dispute,
+            dispute: id,
             commitment,
         };
         let mut resp = sealed_http::post(
@@ -483,7 +508,16 @@ pub async fn run(cfg: Config) -> Result<()> {
         margin_percent: cfg.margin_percent,
         counters: Counters::default(),
         reviews: Mutex::new(std::collections::BTreeMap::new()),
+        #[cfg(feature = "lenient")]
+        lenient: cfg.test_lenient_verdicts,
     });
+    #[cfg(feature = "lenient")]
+    if agent.lenient {
+        log::warn!(
+            target: TARGET,
+            "test_lenient_verdicts: every result judged by the thresholds is reported as a pass (testing only)"
+        );
+    }
 
     let listener = tokio::net::TcpListener::bind(&cfg.listen)
         .await
@@ -542,6 +576,7 @@ async fn round_loop(agent: Arc<Agent>) -> Result<()> {
 async fn review_loop(agent: Arc<Agent>) {
     loop {
         agent.review_all().await;
+        agent.review_spot_checks().await;
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
 }

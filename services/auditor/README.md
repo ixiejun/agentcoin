@@ -111,18 +111,23 @@ The service mode is the mystery shopper of MVP plan §5.5 (m6-auditor-agent; spe
 - **audits** each provider it is assigned in a round once, at a random block of the first three
   quarters of the round: one non-streamed request pinned to that provider
   (`X-AgentCoin-Provider`, open to every user), through a random gateway with a random payment
-  account, with a prompt from the built-in generator or the operator's bank, for a model of the
-  provider it has an engine for. It re-checks the answer and submits the verdict before the
-  round ends. The evidence of a failure or of a verdict judged by the thresholds is stored
-  before the verdict is sent; an inconclusive verdict keeps none. If the chain accepts another
-  thresholds or statistical parameter version than the agent's, it does not audit.
+  account, with a prompt from the built-in generator or the operator's bank. The model is one
+  of the provider's that has an **audit profile** on chain (m6-audit-hardening) and that the
+  agent has an engine for; uncalibrated models are never audited, since the chain refuses
+  verdicts on them. It re-checks the answer and submits the verdict before the round ends. The
+  verdict carries the versions of the model's profile; when the agent does not know one of them
+  (another thresholds or statistical parameter version), it does not audit, before paying for a
+  request. The evidence of a failure or of a verdict judged by the thresholds is stored before
+  the verdict is sent; an inconclusive verdict keeps none.
 - **serves evidence** at its endpoint (registered on chain at start-up with its X-Wing key). It
   hands over a verdict's evidence, over a sealed channel, only to a reviewer of an open dispute
-  that names this auditor's verdict: as an accuser, or as one of a statistical dispute's
-  verdicts. A refusal says nothing more. Evidence is kept while its verdict can still open a
-  failure dispute (its round and the next), while an open dispute names it, and while the
-  provider's statistical state holds it; then it is deleted. Expired disputes it is party to
-  are closed.
+  or spot check that cites this auditor's verdict: as an accuser, as one of a statistical
+  dispute's verdicts, or as the spot-checked verdict. The request names the dispute or spot
+  check by number; the two are numbered apart, so the agent checks both. A refusal says
+  nothing more. Evidence is kept for `2R + V` blocks after its verdict (`R` the round length,
+  `V` the vote period: as long as a dispute or a spot check can cite it), while an open dispute
+  or spot check cites it, and while the provider's statistical state holds it; then it is
+  deleted. Expired disputes and spot checks that cite it are closed.
 - **reviews** the disputes it is drawn for. It fetches every accuser's evidence, checks it
   against the commitment and the receipt on chain, and re-checks it. It votes *confirm* only
   when two distinct accusers' evidence fails, otherwise *reject*. For a statistical dispute, it
@@ -130,6 +135,22 @@ The service mode is the mystery shopper of MVP plan §5.5 (m6-auditor-agent; spe
   does not hold keeps only a non-positive contribution. The agent then replays the provider's
   state under the dispute's parameter version: *confirm* at the bound, *reject* below it. If its
   own engine is down it retries and, failing that, does not vote.
+
+  The vote marks, one bit per cited verdict (bit `i` for the dispute's accuser `i`), the
+  verdicts whose evidence it did **not obtain**: evidence counts as obtained only when it was
+  fetched, opens against the commitment and carries the verdict's receipt. Evidence that never
+  answers is marked when the agent votes at the deadline; a dispute confirmed before then leaves
+  it unmarked. When `Q` ballots mark a verdict, the chain treats its evidence as unavailable:
+  its auditor takes the light penalty (1%) rather than the full one, and the third time within
+  the retention the full one.
+- **reviews spot checks** it is drawn for: a share of the verdicts judged by the thresholds is
+  drawn after the fact for a re-check. It fetches the verdict's evidence from its auditor,
+  checks it the same way, re-checks it by the verdict's thresholds version and votes *uphold*
+  when the outcome is the verdict's (both pass, or both fail), otherwise *overturn*. The
+  statistics are never compared: they differ too much between hardware to be grounds for a
+  slash. The vote says whether the evidence was obtained; evidence that never answers is
+  overturned as not obtained at the deadline. An engine that is down, or a version the agent does
+  not know, is handled as in disputes.
 
 ```bash
 ac-auditor keygen --out auditor-kem.json --password-file auditor.pass
@@ -161,8 +182,16 @@ Operating notes:
   them. Anonymous vouchers (M7) replace this.
 - **Engines.** One verify-mode engine per model (see above, AMX off on CPUs). Providers serving
   only models without an engine are skipped and counted.
-- **Thresholds.** The agent judges by its built-in `AUDIT_THRESHOLDS` version. When the chain
-  accepts another version, it neither audits nor votes and says why: upgrade it.
+- **Thresholds.** The agent judges by its built-in `AUDIT_THRESHOLDS` version. When a model's
+  profile names another version, it neither audits the model nor votes on its verdicts and says
+  why: upgrade it.
+- **Evidence service.** Keep it reachable: evidence a reviewer cannot obtain costs a light
+  penalty in every dispute or spot check that cites it, and the full one the third time.
+- **Testing switch.** Built with the `lenient` feature, the agent accepts
+  `"test_lenient_verdicts": true`, which reports every result judged by the thresholds as a pass,
+  so that tests can watch spot checks overturn the verdicts and slash the auditor. Release builds
+  never carry the feature and refuse the key; `scripts/check-release-auditor.sh` checks the
+  release binary.
 - **Bank.** JSONL, one `messages` array per line; `bank_percent` of prompts come from it.
 - **Prompt length.** Only prompts whose token count, under the model's chat template as the
   agent's re-check engine counts it, is in the audit length band of `AUDIT_THRESHOLDS`
@@ -184,6 +213,6 @@ are dropped. A case's `Debug` output leaves out the messages and the output.
 (`tests/mock-engine`): an honest provider, another model, no proofs, an int4 model, mismatched
 proofs, inputs and tokens, a missing engine and a prove-mode plugin on the auditor's socket. The
 CI job `vllm-plugin` re-checks real vLLM answers (`scripts/calibrate-toploc.py --quick`). The
-agent's decisions (`src/agent`) are tested with stand-ins for the chain, gateways, engines and
-accusers; `tests/e2e/tests/auditor_agent.rs` runs six agents against a provider that starts
+agent's decisions (`src/agent`: audits by profile, dispute ballots, spot-check reviews, evidence
+service and retention) are tested with stand-ins for the chain, gateways, engines and accusers; `tests/e2e/tests/auditor_agent.rs` runs six agents against a provider that starts
 cheating (`AC_E2E=1 cargo test -p ac-e2e --test auditor_agent -- --test-threads 1`).

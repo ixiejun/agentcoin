@@ -1,6 +1,6 @@
 //! The agent's decisions against stand-ins for the chain, the gateways, the engines and the
-//! accusers (m6-auditor-agent groups 5 and 6); each test names the spec `market/auditor-agent`
-//! scenario it covers.
+//! accusers (m6-auditor-agent groups 5 and 6, m6-audit-hardening group 7); each test names the
+//! spec `market/auditor-agent` scenario it covers.
 
 #![allow(
     clippy::unwrap_used,
@@ -21,8 +21,8 @@ use ac_market_proto::audit::{AuditEvidence, EvidenceRequest, EvidenceResponse};
 use ac_market_proto::toploc::AUDIT_THRESHOLDS;
 use ac_primitives::market::audit::{
     Accuser, AdjustableParams, AuditParams, AuditProfile, CURRENT_STATS, DisputeKind,
-    FailReason as ChainFail, RoundIndex, SprtEntry, SprtState, StatsConfig, VerdictOutcome,
-    VerdictRecord, Vote,
+    FailReason as ChainFail, ReviewOutcome, RoundIndex, SprtEntry, SprtState, StatsConfig,
+    VerdictOutcome, VerdictRecord, Vote,
 };
 use ac_primitives::market::model::QuantType;
 use ac_primitives::market::receipt::RECEIPT_CONTEXT;
@@ -37,7 +37,7 @@ use sp_core::H256;
 use sp_runtime::AccountId32;
 use tokio::sync::Mutex;
 
-use super::ports::{AuditCall, AuditChain, Dispute, FetchEvidence, Recheck, Shop};
+use super::ports::{AuditCall, AuditChain, Dispute, FetchEvidence, Recheck, Shop, SpotCheck};
 use super::prompts::{OutputRange, Prompts, words};
 use super::rand::tests::Seeded;
 use super::review::Progress;
@@ -106,8 +106,13 @@ struct FakeChain {
     disputes: StdMutex<BTreeMap<u64, Dispute>>,
     endpoints: StdMutex<BTreeMap<AccountId32, AuditorEndpoint>>,
     stats: Option<StatsConfig>,
+    /// Models without an audit profile (uncalibrated), among the registered ones.
+    uncalibrated: Vec<ModelId>,
     states: StdMutex<BTreeMap<AccountId32, SprtState<AccountId32>>>,
+    spot_checks: StdMutex<BTreeMap<u64, SpotCheck>>,
     sent: StdMutex<Vec<String>>,
+    /// The unavailable-evidence bitmaps of the dispute votes sent, by dispute.
+    marks: StdMutex<Vec<(u64, u128)>>,
     /// The account the next transactions are signed by.
     me: StdMutex<Option<AccountId32>>,
 }
@@ -126,7 +131,13 @@ impl AuditChain for FakeChain {
             payment_usd: MicroUsd(50_000),
             spot_check_bps: 500,
         };
-        Ok(Some((AuditParams::LIVE, a)))
+        // Rounds of 20 blocks (as `round` gives them) and votes within 10.
+        let p = AuditParams {
+            round_blocks: 20,
+            vote_blocks: 10,
+            ..AuditParams::LIVE
+        };
+        Ok(Some((p, a)))
     }
     async fn assigned_to(
         &self,
@@ -174,13 +185,27 @@ impl AuditChain for FakeChain {
         Ok(self.active)
     }
     /// Both registered models share the profile of `version` and `stats` (none without
-    /// `stats`).
+    /// `stats`, nor for the uncalibrated ones).
     async fn profile(&self, model: ModelId) -> Result<Option<AuditProfile>> {
-        let registered = model == MODEL || model == OTHER_MODEL;
+        let registered =
+            (model == MODEL || model == OTHER_MODEL) && !self.uncalibrated.contains(&model);
         Ok(self.stats.filter(|_| registered).map(|c| AuditProfile {
             thresholds_version: self.version,
             stats_version: c.version,
         }))
+    }
+    async fn open_spot_checks(&self) -> Result<Vec<u64>> {
+        Ok(self
+            .spot_checks
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, r)| r.outcome.is_none())
+            .map(|(id, _)| *id)
+            .collect())
+    }
+    async fn spot_check(&self, id: u64) -> Result<Option<SpotCheck>> {
+        Ok(self.spot_checks.lock().unwrap().get(&id).cloned())
     }
     async fn sprt_states(
         &self,
@@ -217,7 +242,24 @@ impl AuditChain for FakeChain {
                     .push(record);
                 format!("verdict {:?}", v.outcome)
             }
-            AuditCall::Vote { id, vote, .. } => format!("vote {id} {vote:?}"),
+            AuditCall::Vote {
+                id,
+                vote,
+                unavailable,
+                ..
+            } => {
+                self.marks.lock().unwrap().push((*id, *unavailable));
+                format!("vote {id} {vote:?}")
+            }
+            AuditCall::SpotVote { id, vote, obtained } => {
+                format!("spot {id} {vote:?} {obtained}")
+            }
+            AuditCall::CloseSpotCheck { id } => {
+                if let Some(r) = self.spot_checks.lock().unwrap().get_mut(id) {
+                    r.outcome = Some(ReviewOutcome::Undecided);
+                }
+                format!("close spot {id}")
+            }
             AuditCall::Close { id, .. } => {
                 if let Some(d) = self.disputes.lock().unwrap().get_mut(id) {
                     d.outcome = Some(ac_primitives::market::audit::DisputeOutcome::Undecided);
@@ -302,6 +344,8 @@ type CountFn = Box<dyn Fn(&serde_json::Value) -> u32 + Send + Sync>;
 
 struct FakeEngines {
     outcome: StdMutex<Outcome>,
+    /// Whether the engines re-check every registered model, not only `MODEL`.
+    all_models: bool,
     /// The chunk metrics the re-checks report (honest-looking by default).
     chunks: StdMutex<Vec<ChunkMetrics>>,
     seen: StdMutex<Vec<RecheckCase>>,
@@ -323,6 +367,7 @@ impl FakeEngines {
     fn counting(outcome: Outcome, count: CountFn) -> Self {
         Self {
             outcome: StdMutex::new(outcome),
+            all_models: false,
             chunks: StdMutex::new(chunks(50, 100)),
             seen: StdMutex::new(Vec::new()),
             count,
@@ -333,7 +378,8 @@ impl FakeEngines {
 #[async_trait]
 impl Recheck for FakeEngines {
     fn engine_model(&self, model: ModelId) -> Option<String> {
-        (model == MODEL).then(|| "mock-model".to_owned())
+        (model == MODEL || (self.all_models && model == OTHER_MODEL))
+            .then(|| "mock-model".to_owned())
     }
     async fn recheck(&self, case: &RecheckCase, _quant: QuantType) -> Report {
         self.seen.lock().unwrap().push(case.clone());
@@ -420,6 +466,8 @@ fn agent_with(
         margin_percent: 25,
         counters: Counters::default(),
         reviews: Mutex::new(BTreeMap::<u64, Progress>::new()),
+        #[cfg(feature = "lenient")]
+        lenient: false,
     }
 }
 
@@ -1154,10 +1202,11 @@ async fn evidence_goes_once_no_dispute_can_use_it() {
     };
     v6.tidy().await;
     assert_eq!(v6.store.list().len(), 1);
-    // Past the deadline: the agent closes the dispute, then the evidence goes.
+    // Past the deadline and the citation window (round 5 started at 101; 2R + V = 50 blocks):
+    // the agent closes the dispute, then the evidence goes.
     let mut c7 = chain_for(acc(2));
-    c7.round = (6, 121, 141);
-    c7.block = 125;
+    c7.round = (7, 141, 161);
+    c7.block = 155;
     let r7 = Arc::new(FakeChain {
         disputes: StdMutex::new(r6.disputes.lock().unwrap().clone()),
         ..c7
@@ -1170,6 +1219,37 @@ async fn evidence_goes_once_no_dispute_can_use_it() {
     assert!(r7.sent.lock().unwrap().contains(&"close 1".to_owned()));
     v7.tidy().await;
     assert!(v7.store.list().is_empty());
+}
+
+#[tokio::test]
+async fn a_closed_dispute_does_not_end_the_citation_window() {
+    // "争议关闭后删除" needs 2R + V blocks since submission as well: closed early, the
+    // dispute leaves the evidence in place until the window ends.
+    let (chain, accusers) = disputed(FAIL).await;
+    chain.disputes.lock().unwrap().get_mut(&1).unwrap().outcome =
+        Some(ac_primitives::market::audit::DisputeOutcome::Rejected);
+    let mut c = chain_for(acc(2));
+    c.round = (6, 121, 141);
+    c.block = 150;
+    let view = Agent {
+        chain: Arc::new(FakeChain {
+            disputes: StdMutex::new(chain.disputes.lock().unwrap().clone()),
+            ..c
+        }),
+        ..agent_with(
+            acc(2),
+            chain.clone(),
+            shop(0),
+            Arc::new(FakeEngines::new(FAIL)),
+            Arc::default(),
+        )
+    };
+    let stored = accusers[0].store.list();
+    view.store
+        .put(4, &acc(10), &stored[0].commitment, b"x")
+        .unwrap();
+    view.tidy().await;
+    assert_eq!(view.store.list().len(), 1);
 }
 
 // ---- 统计争议（m6-audit-sprt）----
@@ -1337,4 +1417,417 @@ async fn evidence_in_a_statistical_state_is_kept_until_it_leaves() {
     chain.states.lock().unwrap().clear();
     a.tidy().await;
     assert!(a.store.list().is_empty());
+}
+
+// ---- 按模型的审计档案（m6-audit-hardening 7.1）----
+
+#[tokio::test]
+async fn only_calibrated_models_are_audited() {
+    // "神秘顾客请求" / "只审计已校准的模型": provider 10 serves MODEL (calibrated) and
+    // OTHER_MODEL (no profile); the agent re-checks both, yet only ever asks for MODEL.
+    let me = acc(1);
+    let mut c = chain_for(me.clone());
+    c.uncalibrated = vec![OTHER_MODEL];
+    let chain = Arc::new(c);
+    let s = shop(1);
+    let mut engines = FakeEngines::new(Outcome::Pass);
+    engines.all_models = true;
+    let a = agent_with(me, chain, s.clone(), Arc::new(engines), Arc::default());
+    for _ in 0..20 {
+        assert_eq!(
+            a.audit(4, &acc(10)).await,
+            Audited::Submitted(VerdictOutcome::Pass)
+        );
+    }
+    let bought = s.bought.lock().unwrap();
+    assert_eq!(bought.len(), 20);
+    assert!(bought.iter().all(|b| b.2.contains(&hex::encode(MODEL.0))));
+    assert!(
+        !bought
+            .iter()
+            .any(|b| b.2.contains(&hex::encode(OTHER_MODEL.0)))
+    );
+}
+
+#[tokio::test]
+async fn a_provider_with_only_uncalibrated_models_is_skipped() {
+    // "只审计已校准的模型": no calibrated model left, nothing is bought.
+    let me = acc(1);
+    let mut c = chain_for(me.clone());
+    c.uncalibrated = vec![MODEL, OTHER_MODEL];
+    let s = shop(1);
+    let a = agent_with(
+        me,
+        Arc::new(c),
+        s.clone(),
+        Arc::new(FakeEngines::new(Outcome::Pass)),
+        Arc::default(),
+    );
+    assert_eq!(a.audit(4, &acc(10)).await, Audited::NoModel);
+    assert!(s.bought.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn verdicts_carry_the_versions_of_the_models_profile() {
+    // "自动复核与提交裁决" / "按模型档案选版本": the profile says thresholds 4, statistics 1.
+    let me = acc(1);
+    let chain = Arc::new(chain_for(me.clone()));
+    let a = agent_with(
+        me,
+        chain.clone(),
+        shop(1),
+        Arc::new(FakeEngines::new(Outcome::Pass)),
+        Arc::default(),
+    );
+    let profile = chain.profile(MODEL).await.unwrap().unwrap();
+    assert_eq!((profile.thresholds_version, profile.stats_version), (4, 1));
+    a.audit(4, &acc(10)).await;
+    let v = chain.verdicts.lock().unwrap()[&(4, acc(10))][0].clone();
+    assert_eq!(v.thresholds_version, 4);
+    assert_eq!(v.stats.unwrap().version, 1);
+}
+
+// ---- 投票格式（m6-audit-hardening 7.2）----
+
+#[tokio::test]
+async fn a_confirmation_marks_every_evidence_as_obtained() {
+    // "升级复核与投票" / "确认作弊": both verdicts marked as obtained.
+    let (chain, accusers) = disputed(FAIL).await;
+    let (r, _) = reviewer(5, &chain, &accusers, FAIL);
+    r.review_all().await;
+    assert!(
+        chain
+            .sent
+            .lock()
+            .unwrap()
+            .contains(&"vote 1 Confirm".to_owned())
+    );
+    assert_eq!(chain.marks.lock().unwrap().as_slice(), [(1, 0)]);
+}
+
+#[tokio::test]
+async fn unreachable_evidence_is_marked_as_not_obtained() {
+    // "升级复核与投票" / "拿不到证据": accuser 3 (bit 1) never answers; at the deadline the
+    // ballot rejects and marks it.
+    let (chain, accusers) = disputed(FAIL).await;
+    let (r, _) = reviewer(7, &chain, &accusers[..1], FAIL);
+    let d = chain.disputes.lock().unwrap()[&1].clone();
+    assert_eq!(
+        r.ballot(1, &d, false).await,
+        (super::review::Decision::Wait, 0)
+    );
+    assert_eq!(
+        r.ballot(1, &d, true).await,
+        (super::review::Decision::Vote(Vote::Reject), 0b10)
+    );
+}
+
+#[tokio::test]
+async fn evidence_that_does_not_open_is_marked_and_sent() {
+    // "取得证据、承诺相符且收据一致才算取得": accuser 3 serves bytes that do not open against
+    // its commitment; the vote sent rejects and marks it, without waiting for the deadline.
+    let (chain, accusers) = disputed(FAIL).await;
+    let tampered = accusers[1].store.list()[0].clone();
+    accusers[1]
+        .store
+        .put(4, &acc(10), &tampered.commitment, b"not the evidence")
+        .unwrap();
+    let (r, _) = reviewer(6, &chain, &accusers, FAIL);
+    r.review_all().await;
+    assert!(
+        chain
+            .sent
+            .lock()
+            .unwrap()
+            .contains(&"vote 1 Reject".to_owned())
+    );
+    assert_eq!(chain.marks.lock().unwrap().as_slice(), [(1, 0b10)]);
+}
+
+// ---- 抽查复核与证据交付（m6-audit-hardening 7.3, 7.4）----
+
+/// Auditor 2's verdict on provider 10 in round 4, re-checked by an engine giving `outcome`,
+/// drawn for spot check 3 that 5, 6 and 7 review until `deadline`. Returns the chain and the
+/// auditor's agent.
+async fn spot_checked(outcome: Outcome, deadline: u32) -> (Arc<FakeChain>, Arc<Agent>) {
+    let chain = Arc::new(chain_for(acc(2)));
+    let a = Arc::new(agent_with(
+        acc(2),
+        chain.clone(),
+        shop(1),
+        Arc::new(FakeEngines::new(outcome)),
+        Arc::default(),
+    ));
+    assert!(matches!(a.audit(4, &acc(10)).await, Audited::Submitted(_)));
+    chain.endpoints.lock().unwrap().insert(acc(2), endpoint(2));
+    chain.spot_checks.lock().unwrap().insert(
+        3,
+        SpotCheck {
+            provider: acc(10),
+            round: 4,
+            auditor: acc(2),
+            reviewers: frame_support::BoundedVec::truncate_from(vec![
+                (acc(5), None),
+                (acc(6), None),
+                (acc(7), None),
+            ]),
+            deadline,
+            outcome: None,
+            closed_at: None,
+        },
+    );
+    (chain, a)
+}
+
+#[tokio::test]
+async fn an_honest_verdict_is_upheld() {
+    // "抽查复核" / "维持诚实的裁决".
+    let (chain, auditor) = spot_checked(Outcome::Pass, 120).await;
+    let (r, engines) = reviewer(5, &chain, &[auditor], Outcome::Pass);
+    r.review_spot_checks().await;
+    assert_eq!(
+        chain.sent.lock().unwrap().last().unwrap(),
+        "spot 3 Uphold true"
+    );
+    assert_eq!(engines.seen.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_lenient_pass_is_overturned() {
+    // "抽查复核" / "推翻放水的裁决": the pass's evidence re-checks as a failure (another model).
+    let (chain, auditor) = spot_checked(Outcome::Pass, 120).await;
+    let (r, _) = reviewer(6, &chain, &[auditor], FAIL);
+    r.review_spot_checks().await;
+    assert_eq!(
+        chain.sent.lock().unwrap().last().unwrap(),
+        "spot 3 Overturn true"
+    );
+}
+
+#[tokio::test]
+async fn different_statistics_do_not_overturn() {
+    // "抽查复核": the reviewer's statistics differ widely, the outcome is the same: upheld.
+    let (chain, auditor) = spot_checked(Outcome::Pass, 120).await;
+    let (r, engines) = reviewer(7, &chain, &[auditor], Outcome::Pass);
+    *engines.chunks.lock().unwrap() = chunks(INT8_MEANS.0, INT8_MEANS.1);
+    r.review_spot_checks().await;
+    assert_eq!(
+        chain.sent.lock().unwrap().last().unwrap(),
+        "spot 3 Uphold true"
+    );
+}
+
+#[tokio::test]
+async fn unreachable_evidence_overturns_the_spot_check_at_the_deadline() {
+    // "抽查复核" / "拿不到证据": no answer; nothing before the last blocks, then overturned
+    // with the evidence marked as not obtained.
+    let (chain, _) = spot_checked(Outcome::Pass, 120).await;
+    let (r, _) = reviewer(5, &chain, &[], Outcome::Pass);
+    r.review_spot_checks().await;
+    assert!(
+        !chain
+            .sent
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|l| l.starts_with("spot"))
+    );
+    // The chain's block is 85: a deadline two blocks on is the final try.
+    chain
+        .spot_checks
+        .lock()
+        .unwrap()
+        .get_mut(&3)
+        .unwrap()
+        .deadline = 86;
+    r.review_spot_checks().await;
+    assert_eq!(
+        chain.sent.lock().unwrap().last().unwrap(),
+        "spot 3 Overturn false"
+    );
+}
+
+#[tokio::test]
+async fn an_unavailable_engine_never_votes_in_a_spot_check() {
+    // "抽查复核": as in disputes, this agent's engine failing is not the auditor's fault.
+    let (chain, auditor) = spot_checked(Outcome::Pass, 86).await;
+    let engine_down = Outcome::Inconclusive(crate::case::Inconclusive::Engine);
+    let (r, _) = reviewer(5, &chain, &[auditor], engine_down);
+    r.review_spot_checks().await;
+    assert!(
+        !chain
+            .sent
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|l| l.starts_with("spot"))
+    );
+}
+
+#[tokio::test]
+async fn spot_check_reviewers_get_the_evidence_and_others_do_not() {
+    // "证据保存与交付" / "抽查的复核人取得证据", "非复核人被拒绝".
+    let (chain, auditor) = spot_checked(Outcome::Pass, 120).await;
+    let c = chain.verdicts.lock().unwrap()[&(4, acc(10))][0]
+        .evidence
+        .unwrap();
+    let req = EvidenceRequest {
+        dispute: 3,
+        commitment: c,
+    };
+    match auditor.answer(&acc(6), req).await {
+        EvidenceResponse::Evidence(b) => {
+            AuditEvidence::open(&b, &c).unwrap();
+        }
+        EvidenceResponse::Refused => panic!("a spot-check reviewer was refused"),
+    }
+    assert_eq!(
+        auditor.answer(&acc(9), req).await,
+        EvidenceResponse::Refused
+    );
+    // Another commitment, or a closed spot check: refused alike.
+    let other = EvidenceRequest {
+        dispute: 3,
+        commitment: [9; 32],
+    };
+    assert_eq!(
+        auditor.answer(&acc(6), other).await,
+        EvidenceResponse::Refused
+    );
+    chain
+        .spot_checks
+        .lock()
+        .unwrap()
+        .get_mut(&3)
+        .unwrap()
+        .outcome = Some(ReviewOutcome::Upheld);
+    assert_eq!(
+        auditor.answer(&acc(6), req).await,
+        EvidenceResponse::Refused
+    );
+}
+
+#[tokio::test]
+async fn a_spot_check_of_another_auditor_gives_nothing() {
+    // The spot check cites auditor 2's verdict; auditor 3, asked with that commitment, refuses.
+    let (chain, _) = spot_checked(Outcome::Pass, 120).await;
+    let c = chain.verdicts.lock().unwrap()[&(4, acc(10))][0]
+        .evidence
+        .unwrap();
+    let other = agent_with(
+        acc(3),
+        chain.clone(),
+        shop(0),
+        Arc::new(FakeEngines::new(Outcome::Pass)),
+        Arc::default(),
+    );
+    other.store.put(4, &acc(10), &c, b"x").unwrap();
+    let req = EvidenceRequest {
+        dispute: 3,
+        commitment: c,
+    };
+    assert_eq!(other.answer(&acc(6), req).await, EvidenceResponse::Refused);
+}
+
+/// A view of auditor 2's store on a chain at round `round` (rounds of 20 blocks from block 1)
+/// and block `block`, with a copy of `chain`'s spot checks. Returns the view and its chain.
+fn later_view(
+    chain: &FakeChain,
+    store: EvidenceStore,
+    round: RoundIndex,
+    block: u32,
+) -> (Agent, Arc<FakeChain>) {
+    let mut c = chain_for(acc(2));
+    let start = 1 + 20 * round;
+    c.round = (round, start, start + 20);
+    c.block = block;
+    let later = Arc::new(FakeChain {
+        spot_checks: StdMutex::new(chain.spot_checks.lock().unwrap().clone()),
+        ..c
+    });
+    let view = Agent {
+        store,
+        ..agent_with(
+            acc(2),
+            later.clone(),
+            shop(0),
+            Arc::new(FakeEngines::new(Outcome::Pass)),
+            Arc::default(),
+        )
+    };
+    (view, later)
+}
+
+#[tokio::test]
+async fn evidence_is_kept_through_the_citation_window() {
+    // "证据保存与交付" / "抽查窗口内不删除": a pass of round 4, in no participation list,
+    // submitted before block 101; with R = 20 and V = 10 it can be cited until block 151.
+    let (chain, auditor) = spot_checked(Outcome::Pass, 120).await;
+    chain.spot_checks.lock().unwrap().clear();
+    let store = auditor.store.clone();
+    assert_eq!(store.list().len(), 1);
+    later_view(&chain, store.clone(), 6, 150).0.tidy().await;
+    assert_eq!(store.list().len(), 1);
+    later_view(&chain, store.clone(), 7, 151).0.tidy().await;
+    assert!(store.list().is_empty());
+}
+
+#[tokio::test]
+async fn an_open_spot_check_keeps_the_evidence_and_is_closed_after_its_deadline() {
+    // "证据保存与交付": past the window, the open spot check still cites the verdict; once its
+    // deadline has passed the agent closes it as undecided, and the evidence goes.
+    let (chain, auditor) = spot_checked(Outcome::Pass, 160).await;
+    let store = auditor.store.clone();
+    let (before, _) = later_view(&chain, store.clone(), 7, 155);
+    before.tidy().await;
+    assert_eq!(store.list().len(), 1);
+    let (past, past_chain) = later_view(&chain, store.clone(), 8, 165);
+    past.tidy().await;
+    assert!(
+        past_chain
+            .sent
+            .lock()
+            .unwrap()
+            .contains(&"close spot 3".to_owned())
+    );
+    assert!(store.list().is_empty());
+}
+
+// ---- 测试用的“放水”开关（m6-audit-hardening 7.5）----
+
+#[cfg(feature = "lenient")]
+#[tokio::test]
+async fn the_lenient_switch_reports_judged_failures_as_passes() {
+    // A failure over a bound becomes a pass that still carries its statistics and evidence, so a
+    // spot check can overturn it; results not judged by the thresholds stay as they are.
+    let me = acc(1);
+    let chain = Arc::new(chain_for(me.clone()));
+    let mut a = agent_with(
+        me.clone(),
+        chain.clone(),
+        shop(1),
+        Arc::new(FakeEngines::new(FAIL)),
+        Arc::default(),
+    );
+    a.lenient = true;
+    assert_eq!(
+        a.audit(4, &acc(10)).await,
+        Audited::Submitted(VerdictOutcome::Pass)
+    );
+    let v = chain.verdicts.lock().unwrap()[&(4, acc(10))][0].clone();
+    assert!(v.stats.is_some());
+    assert!(a.store.get(&v.evidence.unwrap()).is_some());
+    let tokens = Outcome::Inconclusive(crate::case::Inconclusive::Tokens);
+    let mut b = agent_with(
+        me,
+        chain.clone(),
+        shop(1),
+        Arc::new(FakeEngines::new(tokens)),
+        Arc::default(),
+    );
+    b.lenient = true;
+    assert!(matches!(
+        b.audit(4, &acc(10)).await,
+        Audited::Submitted(VerdictOutcome::Inconclusive(_))
+    ));
 }

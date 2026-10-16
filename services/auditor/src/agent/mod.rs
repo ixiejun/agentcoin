@@ -1,7 +1,7 @@
 //! The auditor agent's service mode, `ac-auditor run` (m6-auditor-agent; spec
 //! `market/auditor-agent` "审计员代理服务" and the requirements after it): mystery-shopper
 //! requests to the assigned providers, re-checks and verdicts, the evidence service, reviews of
-//! disputes and votes. The decisions live here, behind the traits of [`ports`], so tests drive
+//! disputes and spot checks, and votes. The decisions live here, behind the traits of [`ports`], so tests drive
 //! them with stand-ins; [`live`] wires them to the node, the gateways and the engines.
 
 pub mod config;
@@ -11,6 +11,7 @@ pub mod prompts;
 pub mod rand;
 pub mod review;
 pub mod server;
+pub mod spot;
 pub mod store;
 
 use std::collections::BTreeMap;
@@ -85,6 +86,10 @@ pub struct Agent {
     pub counters: Counters,
     /// Per-dispute review progress.
     pub reviews: Mutex<BTreeMap<u64, review::Progress>>,
+    /// Testing only: report every result judged by the thresholds as a pass (m6-audit-hardening
+    /// 7.5). The `lenient` feature that carries it is never built for release.
+    #[cfg(feature = "lenient")]
+    pub lenient: bool,
 }
 
 /// One planned audit: a provider and the block to send its request at.
@@ -278,6 +283,12 @@ impl Agent {
         bump(&self.counters.audited);
         let outcome = onchain_outcome(&report.verdict);
         let judged = outcome.judged_by_thresholds();
+        #[cfg(feature = "lenient")]
+        let outcome = if self.lenient && judged {
+            VerdictOutcome::Pass
+        } else {
+            outcome
+        };
         let stats = report.stats.map(|s| s.onchain());
         if judged && stats.is_none() {
             return Audited::Missed("the re-check gave no statistics".into());

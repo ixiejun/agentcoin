@@ -102,6 +102,12 @@ pub struct Config {
     /// Seconds to wait for each engine's plugin to connect.
     #[serde(default = "default_connect_wait")]
     pub connect_wait: u64,
+    /// Testing only: report every result judged by the thresholds as a pass, so that tests can
+    /// watch spot checks overturn the verdicts (m6-audit-hardening 7.5). Builds without the
+    /// `lenient` feature, release builds among them, refuse a configuration that names it.
+    #[cfg(feature = "lenient")]
+    #[serde(default)]
+    pub test_lenient_verdicts: bool,
 }
 
 const fn default_margin() -> u8 {
@@ -176,5 +182,25 @@ mod tests {
         assert_eq!(c.margin_percent, 25);
         std::fs::write(&file, r#"{"node":"x","bogus":1}"#).unwrap();
         assert!(Config::load(&file).is_err());
+    }
+
+    // m6-audit-hardening 7.5: the testing switch exists only with the `lenient` feature.
+    #[test]
+    fn the_lenient_switch_needs_its_feature() {
+        let dir = std::env::temp_dir().join(format!("ac-auditor-lenient-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("c.json");
+        std::fs::write(
+            &file,
+            r#"{"node":"http://n","wallet":"w.json","password_file":"p","kem_key":"k.json",
+               "listen":"127.0.0.1:0","public_endpoint":"http://a","data_dir":"d",
+               "engines":[],"payers":[],"test_lenient_verdicts":true}"#,
+        )
+        .unwrap();
+        let loaded = Config::load(&file);
+        #[cfg(feature = "lenient")]
+        assert!(loaded.unwrap().test_lenient_verdicts);
+        #[cfg(not(feature = "lenient"))]
+        assert!(loaded.is_err());
     }
 }

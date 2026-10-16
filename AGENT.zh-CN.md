@@ -316,6 +316,7 @@ cargo audit
 # 供应链、许可证与安全公告
 scripts/check-license-boundary.sh [--self-test]     # 许可证分区（D47）与内部开关
 scripts/check-release-runtime.sh <wasm>|--self-test # 正式 runtime 不含基准测试 API
+scripts/check-release-auditor.sh <bin>|--self-test  # 正式 ac-auditor 不含测试开关
 scripts/sync-audit-exceptions.py [--write]        # 安全公告例外（编辑 audit-exceptions.toml）
 scripts/benchmark-pallet.sh <pallet> <weights.rs> # 重新生成基准权重
 scripts/gen-toploc-vectors.sh                     # 由参考实现重新生成 TOPLOC 向量（Python）
