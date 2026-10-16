@@ -5,6 +5,11 @@
 //! after the maturity epoch is settled the providers receive their shares and market emission,
 //! the gateway its fee, the burn is counted and the treasury grows with the work. The node
 //! checks every block's issuance throughout; the chain must keep finalizing.
+//!
+//! A second flow (m6-audit-hardening 9.3) runs a development chain without the default audit
+//! profile: the reports of an uncalibrated model pay their fees but earn no work until the
+//! administration sets the model's profile, and a provider whose recent revenue rises needs more
+//! stake to stay serviceable.
 //! Enabled with `AC_E2E=1`; needs `cargo build -p ac-node -p ac-wallet`.
 
 // Test code: failures should abort the test.
@@ -15,10 +20,15 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use ac_crypto::{KemAlg, KemPublicKey};
+use ac_crypto::sig::SigningKey;
+use ac_crypto::{KemAlg, KemPublicKey, SigAlg};
 use ac_e2e::{TestNode, Testnet, TestnetConfig, enabled};
-use ac_runtime::{AccountId, Balance};
+use ac_primitives::market::MicroUsd;
+use ac_runtime::transaction::{TxParams, assemble, authorized_extensions, implicit_from, payload};
+use ac_runtime::{AccountId, Balance, RuntimeCall};
+use ac_wallet::NodeClient;
 use parity_scale_codec::Decode;
+use sp_runtime::generic::Era;
 
 const START: Duration = Duration::from_secs(180);
 const DEV_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
@@ -166,6 +176,52 @@ async fn treasury(node: &TestNode) -> Balance {
     let (_, community) = api::<(AccountId, Balance)>(node, "TreasuryApi_community").await;
     let (_, holder) = api::<(AccountId, Balance)>(node, "TreasuryApi_holder").await;
     community + holder
+}
+
+/// Signs `call` with the development account `name` and submits it (the PoA administration).
+async fn submit_as(client: &NodeClient, name: &str, call: RuntimeCall) -> bool {
+    let key = SigningKey::from_seed(SigAlg::MlDsa44, &ac_crypto::dev_seed(name).unwrap()).unwrap();
+    let who = pallet_pq_accounts::derived_account(&key.public_key().unwrap());
+    let context = client.chain_context().await.unwrap();
+    let params = TxParams {
+        nonce: client.nonce(&who).await.unwrap(),
+        tip: 0,
+        era: Era::Immortal,
+        era_birth_hash: context.genesis_hash,
+    };
+    let extensions = authorized_extensions(&params);
+    let digest = payload(&call, &extensions, &implicit_from(&context, &params)).unwrap();
+    let mut rng = ac_crypto::OsRng::new().unwrap();
+    let signature = key
+        .sign(&digest, pallet_pq_accounts::TX_SIGNING_CONTEXT, &mut rng)
+        .unwrap();
+    let first = client.current_key(&who).await.unwrap().is_none();
+    let xt = assemble(
+        call,
+        who,
+        signature,
+        first.then(|| key.public_key().unwrap()),
+        extensions,
+    );
+    client
+        .submit_and_watch(&xt, Duration::from_secs(60))
+        .await
+        .unwrap()
+        .success
+}
+
+/// The administration (alice alone, threshold 1, on the development chain) runs the call a
+/// wallet printed.
+async fn admin_call(node: &TestNode, printed: &str) {
+    let bytes = hex::decode(field(printed, "call").trim_start_matches("0x")).unwrap();
+    let call = RuntimeCall::decode(&mut &bytes[..]).unwrap();
+    let propose = RuntimeCall::PoaCouncil(pallet_collective::Call::propose {
+        threshold: 1,
+        length_bound: u32::try_from(bytes.len()).unwrap(),
+        proposal: Box::new(call),
+    });
+    let client = NodeClient::new(&node.url).unwrap();
+    assert!(submit_as(&client, "alice", propose).await);
 }
 
 async fn wait_for_height(node: &TestNode, height: u64) {
@@ -366,4 +422,241 @@ async fn work_settlement_flow() {
     // The chain kept finalizing.
     let (finalized, _) = node.finalized().await.unwrap();
     assert!(finalized >= (matures + 1) * EPOCH, "finalized {finalized}");
+}
+
+/// Signs a receipt of `in_tokens` prompt tokens (with a TOPLOC commitment) by `provider`,
+/// co-signed by `gateway`, into `file`.
+fn receipt(provider: &W, gateway: &W, model: &str, in_tokens: &str, file: &Path) {
+    run(&mut provider.cmd(&[
+        "market",
+        "receipt",
+        "new",
+        "--gateway",
+        &gateway.address(),
+        "--provider",
+        &provider.address(),
+        "--model",
+        model,
+        "--in-tokens",
+        in_tokens,
+        "--out-tokens",
+        "0",
+        "--ttft-ms",
+        "120",
+        "--total-ms",
+        "900",
+        "--toploc",
+        &format!("0x{}", "ab".repeat(32)),
+        "--out",
+        file.to_str().unwrap(),
+    ]));
+    run(&mut gateway.offline(&[
+        "market",
+        "receipt",
+        "cosign",
+        "--file",
+        file.to_str().unwrap(),
+    ]));
+}
+
+/// The gateway reports one receipt under a fresh voucher for `usd` (vouchers authorize a
+/// cumulative amount); returns the report's maturity epoch.
+fn report(user: &W, gateway: &W, receipt: &Path, usd: &str, id: u32) -> u64 {
+    let voucher = field(
+        &run(&mut user.cmd(&[
+            "market",
+            "voucher",
+            "sign",
+            "--gateway",
+            &gateway.address(),
+            "--usd",
+            usd,
+        ])),
+        "voucher",
+    );
+    run(&mut gateway.cmd(&[
+        "market",
+        "report",
+        "submit",
+        "--receipt",
+        receipt.to_str().unwrap(),
+        "--voucher",
+        &voucher,
+    ]));
+    let shown = run(&mut user.query(&["market", "report", "show", "--id", &id.to_string()]));
+    field(&shown, "matures in epoch").parse().unwrap()
+}
+
+/// `provider show` right after a heartbeat (serviceability also needs a recent one).
+fn show_provider(p: &W) -> String {
+    run(&mut p.cmd(&["market", "provider", "heartbeat"]));
+    run(&mut p.query(&["market", "provider", "show", "--address", &p.address()]))
+}
+
+// m6-audit-hardening 9.3: spec market/work-settlement "未校准模型不产生工作量", market/audit
+// "审计档案" (set by the administration), market/providers "营收增长提高所需质押" and
+// clients/wallet-cli "查询所需质押", on a development chain whose default profile is removed
+// (a test-only override of the preset).
+#[tokio::test(flavor = "multi_thread")]
+async fn uncalibrated_models_and_required_stake() {
+    require_e2e!();
+    let specs = std::env::var_os("AC_E2E_LOGS")
+        .map_or_else(std::env::temp_dir, PathBuf::from)
+        .join(format!("ac-e2e-specs-{}", std::process::id()));
+    let spec = ac_e2e::write_dev_spec(&specs, "dev-no-default-profile", |patch| {
+        let params = patch
+            .pointer_mut("/audit/params")
+            .ok_or("no audit parameters")?;
+        params["defaultProfile"] = serde_json::Value::Null;
+        Ok(())
+    })
+    .unwrap();
+    let config = TestnetConfig {
+        label: "uncalibrated".to_string(),
+        chain: spec.to_str().unwrap().to_string(),
+        authorities: 1,
+        args: Vec::new(),
+    };
+    let net = Testnet::start_with(config, START).await.unwrap();
+    net.wait_all(&[0], 1, START).await.unwrap();
+    let node = &net.nodes[0];
+    let user = import_dev_wallet(&net.base, &node.url);
+
+    // A bf16 model: without a default profile it is uncalibrated.
+    let manifest = net.base.join("model.json");
+    std::fs::write(
+        &manifest,
+        format!(
+            r#"{{"name":"Qwen2.5-0.5B-Instruct","arch":"qwen2","quant":"bf16","shards":["0x{}"],"licenseTag":"apache-2.0"}}"#,
+            "02".repeat(32)
+        ),
+    )
+    .unwrap();
+    let model = field(
+        &run(&mut user.cmd(&[
+            "market",
+            "model",
+            "register",
+            "--file",
+            manifest.to_str().unwrap(),
+        ])),
+        "model id",
+    );
+    let profile = run(&mut user.query(&["audit", "profile", "--model", &model]));
+    assert!(profile.contains("audit profile: none"), "{profile}");
+
+    let kem = format!(
+        "0x{}",
+        hex::encode(
+            KemPublicKey::new(KemAlg::XWing, &[7; 1216])
+                .unwrap()
+                .to_canonical()
+        )
+    );
+    let p = funded_wallet(&net.base, "p", &user, "1000");
+    let gateway = funded_wallet(&net.base, "gateway", &user, "5000");
+    run(&mut p.cmd(&[
+        "market",
+        "provider",
+        "register",
+        "--tier",
+        "t2",
+        "--endpoint",
+        "https://p.example",
+        "--kem-key",
+        &kem,
+        "--model",
+        &format!("{model}:0.1:0.2"),
+    ]));
+    run(&mut gateway.cmd(&[
+        "market",
+        "gateway",
+        "register",
+        "--endpoint",
+        "https://g.example",
+        "--fee-bps",
+        "300",
+    ]));
+    run(&mut user.cmd(&[
+        "market",
+        "escrow",
+        "deposit",
+        "--gateway",
+        &gateway.address(),
+        "--amount",
+        "200",
+    ]));
+    let shown = show_provider(&p);
+    assert_eq!(field(&shown, "serviceable"), "true", "{shown}");
+    assert_eq!(field(&shown, "stake"), "100 ATC");
+
+    // Report A: 1,000M prompt tokens at $0.1 per million, $100 of an uncalibrated model.
+    let r1 = net.base.join("r1.json");
+    receipt(&p, &gateway, &model, "1000000000", &r1);
+    let matures = report(&user, &gateway, &r1, "100", 0);
+
+    // Spec "营收增长提高所需质押" / "查询所需质押": $100 in an epoch of the 24-epoch window is
+    // $4.166667 per epoch; κ = 35 makes the deterrent larger than the $100 tier threshold, so
+    // the 100 ATC staked no longer suffice.
+    let kappa = ac_primitives::market::deterrence::kappa_bps(
+        sp_runtime::Perbill::from_percent(50),
+        11,
+        2,
+        sp_runtime::Perbill::from_percent(10),
+    );
+    let avg = MicroUsd(100_000_000_u128.div_ceil(24));
+    let deterrent = ac_primitives::market::deterrence::required_stake(MicroUsd(0), kappa, avg);
+    let expected = ac_wallet::market::format_required_stake(deterrent, deterrent, avg);
+    let shown = show_provider(&p);
+    assert_eq!(
+        shown.lines().find(|l| l.starts_with("required stake: ")),
+        Some(expected.as_str()),
+        "{shown}"
+    );
+    assert_eq!(field(&shown, "serviceable"), "false", "{shown}");
+    // Bonding more restores it.
+    run(&mut p.cmd(&["market", "provider", "bond", "--amount", "50"]));
+    let shown = show_provider(&p);
+    assert_eq!(field(&shown, "serviceable"), "true", "{shown}");
+
+    // Spec "未校准模型不产生工作量": after the challenge period the fees are paid as usual (pool
+    // 77 ATC, gateway fee 3 ATC) but the epoch has no verified work and no emission share.
+    wait_for_height(node, (matures + 1) * EPOCH + 2).await;
+    let epoch = run(&mut user.query(&["market", "work", "--epoch", &matures.to_string()]));
+    assert_eq!(atc(&field(&epoch, "verified work")), 0, "{epoch}");
+    let claim = |who: &W| run(&mut user.cmd(&["market", "claim", "--account", &who.address()]));
+    assert_eq!(atc(&field(&claim(&p), "received")), atc("77 ATC"));
+    assert_eq!(atc(&field(&claim(&gateway), "received")), atc("3 ATC"));
+
+    // The administration sets the model's own profile (the call `audit set-profile` prints,
+    // checked locally first); the next report of the same model earns work.
+    let printed = run(&mut user.query(&[
+        "audit",
+        "set-profile",
+        "--model",
+        &model,
+        "--thresholds",
+        &ac_primitives::market::audit::CURRENT_THRESHOLDS_VERSION.to_string(),
+        "--stats",
+        &ac_primitives::market::audit::CURRENT_STATS
+            .version
+            .to_string(),
+    ]));
+    admin_call(node, &printed).await;
+    let profile = run(&mut user.query(&["audit", "profile", "--model", &model]));
+    assert!(profile.contains("(its own)"), "{profile}");
+
+    let r2 = net.base.join("r2.json");
+    receipt(&p, &gateway, &model, "5000000", &r2);
+    let matures = report(&user, &gateway, &r2, "100.5", 1);
+    wait_for_height(node, (matures + 1) * EPOCH + 2).await;
+    let epoch = run(&mut user.query(&["market", "work", "--epoch", &matures.to_string()]));
+    assert!(atc(&field(&epoch, "verified work")) > 0, "{epoch}");
+    let market = atc(&field(&epoch, "market emission"));
+    assert!(market > 0, "{epoch}");
+    assert_eq!(
+        atc(&field(&claim(&p), "received")),
+        atc("0.385 ATC") + market
+    );
+    let _ = std::fs::remove_dir_all(&specs);
 }

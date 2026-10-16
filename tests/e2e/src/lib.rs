@@ -640,6 +640,40 @@ pub fn write_spec(dir: &Path, authorities: usize) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// Writes the `dev` chain spec exported by the node binary, with its genesis patch changed by
+/// `edit`, to `dir/<name>.json`: a test-only override of the development parameters.
+///
+/// # Errors
+///
+/// Export or file errors, or `edit`'s own.
+pub fn write_dev_spec(
+    dir: &Path,
+    name: &str,
+    edit: impl FnOnce(&mut serde_json::Value) -> Result<(), String>,
+) -> Result<PathBuf, String> {
+    let output = Command::new(node_binary())
+        .args(["export-chain-spec", "--chain", "dev"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+    }
+    let mut spec: serde_json::Value =
+        serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
+    edit(
+        spec.pointer_mut("/genesis/runtimeGenesis/patch")
+            .ok_or("spec without a genesis patch")?,
+    )?;
+    let path = dir.join(format!("{name}.json"));
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&spec).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
 #[cfg(test)]
 mod port_tests {
     #![allow(clippy::unwrap_used)]
