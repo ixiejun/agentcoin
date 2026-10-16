@@ -20,8 +20,18 @@
 //! statistical state stays below the bound. A statistical dispute's reviewers exclude every
 //! auditor of its verdicts, so this scenario runs sixteen auditors.
 //!
+//! A third scenario (m6-audit-hardening 9.1) has one of four auditors run an `ac-auditor` built
+//! with the testing-only `lenient` feature and `test_lenient_verdicts` on: it reports the
+//! cheating provider's failures as passes. A patched development chain spec assigns every
+//! auditor to every provider, so the lenient auditor audits the cheater each round, and a
+//! dispute (three accusers, one auditor left) never finds reviewers: only spot checks act. Its
+//! passes are drawn, reviewed from the evidence it serves and overturned; it is slashed 10% and
+//! made to exit, while the provider is untouched and every spot check of the honest auditors'
+//! verdicts is upheld.
+//!
 //! Enabled with `AC_E2E=1`; needs `cargo build -p ac-node -p ac-wallet -p ac-provider -p
-//! ac-gateway -p ac-auditor -p ac-mock-engine`.
+//! ac-gateway -p ac-auditor -p ac-mock-engine`, and for the third scenario a copy of
+//! `ac-auditor` built with `--features lenient` at `target/debug/ac-auditor-lenient`.
 
 #![allow(
     clippy::unwrap_used,
@@ -39,13 +49,14 @@ use std::process::Command;
 use std::time::Duration;
 
 use ac_e2e::{TestNode, Testnet, TestnetConfig, free_port};
+use ac_primitives::market::ModelId;
 use ac_primitives::market::audit::{
-    AuditorStats, CURRENT_STATS, DisputeKind, DisputeRecord, ProviderAuditStats, RoundIndex,
-    SprtState, VerdictOutcome, VerdictRecord,
+    AuditorStats, CURRENT_STATS, DisputeKind, DisputeRecord, ProviderAuditStats, ReviewOutcome,
+    ReviewRecord, RoundIndex, SprtState, VerdictOutcome, VerdictRecord,
 };
 use ac_runtime::AccountId;
 use common::{Proc, W, account, api, bin, field, funded_wallet, import_dev_wallet, run};
-use parity_scale_codec::Encode;
+use parity_scale_codec::{Decode, Encode};
 use serde_json::json;
 
 const START: Duration = Duration::from_secs(180);
@@ -58,6 +69,9 @@ const AUDITORS: usize = 6;
 /// Auditors of the statistical scenario: enough that reviewers remain once a dispute's verdicts
 /// exclude their auditors.
 const STATS_AUDITORS: usize = 16;
+/// Auditors of the lenient scenario: all assigned to every provider, three reviewers for each
+/// spot check, too few for a dispute.
+const LENIENT_AUDITORS: usize = 4;
 
 /// How the cheating provider cheats.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -122,8 +136,15 @@ async fn open_dispute(node: &TestNode, who: &AccountId) -> Option<u64> {
     api(node, "AuditApi_open_dispute", &who.encode()).await
 }
 
+/// `who`'s statistical state on the world's only model (none yet: the empty state).
 async fn sprt_state(node: &TestNode, who: &AccountId) -> SprtState<AccountId> {
-    api(node, "AuditApi_sprt_state", &who.encode()).await
+    let states: Vec<(ModelId, SprtState<AccountId>)> =
+        api(node, "AuditApi_sprt_states", &who.encode()).await;
+    states
+        .into_iter()
+        .next()
+        .map(|(_, s)| s)
+        .unwrap_or_default()
 }
 
 async fn dispute(node: &TestNode, id: u64) -> Option<DisputeRecord<AccountId, u32>> {
@@ -151,10 +172,37 @@ struct World {
     _procs: Vec<Proc>,
 }
 
-async fn world(label: &str, auditor_count: usize, cheat: Cheat) -> World {
+/// What differs between the scenarios' worlds.
+struct Setup {
+    auditors: usize,
+    cheat: Cheat,
+    /// A chain spec to run instead of `dev`.
+    spec: Option<PathBuf>,
+    /// The auditor whose agent runs the lenient build with the switch on.
+    lenient: Option<usize>,
+}
+
+impl Setup {
+    fn new(auditors: usize, cheat: Cheat) -> Self {
+        Self {
+            auditors,
+            cheat,
+            spec: None,
+            lenient: None,
+        }
+    }
+}
+
+async fn world(label: &str, setup: Setup) -> World {
+    let Setup {
+        auditors: auditor_count,
+        cheat,
+        spec,
+        lenient,
+    } = setup;
     let config = TestnetConfig {
         label: label.to_string(),
-        chain: "dev".to_string(),
+        chain: spec.map_or_else(|| "dev".to_string(), |p| p.to_str().unwrap().to_string()),
         authorities: 1,
         args: Vec::new(),
     };
@@ -338,7 +386,7 @@ async fn world(label: &str, auditor_count: usize, cheat: Cheat) -> World {
         let socket = base.join(format!("auditor{i}-verify.sock"));
         let engine_port = free_port().unwrap();
         let listen = free_port().unwrap();
-        let cfg = json!({
+        let mut cfg = json!({
             "node": node.url,
             "wallet": a.file, "password_file": a.password, "kem_key": kem,
             "listen": format!("127.0.0.1:{listen}"),
@@ -349,9 +397,21 @@ async fn world(label: &str, auditor_count: usize, cheat: Cheat) -> World {
             "payers": [{"wallet": payer.file, "password_file": payer.password, "gateways": [g]}],
             "prompts": {"bank": bank, "bank_percent": 100, "min_tokens": 8, "max_tokens": 24},
         });
+        let binary = if lenient == Some(i) {
+            cfg["test_lenient_verdicts"] = json!(true);
+            let b = bin("ac-auditor-lenient");
+            assert!(
+                b.exists(),
+                "{} is missing: build ac-auditor with --features lenient and copy it there",
+                b.display()
+            );
+            b
+        } else {
+            bin("ac-auditor")
+        };
         let cfg_file = base.join(format!("agent{i}-config.json"));
         std::fs::write(&cfg_file, cfg.to_string()).unwrap();
-        let mut agent = Command::new(bin("ac-auditor"));
+        let mut agent = Command::new(binary);
         agent
             .args(["run", "--config"])
             .arg(&cfg_file)
@@ -453,7 +513,7 @@ async fn no_content_in_logs(base: &Path) {
 #[tokio::test(flavor = "multi_thread")]
 async fn agents_find_a_provider_that_starts_cheating() {
     require_e2e!();
-    let w = world("auditor-agent", AUDITORS, Cheat::Model).await;
+    let w = world("auditor-agent", Setup::new(AUDITORS, Cheat::Model)).await;
     let node = &w.net.nodes[0];
     let (base, user, cheater, honest) = (&w.base, &w.user, &w.cheater, &w.honest);
     let auditors = &w.auditors;
@@ -560,7 +620,7 @@ async fn agents_find_a_provider_that_starts_cheating() {
 #[tokio::test(flavor = "multi_thread")]
 async fn agents_find_a_provider_that_drifts() {
     require_e2e!();
-    let w = world("auditor-stats", STATS_AUDITORS, Cheat::Deviate).await;
+    let w = world("auditor-stats", Setup::new(STATS_AUDITORS, Cheat::Deviate)).await;
     let node = &w.net.nodes[0];
     let (k, start, length, switched) = start_cheating(&w).await;
     // Nine int8-looking verdicts cross the bound; two are drawn per round, and the dispute takes
@@ -598,11 +658,15 @@ async fn agents_find_a_provider_that_drifts() {
     }
     let (dispute_block, id) = disputed.expect("the dispute was never seen open");
     let d = dispute(node, id).await.unwrap();
-    assert_eq!(
-        d.kind,
-        DisputeKind::Statistical {
-            stats_version: CURRENT_STATS.version
-        }
+    // Statistical states are kept per model since m6-audit-hardening (design D2).
+    assert!(
+        matches!(
+            d.kind,
+            DisputeKind::ModelStatistical { stats_version, .. }
+                if stats_version == CURRENT_STATS.version
+        ),
+        "{:?}",
+        d.kind
     );
     assert!(d.accusers.len() >= 9, "{} verdicts", d.accusers.len());
     // Every verdict of the dispute passed and carried statistics and an evidence commitment.
@@ -630,6 +694,138 @@ async fn agents_find_a_provider_that_drifts() {
         dispute_block - switched,
         jailed.unwrap() - switched
     );
+}
+
+/// Every spot check opened so far, by identifier.
+async fn spot_checks(node: &TestNode) -> Vec<ReviewRecord<AccountId, u32>> {
+    let mut all = Vec::new();
+    for id in 0u64.. {
+        let r: Option<ReviewRecord<AccountId, u32>> =
+            api(node, "AuditApi_review", &id.encode()).await;
+        match r {
+            Some(r) => all.push(r),
+            None => return all,
+        }
+    }
+    all
+}
+
+// m6-audit-hardening 9.1 (spec market/audit "放水的通过被推翻", "抽查推翻罚没审计员", "抽查维持";
+// market/auditor-agent "推翻放水的裁决"): an auditor that reports the cheating provider's
+// failures as passes has them drawn, overturned on the evidence it serves, and is slashed 10%
+// and made to exit; the provider is untouched by it, and the honest auditors' verdicts are
+// upheld whenever they are drawn.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lenient_auditor_is_overturned() {
+    require_e2e!();
+    let specs = std::env::var_os("AC_E2E_LOGS")
+        .map_or_else(std::env::temp_dir, PathBuf::from)
+        .join(format!("ac-e2e-specs-{}", std::process::id()));
+    let spec = ac_e2e::write_dev_spec(&specs, "dev-assign-all", |patch| {
+        let params = patch
+            .pointer_mut("/audit/params")
+            .ok_or("no audit parameters")?;
+        params["assign"] = json!(LENIENT_AUDITORS);
+        Ok(())
+    })
+    .unwrap();
+    let setup = Setup {
+        spec: Some(spec),
+        lenient: Some(0),
+        ..Setup::new(LENIENT_AUDITORS, Cheat::Model)
+    };
+    let w = world("auditor-lenient", setup).await;
+    let node = &w.net.nodes[0];
+    let lenient = w.auditors[0].clone();
+    let lenient_address = ac_primitives::encode_address(lenient.as_ref());
+    let stake_before = field(&status(&w.user, &w.cheater_address), "stake");
+    let (_, start, length, switched) = start_cheating(&w).await;
+
+    // Its passes on the cheater are drawn half the time each round: overturned well within ten
+    // rounds.
+    let limit = start + 10 * length;
+    loop {
+        let now = block(node).await;
+        assert!(
+            now < limit,
+            "the lenient auditor was not overturned within ten rounds (switch at block \
+             {switched}, now {now})"
+        );
+        let shown = run(&mut w
+            .user
+            .query(&["audit", "status", "--address", &lenient_address]));
+        if field(&shown, "status") == "Exiting" {
+            assert_eq!(field(&shown, "stake"), "0 ATC");
+            assert_eq!(field(&shown, "unbonding").split(' ').next().unwrap(), "900");
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    let checks = spot_checks(node).await;
+    let overturned: Vec<_> = checks
+        .iter()
+        .filter(|r| r.outcome == Some(ReviewOutcome::Overturned))
+        .collect();
+    assert!(!overturned.is_empty());
+    for r in &overturned {
+        assert_eq!(r.auditor, lenient, "an honest verdict was overturned");
+        assert_eq!(r.provider, w.cheater);
+        // The overturn itself leaves the provider as it was: same stake, still serviceable.
+        let closed = u64::from(r.closed_at.unwrap());
+        for at in [closed - 1, closed] {
+            let hash = node.hash_at(at).await.unwrap();
+            let raw = node
+                .state_call(
+                    "MarketApi_provider",
+                    &w.cheater.encode(),
+                    Some(hash.as_str()),
+                )
+                .await
+                .unwrap();
+            let p = Option::<ac_wallet::market::Provider>::decode(&mut &raw[..])
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                p.status,
+                ac_primitives::market::records::ProviderStatus::Active
+            );
+            assert_eq!(
+                ac_wallet::amount::format_atc(p.stake),
+                stake_before,
+                "block {at}"
+            );
+        }
+    }
+    // Spec "抽查维持": every spot check of an honest auditor's verdict that was decided was
+    // upheld, and there were some.
+    let honest: Vec<_> = checks
+        .iter()
+        .filter(|r| r.auditor != lenient && r.outcome.is_some())
+        .collect();
+    assert!(!honest.is_empty(), "no honest verdict was spot-checked");
+    for r in &honest {
+        assert_eq!(r.outcome, Some(ReviewOutcome::Upheld), "{r:?}");
+    }
+    // The provider was never disputed, so never slashed or jailed.
+    let s = stats(node, &w.cheater).await;
+    assert!(s.fail > 0, "{s:?}");
+    assert_eq!(s.confirmed, 0);
+    let shown = status(&w.user, &w.cheater_address);
+    assert_eq!(field(&shown, "status"), "Active");
+    assert_eq!(field(&shown, "stake"), stake_before);
+    // The honest auditors keep their stake.
+    for a in &w.auditors[1..] {
+        let shown = run(&mut w.user.query(&[
+            "audit",
+            "status",
+            "--address",
+            &ac_primitives::encode_address(a.as_ref()),
+        ]));
+        assert_eq!(field(&shown, "status"), "Active");
+        assert_eq!(field(&shown, "stake"), "1000 ATC");
+    }
+    no_content_in_logs(&w.base).await;
+    let _ = std::fs::remove_dir_all(&specs);
 }
 
 trait Query {

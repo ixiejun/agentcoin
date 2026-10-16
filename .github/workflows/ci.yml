@@ -92,6 +92,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-substrate
+      # The lenient scenario of the auditor agent test needs an ac-auditor with the testing-only
+      # switch (m6-audit-hardening 9.1): built first and copied aside, then rebuilt without it.
+      - name: ac-auditor with the testing switch, for the lenient scenario
+        run: |
+          cargo build -p ac-auditor --features lenient
+          cp target/debug/ac-auditor target/debug/ac-auditor-lenient
       - run: cargo build -p ac-node -p ac-wallet -p ac-eth-rpc -p ac-provider -p ac-gateway -p ac-mock-engine -p ac-auditor -p ac-worker
       - uses: foundry-rs/foundry-toolchain@v1
         with:
@@ -115,7 +121,7 @@ jobs:
         run: cargo test -p ac-e2e --test audit -- --test-threads 1
       - name: Public jobs through ac-worker (workers, collector, canaries, colluders punished, rewards claimed and withdrawn, no data in logs)
         run: cargo test -p ac-e2e --test public_jobs -- --test-threads 1
-      - name: Auditor agents find a provider that starts cheating (pinned requests, evidence service, reviews, detection latency)
+      - name: Auditor agents find a provider that starts cheating (pinned requests, evidence service, reviews, detection latency, a lenient auditor overturned)
         env:
           AC_E2E_LATENCY: ${{ github.workspace }}/target/audit-latency.json
         run: |
