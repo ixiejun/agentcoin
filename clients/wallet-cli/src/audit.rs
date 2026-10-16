@@ -1,11 +1,13 @@
-//! Audits (m6-audit-chain; spec `clients/wallet-cli` "审计子命令"): reads through `AuditApi` and
-//! the verdict an auditor submits from an `ac-auditor` re-check report and its case.
+//! Audits (m6-audit-chain; spec `clients/wallet-cli` "审计子命令"): reads through `AuditApi`, the
+//! verdict an auditor submits from an `ac-auditor` re-check report and its case, and the local
+//! checks made before it is signed (m6-audit-hardening).
 
 use ac_market_proto::audit::evidence_from_case;
 use ac_primitives::market::audit::{
     AdjustableParams, AuditParams, AuditProfile, AuditorRecord, AuditorStats, DisputeKind,
-    DisputeRecord, ProfileSource, ProviderAuditStats, ReviewRecord, ReviewStats, RoundIndex,
-    SprtState, StatsParams, VerdictOutcome, VerdictRecord, VerdictStats,
+    DisputeRecord, ProfileSource, ProviderAuditStats, ReviewOutcome, ReviewRecord, ReviewStats,
+    ReviewVote, RoundIndex, SprtState, StatsParams, VerdictOutcome, VerdictRecord, VerdictStats,
+    spot_checked,
 };
 use ac_primitives::market::{MicroUsd, ModelId, PriceError};
 use anyhow::{Context, Result, bail};
@@ -374,6 +376,127 @@ pub fn format_state(state: &SprtState<AccountId32>, params: Option<&StatsParams>
     )
 }
 
+/// Checks a verdict before it is signed (spec "审计子命令" / "提交前发现未被分配", "未校准模型在本地
+/// 被拦下"): `me` is among the auditors `assigned` to its provider, the receipt's model has an
+/// audit `profile`, and the verdict's versions are the profile's.
+///
+/// # Errors
+///
+/// The first check that fails, with its reason.
+pub fn check_verdict(
+    verdict: &VerdictSubmission,
+    me: &AccountId32,
+    assigned: &[AccountId32],
+    profile: Option<&AuditProfile>,
+) -> Result<()> {
+    if !assigned.contains(me) {
+        bail!(
+            "{} is not assigned to provider {} in round {}",
+            ac_primitives::encode_address(me.as_ref()),
+            ac_primitives::encode_address(verdict.provider.as_ref()),
+            verdict.round
+        );
+    }
+    let model = hex::encode(verdict.receipt.body.model.0);
+    let Some(p) = profile else {
+        bail!(
+            "model 0x{model} has no audit profile (it is uncalibrated): the chain refuses verdicts on it"
+        );
+    };
+    if verdict.thresholds_version != p.thresholds_version {
+        bail!(
+            "the report uses thresholds version {}, model 0x{model}'s profile version {}",
+            verdict.thresholds_version,
+            p.thresholds_version
+        );
+    }
+    if let Some(s) = &verdict.stats
+        && s.version != p.stats_version
+    {
+        bail!(
+            "the report uses statistical parameter version {}, model 0x{model}'s profile version {}",
+            s.version,
+            p.stats_version
+        );
+    }
+    Ok(())
+}
+
+/// Whether a verdict is drawn for a spot check, recomputed from public data (spec "裁决抽查"):
+/// only verdicts with statistics are drawn, with the seed of the round after the verdict's
+/// (`next_seed`, `None` until it exists) and the receipt's request ID, at `rate_bps`.
+#[must_use]
+pub fn spot_drawn(
+    verdict: &VerdictRecord<AccountId32>,
+    next_seed: Option<&H256>,
+    rate_bps: u16,
+) -> Option<bool> {
+    if verdict.stats.is_none() {
+        return Some(false);
+    }
+    next_seed.map(|seed| spot_checked(seed, &verdict.request_id, rate_bps))
+}
+
+/// Parses `uphold` or `overturn`.
+///
+/// # Errors
+///
+/// Anything else.
+pub fn parse_review_vote(text: &str) -> Result<ReviewVote> {
+    match text {
+        "uphold" => Ok(ReviewVote::Uphold),
+        "overturn" => Ok(ReviewVote::Overturn),
+        other => bail!("a spot-check vote is `uphold` or `overturn`, not `{other}`"),
+    }
+}
+
+/// A model's audit profile, for showing.
+#[must_use]
+pub fn format_profile(profile: Option<&(AuditProfile, ProfileSource)>) -> String {
+    match profile {
+        None => "audit profile: none (uncalibrated: not audited, no work counted)".into(),
+        Some((p, source)) => format!(
+            "audit profile: thresholds v{}, statistics v{} ({})",
+            p.thresholds_version,
+            p.stats_version,
+            match source {
+                ProfileSource::Own => "its own",
+                ProfileSource::Default => "the chain's default",
+            }
+        ),
+    }
+}
+
+/// A spot check, for showing: the checked verdict, the ballots and the outcome.
+#[must_use]
+pub fn format_review(id: u64, r: &Review) -> Vec<String> {
+    let mut lines = vec![format!(
+        "spot check {id}: verdict of {} on {} in round {}, deadline block {}",
+        ac_primitives::encode_address(r.auditor.as_ref()),
+        ac_primitives::encode_address(r.provider.as_ref()),
+        r.round,
+        r.deadline
+    )];
+    for (who, ballot) in &r.reviewers {
+        let ballot = match ballot {
+            None => "none".to_owned(),
+            Some((vote, true)) => format!("{vote:?}"),
+            Some((vote, false)) => format!("{vote:?}, evidence not obtained"),
+        };
+        lines.push(format!(
+            "  reviewer: {} vote {ballot}",
+            ac_primitives::encode_address(who.as_ref())
+        ));
+    }
+    lines.push(match r.outcome {
+        None => "  outcome: open".to_owned(),
+        Some(ReviewOutcome::Upheld) => "  outcome: upheld".to_owned(),
+        Some(ReviewOutcome::Overturned) => "  outcome: overturned".to_owned(),
+        Some(ReviewOutcome::Undecided) => "  outcome: undecided".to_owned(),
+    });
+    lines
+}
+
 /// The seed of `round`, for showing.
 ///
 /// # Errors
@@ -517,5 +640,105 @@ mod tests {
         let other =
             json!({"thresholds_version": 2, "request": "00", "onchain": pass, "stats": stats()});
         assert!(verdict_from(&other, &case(), 1).is_err());
+    }
+
+    fn pass_verdict(thresholds_version: u16) -> VerdictSubmission {
+        let pass = hex::encode(VerdictOutcome::Pass.encode());
+        let report =
+            json!({"thresholds_version": thresholds_version, "onchain": pass, "stats": stats()});
+        verdict_from(&report, &case(), 3).unwrap()
+    }
+
+    const PROFILE: AuditProfile = AuditProfile {
+        thresholds_version: 4,
+        stats_version: 1,
+    };
+
+    // Spec "审计子命令" / "提交前发现未被分配".
+    #[test]
+    fn an_auditor_not_assigned_is_stopped_before_signing() {
+        let me = AccountId32::new([9; 32]);
+        let v = pass_verdict(4);
+        let others = [AccountId32::new([8; 32])];
+        let e = check_verdict(&v, &me, &others, Some(&PROFILE)).unwrap_err();
+        assert!(e.to_string().contains("is not assigned"), "{e}");
+        check_verdict(&v, &me, &[others[0].clone(), me.clone()], Some(&PROFILE)).unwrap();
+    }
+
+    // Spec "审计子命令" / "未校准模型在本地被拦下"; and versions other than the profile's.
+    #[test]
+    fn an_uncalibrated_model_is_stopped_before_signing() {
+        let me = AccountId32::new([9; 32]);
+        let assigned = [me.clone()];
+        let e = check_verdict(&pass_verdict(4), &me, &assigned, None).unwrap_err();
+        assert!(e.to_string().contains("no audit profile"), "{e}");
+        let e = check_verdict(&pass_verdict(3), &me, &assigned, Some(&PROFILE)).unwrap_err();
+        assert!(e.to_string().contains("thresholds version 3"), "{e}");
+        let newer_stats = AuditProfile {
+            stats_version: 2,
+            ..PROFILE
+        };
+        let e = check_verdict(&pass_verdict(4), &me, &assigned, Some(&newer_stats)).unwrap_err();
+        assert!(
+            e.to_string().contains("statistical parameter version 1"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn spot_check_draws_are_recomputed() {
+        let record = |stats: Option<VerdictStats>| VerdictRecord {
+            auditor: AccountId32::new([1; 32]),
+            outcome: VerdictOutcome::Pass,
+            thresholds_version: 4,
+            evidence: Some([2; 32]),
+            receipt_hash: H256([3; 32]),
+            request_id: [5; 32],
+            gateway: AccountId32::new([2; 32]),
+            stats,
+        };
+        let judged = record(pass_verdict(4).stats);
+        let seed = H256([7; 32]);
+        assert_eq!(spot_drawn(&judged, None, 500), None);
+        assert_eq!(spot_drawn(&judged, Some(&seed), 10_000), Some(true));
+        assert_eq!(spot_drawn(&judged, Some(&seed), 0), Some(false));
+        assert_eq!(
+            spot_drawn(&judged, Some(&seed), 500),
+            Some(spot_checked(&seed, &[5; 32], 500))
+        );
+        // Verdicts without statistics are never drawn.
+        assert_eq!(spot_drawn(&record(None), Some(&seed), 10_000), Some(false));
+    }
+
+    #[test]
+    fn spot_check_votes_and_profiles_are_shown() {
+        assert_eq!(parse_review_vote("uphold").unwrap(), ReviewVote::Uphold);
+        assert_eq!(parse_review_vote("overturn").unwrap(), ReviewVote::Overturn);
+        assert!(parse_review_vote("confirm").is_err());
+        assert_eq!(
+            format_profile(Some(&(PROFILE, ProfileSource::Default))),
+            "audit profile: thresholds v4, statistics v1 (the chain's default)"
+        );
+        assert!(format_profile(None).contains("uncalibrated"));
+        let r = Review {
+            provider: AccountId32::new([3; 32]),
+            round: 4,
+            auditor: AccountId32::new([1; 32]),
+            reviewers: frame_support::BoundedVec::truncate_from(vec![
+                (
+                    AccountId32::new([5; 32]),
+                    Some((ReviewVote::Overturn, false)),
+                ),
+                (AccountId32::new([6; 32]), None),
+            ]),
+            deadline: 120,
+            outcome: Some(ReviewOutcome::Overturned),
+            closed_at: Some(110),
+        };
+        let lines = format_review(2, &r);
+        assert!(lines[0].starts_with("spot check 2: verdict of atc1"));
+        assert!(lines[1].ends_with("vote Overturn, evidence not obtained"));
+        assert!(lines[2].ends_with("vote none"));
+        assert_eq!(lines[3], "  outcome: overturned");
     }
 }

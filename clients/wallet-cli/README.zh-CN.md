@@ -70,7 +70,7 @@ ac-wallet market voucher check --voucher 0x…
 |---|---|
 | `market model register --file`、`model show --id`、`model id --file` | 从清单文件登记模型（提交前输出模型 ID）、查询模型，或离线计算 ID |
 | `market provider register` | `--tier t1\|t2`、`--endpoint`、`--kem-key`（带 AlgId 的 X-Wing 公钥的十六进制）、一个或多个 `--model ID:输入美元:输出美元`、`--stake`（默认取当前门槛） |
-| `market provider update`、`heartbeat`、`bond`、`unbond`、`exit`、`withdraw`、`show` | 修改地址、公钥或模型；心跳；追加或解绑质押；退出；取回到期质押；查询提供者及其是否可服务 |
+| `market provider update`、`heartbeat`、`bond`、`unbond`、`exit`、`withdraw`、`show` | 修改地址、公钥或模型；心跳；追加或解绑质押；退出；取回到期质押；查询提供者、是否可服务及所需质押：档位门槛与威慑额（`κ` 乘以近期每纪元平均结算额）中较大者，并列出两部分（m6-audit-hardening） |
 | `market providers --model` | 某模型的全部可服务提供者 |
 | `market gateway register`、`update`、`bond`、`unbond`、`exit`、`withdraw`、`show` | 网关的同类操作（`--fee-bps` 不超过 500） |
 | `market escrow deposit`、`request-withdrawal`、`withdraw`、`change-key` | 向网关托管 ATC；等待期后取回；等待期后把钱包当前公钥设为通道的凭证密钥 |
@@ -117,7 +117,7 @@ ac-wallet market work --epoch 12                                          # 某�
 
 ## 审计
 
-审计员（m6-audit-chain；`pallet-audit`）质押、每轮被分配给提供者、根据 `ac-auditor` 的复核结果提交裁决，并在争议中投票。钱包在签名前检查本账户在当前轮次被分配给收据中的提供者。
+审计员（m6-audit-chain；`pallet-audit`）质押、每轮被分配给提供者、根据 `ac-auditor` 的复核结果提交裁决，并在争议与抽查中投票。钱包在签名前检查：本账户在当前轮次被分配给收据中的提供者；收据所载模型有审计档案（未校准的模型不审计）；裁决的版本与档案一致（m6-audit-hardening）。
 
 ```bash
 ac-wallet audit register --wallet a.json                   # 质押：当前门槛
@@ -125,8 +125,13 @@ ac-wallet audit assignments --wallet a.json                # 本轮被分配的�
 ac-wallet audit verdict --wallet a.json --report r.json --case c.json
 ac-wallet audit verdicts --provider atc1… [--round 12]     # 裁决及其统计量
 ac-wallet audit disputes --provider atc1…                   # 未关闭的争议、复核人、计数、累计状态
-ac-wallet audit vote --wallet a.json --provider atc1… --id 0 --vote confirm
+ac-wallet audit vote --wallet a.json --provider atc1… --id 0 --vote reject --unavailable 1
 ac-wallet audit close --wallet any.json --provider atc1… --id 0   # 期满后
+ac-wallet audit spot-checks [--id 3]                         # 未关闭的抽查，或某一个
+ac-wallet audit spot-vote --wallet a.json --id 3 --vote overturn [--not-obtained]
+ac-wallet audit close-spot-check --wallet any.json --id 3    # 期满后
+ac-wallet audit profile --model 0x…                          # 版本，或未校准
+ac-wallet audit set-profile --model 0x… --thresholds 4 --stats 1   # 打印调用
 ac-wallet audit status --address atc1…
 ac-wallet audit pot && ac-wallet audit params
 ```
@@ -135,12 +140,14 @@ ac-wallet audit pot && ac-wallet audit params
 |---|---|
 | `audit register [--stake]`、`bond`、`unbond`、`exit`、`withdraw` | 审计员质押，与提供者相同 |
 | `audit assignments` | 当前轮次与本账户被分配的提供者（已提交或待提交） |
-| `audit verdict --report --case` | 提交一行 `ac-auditor recheck` 结果对某案例的裁决：结果与阈值版本取自该行，收据取自案例，不通过或由阈值判定时附证据承诺（并打印）；由阈值判定的裁决还附该行的统计量（OpenSpec 变更 `m6-audit-sprt`）；本账户未被分配时在签名前拒绝 |
-| `audit verdicts --provider [--round]` | 提供者在某轮（默认当前轮）的裁决及各自的统计量 |
+| `audit verdict --report --case` | 提交一行 `ac-auditor recheck` 结果对某案例的裁决：结果与阈值版本取自该行，收据取自案例，不通过或由阈值判定时附证据承诺（并打印）；由阈值判定的裁决还附该行的统计量（OpenSpec 变更 `m6-audit-sprt`）；本账户未被分配、模型没有审计档案或版本与档案不一致时在签名前拒绝 |
+| `audit verdicts --provider [--round]` | 提供者在某轮（默认当前轮）的裁决、各自的统计量及是否被抽中复查（由下一轮的种子与当前抽查比例重算；种子产生前显示待定） |
 | `audit disputes --provider` | 提供者的裁决计数、相对判定界的累计状态、未关闭的争议及其种类（不通过争议或统计争议）、提出者与复核人的投票 |
-| `audit vote --provider --id --vote confirm\|reject`、`audit close` | 以复核人身份投票；期满后关闭未决的争议 |
+| `audit vote --provider --id --vote confirm\|reject [--unavailable 0,2]`、`audit close` | 以复核人身份投票，列出未取得证据的被引用裁决的位置（从 0 起）；期满后关闭未决的争议 |
+| `audit spot-checks [--id]`、`audit spot-vote --id --vote uphold\|overturn [--not-obtained]`、`audit close-spot-check --id` | 未关闭的抽查（或某一个，无论是否关闭）及被抽查的裁决、各票与结果；以抽查复核人身份投票并标明是否取得证据；期满后关闭未决的抽查 |
+| `audit profile --model`、`audit set-profile --model --thresholds --stats` | 某模型的审计档案及是否为链的默认档案；在本地按链的规则检查（已登记的 bf16 模型、已知版本、不低于当前版本）后打印设定档案的调用，供管理多签提出动议 |
 | `audit endpoint --set URL --kem-key KEY` / `--clear` | 登记（或删除）审计员向复核人交付证据的地址；`ac-auditor run` 会自动登记 |
-| `audit status`、`audit pot`、`audit params` | 审计员记录、计数与证据地址；资金池；参数（含统计判定的版本、开关、判定界与单条上下限） |
+| `audit status`、`audit pot`、`audit params` | 审计员记录、计数（含被抽查、被推翻与证据不可用次数）、罚没锁与证据地址；资金池；参数（含统计判定的版本、开关、判定界与单条上下限） |
 
 ## 公共任务
 

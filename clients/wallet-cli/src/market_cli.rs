@@ -1063,6 +1063,13 @@ async fn run_provider(command: ProviderCommand) -> Result<()> {
             };
             let serviceable = client.market_is_serviceable(&who).await?;
             print_provider(&who, &p, serviceable);
+            // Spec "审计子命令" / "查询所需质押" (m6-audit-hardening 8.2).
+            if let Some((deterrent, required, avg)) = client.audit_required_stake(&who).await? {
+                println!(
+                    "{}",
+                    market::format_required_stake(deterrent, required, avg)
+                );
+            }
             return Ok(());
         }
     };

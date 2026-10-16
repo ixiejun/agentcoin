@@ -179,7 +179,7 @@ fn who(address: Option<String>, wallet: &std::path::Path) -> Result<AccountId32>
     }
 }
 
-fn print_call(call: &RuntimeCall) {
+pub(crate) fn print_call(call: &RuntimeCall) {
     let bytes = call.encode();
     println!("call: 0x{}", hex::encode(&bytes));
     println!("length bound: {}", bytes.len());

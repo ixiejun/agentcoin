@@ -6,9 +6,9 @@ use anyhow::{Context, Result, bail};
 use sp_runtime::AccountId32;
 
 use ac_primitives::encode_address;
-use ac_primitives::market::audit::Vote;
+use ac_primitives::market::audit::{AuditProfile, Vote};
 use ac_runtime::RuntimeCall;
-use ac_wallet::market::format_usd;
+use ac_wallet::market::{format_usd, parse_model_id};
 use ac_wallet::{NodeClient, amount, audit, parse_address};
 
 use super::NodeArgs;
@@ -50,7 +50,8 @@ pub enum AuditCommand {
         #[command(flatten)]
         signed: Signed,
     },
-    /// Show an auditor's record and counts.
+    /// Show an auditor's record, counts (spot checks, overturned verdicts, unavailable evidence)
+    /// and slashing locks.
     Status {
         #[command(flatten)]
         node: NodeArgs,
@@ -83,7 +84,8 @@ pub enum AuditCommand {
         #[arg(long)]
         case: PathBuf,
     },
-    /// Show a provider's verdicts in a round (default: the current one) with their statistics.
+    /// Show a provider's verdicts in a round (default: the current one) with their statistics
+    /// and whether each is drawn for a spot check.
     Verdicts {
         #[command(flatten)]
         node: NodeArgs,
@@ -132,6 +134,60 @@ pub enum AuditCommand {
         #[arg(long)]
         id: u64,
     },
+    /// Show the open spot checks, or one spot check (open or closed).
+    SpotChecks {
+        #[command(flatten)]
+        node: NodeArgs,
+        /// A spot check ID.
+        #[arg(long)]
+        id: Option<u64>,
+    },
+    /// Vote in an open spot check.
+    SpotVote {
+        #[command(flatten)]
+        signed: Signed,
+        /// Spot check ID.
+        #[arg(long)]
+        id: u64,
+        /// `uphold` or `overturn`.
+        #[arg(long)]
+        vote: String,
+        /// The verdict's evidence was not obtained (not served, not opening against the
+        /// commitment, or not the verdict's receipt).
+        #[arg(long)]
+        not_obtained: bool,
+    },
+    /// Close a spot check after its deadline (undecided).
+    CloseSpotCheck {
+        #[command(flatten)]
+        signed: Signed,
+        /// Spot check ID.
+        #[arg(long)]
+        id: u64,
+    },
+    /// Show a model's audit profile: the versions verdicts on it use, or none (uncalibrated).
+    Profile {
+        #[command(flatten)]
+        node: NodeArgs,
+        /// Model ID (`0x` + 64 hex digits).
+        #[arg(long)]
+        model: String,
+    },
+    /// Print the call that sets a model's audit profile, after checking it locally; the
+    /// administration multisig proposes it.
+    SetProfile {
+        #[command(flatten)]
+        node: NodeArgs,
+        /// Model ID (`0x` + 64 hex digits).
+        #[arg(long)]
+        model: String,
+        /// Thresholds version.
+        #[arg(long)]
+        thresholds: u16,
+        /// Statistical parameter version.
+        #[arg(long)]
+        stats: u16,
+    },
     /// Set or clear the endpoint where this auditor serves the evidence of its failing
     /// verdicts to reviewers (`ac-auditor run` sets it by itself).
     Endpoint {
@@ -159,11 +215,6 @@ pub enum AuditCommand {
     },
 }
 
-/// Parses `confirm` or `reject`.
-///
-/// # Errors
-///
-/// Anything else.
 /// The marks of a dispute ballot from the positions of the verdicts whose evidence was not
 /// obtained.
 ///
@@ -179,6 +230,11 @@ pub fn unavailable_mask(positions: &[u32]) -> Result<u128> {
     })
 }
 
+/// Parses `confirm` or `reject`.
+///
+/// # Errors
+///
+/// Anything else.
 pub fn parse_vote(text: &str) -> Result<Vote> {
     match text {
         "confirm" => Ok(Vote::Confirm),
@@ -269,16 +325,15 @@ pub async fn run(command: AuditCommand) -> Result<()> {
                 .await?
                 .context("audits are not configured on this chain")?;
             let verdict = audit::verdict_from(&read_json(&report)?, &read_json(&case)?, round)?;
-            // Checked before anything is signed (spec "提交前发现未被分配").
+            // Checked before anything is signed (spec "提交前发现未被分配", "未校准模型在本地被
+            // 拦下").
             let me = super::load(&signed.wallet().wallet)?.account()?;
             let assigned = client.audit_assignment(round, &verdict.provider).await?;
-            if !assigned.contains(&me) {
-                bail!(
-                    "{} is not assigned to provider {} in round {round}",
-                    encode_address(me.as_ref()),
-                    encode_address(verdict.provider.as_ref())
-                );
-            }
+            let profile = client
+                .audit_profile(&verdict.receipt.body.model)
+                .await?
+                .map(|(p, _)| p);
+            audit::check_verdict(&verdict, &me, &assigned, profile.as_ref())?;
             if let Some(c) = verdict.evidence {
                 println!("evidence commitment: {}", hex::encode(c));
             }
@@ -315,6 +370,79 @@ pub async fn run(command: AuditCommand) -> Result<()> {
                 id,
             },
         ),
+        AuditCommand::SpotVote {
+            signed,
+            id,
+            vote,
+            not_obtained,
+        } => (
+            signed,
+            pallet_audit::Call::vote_review {
+                id,
+                vote: audit::parse_review_vote(&vote)?,
+                obtained: !not_obtained,
+            },
+        ),
+        AuditCommand::CloseSpotCheck { signed, id } => {
+            (signed, pallet_audit::Call::close_spot_check { id })
+        }
+        AuditCommand::SpotChecks { node, id } => {
+            let client = NodeClient::new(&node.node)?;
+            let ids = match id {
+                Some(id) => vec![id],
+                None => client.audit_open_reviews(None, 256).await?,
+            };
+            if ids.is_empty() {
+                println!("open spot checks: none");
+            }
+            for id in ids {
+                match client.audit_review(id).await? {
+                    Some(r) => audit::format_review(id, &r)
+                        .iter()
+                        .for_each(|l| println!("{l}")),
+                    None => println!("spot check {id}: unknown"),
+                }
+            }
+            return Ok(());
+        }
+        AuditCommand::Profile { node, model } => {
+            let model = parse_model_id(&model)?;
+            let client = NodeClient::new(&node.node)?;
+            println!("model: 0x{}", hex::encode(model.0));
+            println!(
+                "{}",
+                audit::format_profile(client.audit_profile(&model).await?.as_ref())
+            );
+            return Ok(());
+        }
+        AuditCommand::SetProfile {
+            node,
+            model,
+            thresholds,
+            stats,
+        } => {
+            let model = parse_model_id(&model)?;
+            let client = NodeClient::new(&node.node)?;
+            let quant = client
+                .market_model(model)
+                .await?
+                .with_context(|| format!("model 0x{} is not registered", hex::encode(model.0)))?
+                .manifest
+                .quant;
+            let profile = AuditProfile {
+                thresholds_version: thresholds,
+                stats_version: stats,
+            };
+            // The chain's own rules, checked before the multisig spends a motion on it.
+            let current = client.audit_profile(&model).await?.map(|(p, _)| p);
+            profile
+                .check_update(quant, current.as_ref())
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            super::public_cli::print_call(&RuntimeCall::Audit(
+                pallet_audit::Call::set_audit_profile { model, profile },
+            ));
+            return Ok(());
+        }
         AuditCommand::Status {
             node,
             address,
@@ -346,6 +474,13 @@ pub async fn run(command: AuditCommand) -> Result<()> {
                 "verdicts: {}, votes: {}, missed votes: {}",
                 s.verdicts, s.votes, s.missed_votes
             );
+            let r = client.audit_review_stats(&who).await?;
+            println!(
+                "spot-checked: {}, overturned: {}, evidence unavailable: {}",
+                r.spot_checked, r.overturned, r.unavailable
+            );
+            let locks = client.audit_locks(&who).await?;
+            println!("slashing locks (open disputes and spot checks citing its verdicts): {locks}");
             return Ok(());
         }
         AuditCommand::Assignments {
@@ -384,9 +519,19 @@ pub async fn run(command: AuditCommand) -> Result<()> {
                 }
             };
             println!("round: {round}");
+            let next_seed = audit::seed(&client, round.saturating_add(1)).await?;
+            let rate = client
+                .audit_params()
+                .await?
+                .map_or(0, |(_, a)| a.spot_check_bps);
             for v in client.audit_verdicts(round, &provider).await? {
+                let drawn = match audit::spot_drawn(&v, next_seed.as_ref(), rate) {
+                    Some(true) => "drawn for a spot check",
+                    Some(false) => "not drawn",
+                    None => "spot check draw pending",
+                };
                 println!(
-                    "verdict: {} {:?} (thresholds v{})",
+                    "verdict: {} {:?} (thresholds v{}; {drawn})",
                     encode_address(v.auditor.as_ref()),
                     v.outcome,
                     v.thresholds_version

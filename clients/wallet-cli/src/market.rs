@@ -57,6 +57,18 @@ pub fn parse_usd(text: &str) -> Result<MicroUsd> {
         .context("dollar amount too large")
 }
 
+/// A provider's required stake for showing (m6-audit-hardening 8.2): the stake it needs now,
+/// the deterrent part (`κ` times its recent revenue per epoch) and that revenue, in dollars.
+#[must_use]
+pub fn format_required_stake(deterrent: MicroUsd, required: MicroUsd, avg: MicroUsd) -> String {
+    format!(
+        "required stake: {} (deterrent {}, recent revenue {} per epoch)",
+        format_usd(required),
+        format_usd(deterrent),
+        format_usd(avg)
+    )
+}
+
 /// Formats micro-dollars as `$1.25`.
 #[must_use]
 pub fn format_usd(amount: MicroUsd) -> String {
@@ -429,6 +441,23 @@ impl NodeClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Spec clients/wallet-cli "审计子命令" / "查询所需质押": $100 per epoch with κ = 35 (the live
+    // draft: g 50%, H 11, C 2, f 10%) needs $3,500, all of it deterrent.
+    #[test]
+    fn the_required_stake_is_shown_with_its_parts() {
+        use ac_primitives::market::deterrence::{kappa_bps, required_stake};
+        use sp_runtime::Perbill;
+        let kappa = kappa_bps(Perbill::from_percent(50), 11, 2, Perbill::from_percent(10));
+        assert_eq!(kappa, 350_000);
+        let avg = MicroUsd(100_000_000);
+        let required = required_stake(MicroUsd(1_000_000_000), kappa, avg);
+        let deterrent = required_stake(MicroUsd(0), kappa, avg);
+        assert_eq!(
+            format_required_stake(deterrent, required, avg),
+            "required stake: $3500 (deterrent $3500, recent revenue $100 per epoch)"
+        );
+    }
 
     #[test]
     fn dollar_amounts_parse_and_format() {

@@ -88,7 +88,7 @@ ac-wallet market voucher check --voucher 0x…
 |---|---|
 | `market model register --file`, `model show --id`, `model id --file` | registers a model from a manifest file (the ID is printed before submitting), shows one, or computes an ID offline |
 | `market provider register` | `--tier t1\|t2`, `--endpoint`, `--kem-key` (hex of the AlgId-tagged X-Wing key), one or more `--model ID:INPUT_USD:OUTPUT_USD`, `--stake` (defaults to the current threshold) |
-| `market provider update`, `heartbeat`, `bond`, `unbond`, `exit`, `withdraw`, `show` | change the endpoint, key or models; heartbeat; add or unbond stake; leave; withdraw due stake; show a provider and whether it is serviceable |
+| `market provider update`, `heartbeat`, `bond`, `unbond`, `exit`, `withdraw`, `show` | change the endpoint, key or models; heartbeat; add or unbond stake; leave; withdraw due stake; show a provider, whether it is serviceable and its required stake: the tier threshold or the deterrent (`κ` times its recent revenue per epoch), whichever is larger, with both parts (m6-audit-hardening) |
 | `market providers --model` | every serviceable provider of a model |
 | `market gateway register`, `update`, `bond`, `unbond`, `exit`, `withdraw`, `show` | the same for gateways (`--fee-bps` at most 500) |
 | `market escrow deposit`, `request-withdrawal`, `withdraw`, `change-key` | escrow ATC with a gateway; withdraw it after the delay; make the wallet's current key the channel's voucher key after the delay |
@@ -140,8 +140,10 @@ ac-wallet market work --epoch 12                                          # an e
 ## Audits
 
 Auditors (m6-audit-chain; `pallet-audit`) stake, get assigned to providers each round, submit
-verdicts from `ac-auditor` re-checks and vote in disputes. The wallet checks before signing that
-the account is assigned to the receipt's provider in the current round.
+verdicts from `ac-auditor` re-checks and vote in disputes and spot checks. The wallet checks
+before signing that the account is assigned to the receipt's provider in the current round, that
+the receipt's model has an audit profile (uncalibrated models are not audited) and that the
+verdict's versions are the profile's (m6-audit-hardening).
 
 ```bash
 ac-wallet audit register --wallet a.json                   # stake: the current threshold
@@ -149,8 +151,13 @@ ac-wallet audit assignments --wallet a.json                # this round's provid
 ac-wallet audit verdict --wallet a.json --report r.json --case c.json
 ac-wallet audit verdicts --provider atc1… [--round 12]     # verdicts with their statistics
 ac-wallet audit disputes --provider atc1…                   # open dispute, reviewers, counts, state
-ac-wallet audit vote --wallet a.json --provider atc1… --id 0 --vote confirm
+ac-wallet audit vote --wallet a.json --provider atc1… --id 0 --vote reject --unavailable 1
 ac-wallet audit close --wallet any.json --provider atc1… --id 0   # after the deadline
+ac-wallet audit spot-checks [--id 3]                         # open spot checks, or one
+ac-wallet audit spot-vote --wallet a.json --id 3 --vote overturn [--not-obtained]
+ac-wallet audit close-spot-check --wallet any.json --id 3    # after the deadline
+ac-wallet audit profile --model 0x…                          # versions, or uncalibrated
+ac-wallet audit set-profile --model 0x… --thresholds 4 --stats 1   # prints the call
 ac-wallet audit status --address atc1…
 ac-wallet audit pot && ac-wallet audit params
 ```
@@ -159,12 +166,14 @@ ac-wallet audit pot && ac-wallet audit params
 |---|---|
 | `audit register [--stake]`, `bond`, `unbond`, `exit`, `withdraw` | auditor stake, as for providers |
 | `audit assignments` | the current round and the providers the account is assigned to (submitted or pending) |
-| `audit verdict --report --case` | submits the verdict of an `ac-auditor recheck` line on a case: outcome and thresholds version from the line, receipt from the case and, for a failure or a verdict judged by the thresholds, the evidence commitment (printed); a judged verdict also carries the line's statistics (OpenSpec change `m6-audit-sprt`); refuses before signing if the account is not assigned |
-| `audit verdicts --provider [--round]` | a provider's verdicts in a round (default: the current one), each with its statistics |
+| `audit verdict --report --case` | submits the verdict of an `ac-auditor recheck` line on a case: outcome and thresholds version from the line, receipt from the case and, for a failure or a verdict judged by the thresholds, the evidence commitment (printed); a judged verdict also carries the line's statistics (OpenSpec change `m6-audit-sprt`); refuses before signing if the account is not assigned, the model has no audit profile or the versions are not the profile's |
+| `audit verdicts --provider [--round]` | a provider's verdicts in a round (default: the current one), each with its statistics and whether it is drawn for a spot check (recomputed from the next round's seed and the current rate; pending until that seed exists) |
 | `audit disputes --provider` | a provider's verdict counts, statistical state against the bound, open dispute with its kind (failing verdicts or statistical), accusers and reviewers' votes |
-| `audit vote --provider --id --vote confirm\|reject`, `audit close` | votes as a reviewer; closes an undecided dispute after its deadline |
+| `audit vote --provider --id --vote confirm\|reject [--unavailable 0,2]`, `audit close` | votes as a reviewer, naming the positions (from 0) of the cited verdicts whose evidence was not obtained; closes an undecided dispute after its deadline |
+| `audit spot-checks [--id]`, `audit spot-vote --id --vote uphold\|overturn [--not-obtained]`, `audit close-spot-check --id` | the open spot checks (or one, open or closed) with the checked verdict, ballots and outcome; votes as a spot-check reviewer, saying whether the evidence was obtained; closes an undecided spot check after its deadline |
+| `audit profile --model`, `audit set-profile --model --thresholds --stats` | a model's audit profile and whether it is the chain's default; prints the call that sets one, after the chain's rules are checked locally (registered bf16 model, known versions, none lower than now), for the administration multisig to propose |
 | `audit endpoint --set URL --kem-key KEY` / `--clear` | publishes (or removes) where the auditor serves evidence to reviewers; `ac-auditor run` does it by itself |
-| `audit status`, `audit pot`, `audit params` | an auditor's record, counts and evidence endpoint; the pot; the parameters, with the statistical judgment's version, switch, bound and clamps |
+| `audit status`, `audit pot`, `audit params` | an auditor's record, counts (including spot-checked and overturned verdicts and unavailable evidence), slashing locks and evidence endpoint; the pot; the parameters, with the statistical judgment's version, switch, bound and clamps |
 
 ## Public jobs
 
