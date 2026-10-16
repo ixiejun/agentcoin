@@ -8,8 +8,12 @@
 //! `ac-wallet audit verdict`; reviewers re-check the evidence and vote.
 //! - The cheating provider (another model) fails both re-checks, the dispute is confirmed: it is
 //!   slashed and jailed, no longer serviceable, and its unsettled work is voided.
-//! - The honest provider is falsely failed by two auditors: the reviewers re-check the evidence,
-//!   which passes, and reject; both accusers are slashed and made to exit.
+//! - The honest provider is falsely failed by two auditors (m6-audit-hardening 9.2): one of them
+//!   no longer hands over its evidence, the reviewers re-check the other's, which passes, and
+//!   reject, marking the first one's evidence as not obtained. The refuted accuser is slashed
+//!   10% and made to exit; the one whose evidence was unavailable takes only the 1% light
+//!   penalty and stays. While the dispute is open, its unbonding stake cannot be withdrawn even
+//!   though it is due.
 //!
 //! Enabled with `AC_E2E=1`; needs `cargo build -p ac-node -p ac-wallet -p ac-auditor -p
 //! ac-mock-engine`.
@@ -38,7 +42,7 @@ use ac_primitives::market::audit::{
     AuditMetric, DisputeRecord, FailReason, RoundIndex, VerdictOutcome, VerdictRecord,
 };
 use ac_primitives::market::work::EpochWork;
-use ac_runtime::{AccountId, Balance};
+use ac_runtime::{ATC, AccountId, Balance};
 use ac_toploc::{Bf16, Candidate, Segment, build_proofs_from_candidates};
 use ac_wallet::http::{Client, join, read_body};
 use ac_wallet::work::ReceiptFile;
@@ -294,6 +298,28 @@ async fn assignment(node: &TestNode, r: RoundIndex, provider: &W) -> Vec<Account
     .await
 }
 
+/// An auditor's stake plus its unbonding stake, and its status, from `audit status`.
+fn bonded(user: &W, who: &AccountId) -> (Balance, String) {
+    let status = run(&mut user.query(&[
+        "audit",
+        "status",
+        "--address",
+        &ac_primitives::encode_address(who.as_ref()),
+    ]));
+    let atc = |text: &str| ac_wallet::amount::parse_atc(text.trim_end_matches(" ATC")).unwrap();
+    let total = status
+        .lines()
+        .filter_map(|l| {
+            l.strip_prefix("stake: ").or_else(|| {
+                l.strip_prefix("unbonding: ")
+                    .and_then(|r| r.split(" at block").next())
+            })
+        })
+        .map(atc)
+        .sum();
+    (total, field(&status, "status"))
+}
+
 fn auditor_of<'a>(auditors: &'a [W], who: &AccountId) -> &'a W {
     auditors
         .iter()
@@ -378,13 +404,29 @@ async fn audits_confirm_and_reject() {
     let (cheater, honest) = (&providers[0], &providers[1]);
 
     // Seven auditors (stake: the current $1,000 threshold) and a funded pot.
+    // Each also bonds 100 ATC more and starts unbonding them, so they are due by the rejection.
     let auditors: Vec<W> = (0..7)
         .map(|i| {
             let a = funded_wallet(&base, &format!("auditor{i}"), &user, "2000");
             run(&mut a.cmd(&["audit", "register"]));
+            run(&mut a.cmd(&["audit", "bond", "--amount", "100"]));
+            run(&mut a.cmd(&["audit", "unbond", "--amount", "100"]));
             a
         })
         .collect();
+    let due: u64 = auditors
+        .iter()
+        .map(|a| {
+            let status = run(&mut user.query(&["audit", "status", "--address", &a.address()]));
+            field(&status, "unbonding")
+                .split(" at block ")
+                .nth(1)
+                .unwrap()
+                .parse::<u64>()
+                .unwrap()
+        })
+        .max()
+        .unwrap();
     let pot = field(&run(&mut user.query(&["audit", "pot"])), "pot");
     run(&mut user.cmd(&["transfer", "--to", &pot, "--amount", "100"]));
 
@@ -580,7 +622,10 @@ async fn audits_confirm_and_reject() {
         "the jailed provider's unsettled work is voided"
     );
 
-    // ---- Rejection (7.2) ----
+    // ---- Rejection (7.2; m6-audit-hardening 9.2) ----
+    while node.height().await.unwrap() < due {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
     let r = fresh_round(node).await;
     let assigned = assignment(node, r, honest).await;
     for (who, (case, report)) in assigned.iter().zip(&honest_cases) {
@@ -610,16 +655,30 @@ async fn audits_confirm_and_reject() {
         &(r, account(&honest.address())).encode(),
     )
     .await;
+    // The first accuser no longer serves its evidence; the second one's is handed over.
+    let (gone, refuted) = (
+        dispute.accusers[0].auditor.clone(),
+        dispute.accusers[1].auditor.clone(),
+    );
+    // Spec market/audit "争议当事方的罚没锁": its 100 ATC are due, but the open dispute keeps
+    // them slashable.
+    let withdraw = auditor_of(&auditors, &gone)
+        .cmd(&["audit", "withdraw"])
+        .output()
+        .unwrap();
+    assert!(!withdraw.status.success());
+    let stderr = String::from_utf8_lossy(&withdraw.stderr);
+    assert!(stderr.contains("Locked"), "{stderr}");
+    let v = verdicts.iter().find(|v| v.auditor == refuted).unwrap();
+    let case = &honest_cases[assigned.iter().position(|a| *a == refuted).unwrap()].0;
+    let evidence = base.join(format!(
+        "{}.bin",
+        case.file_stem().unwrap().to_str().unwrap()
+    ));
+    run(Command::new(bin("ac-auditor"))
+        .args(["evidence", "--case", case.to_str().unwrap(), "--out"])
+        .arg(&evidence));
     for (k, (reviewer, _)) in dispute.reviewers.iter().take(2).enumerate() {
-        let v = &verdicts[k];
-        let case = &honest_cases[assigned.iter().position(|a| *a == v.auditor).unwrap()].0;
-        let evidence = base.join(format!(
-            "{}.bin",
-            case.file_stem().unwrap().to_str().unwrap()
-        ));
-        run(Command::new(bin("ac-auditor"))
-            .args(["evidence", "--case", case.to_str().unwrap(), "--out"])
-            .arg(&evidence));
         let report = recheck(
             &base,
             &format!("review-honest{k}"),
@@ -631,6 +690,7 @@ async fn audits_confirm_and_reject() {
             ],
         );
         assert_eq!(report["outcome"], "pass", "{report}");
+        // Position 0 of the dispute's cited verdicts: the evidence not obtained.
         run(&mut auditor_of(&auditors, reviewer).cmd(&[
             "audit",
             "vote",
@@ -640,21 +700,14 @@ async fn audits_confirm_and_reject() {
             &id.to_string(),
             "--vote",
             "reject",
+            "--unavailable",
+            "0",
         ]));
     }
-    for who in &assigned {
-        let status = run(&mut user.query(&[
-            "audit",
-            "status",
-            "--address",
-            &ac_primitives::encode_address(who.as_ref()),
-        ]));
-        assert_eq!(field(&status, "status"), "Exiting");
-        assert_eq!(
-            field(&status, "unbonding").split(' ').next().unwrap(),
-            "900"
-        );
-    }
+    // Spec "抽查推翻罚没审计员"'s dispute counterpart and "证据不可用只受轻罚": 10% of 1,100 ATC
+    // and exit for the refuted accuser; 1% and no exit for the one whose evidence was lost.
+    assert_eq!(bonded(&user, &refuted), (990 * ATC, "Exiting".to_string()));
+    assert_eq!(bonded(&user, &gone), (1_089 * ATC, "Active".to_string()));
     let shown =
         run(&mut user.query(&["market", "provider", "show", "--address", &honest.address()]));
     assert_eq!(field(&shown, "status"), "Active");
