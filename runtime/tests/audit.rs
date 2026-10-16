@@ -337,7 +337,12 @@ fn a_confirmed_dispute_jails_and_voids_unsettled_work() {
 
         let stake = Providers::provider(&bob.account).unwrap().stake;
         let burned = ac_runtime::Emission::total_burned();
-        for (reviewer, _) in dispute.reviewers.iter().take(2) {
+        for (i, (reviewer, _)) in dispute.reviewers.iter().take(2).enumerate() {
+            // A vote is charged as the closing one of a dispute citing the most verdicts (over
+            // a third of a block's normal share), so reviewers' votes land in separate blocks.
+            if i > 0 {
+                next_block();
+            }
             ok(
                 signer(reviewer),
                 RuntimeCall::Audit(pallet_audit::Call::vote_dispute {

@@ -72,7 +72,10 @@ fn migrations_bring_a_v1_chain_to_v2() {
             thresholds_version: CURRENT_THRESHOLDS_VERSION,
             stats_version: CURRENT_STATS.version,
         };
-        assert_eq!(pallet_audit::DefaultProfile::<Runtime>::get(), Some(profile));
+        assert_eq!(
+            pallet_audit::DefaultProfile::<Runtime>::get(),
+            Some(profile)
+        );
         assert!(pallet_audit::StatsEnabled::<Runtime>::get());
         assert_eq!(
             pallet_audit::Penalty::<Runtime>::get(),
