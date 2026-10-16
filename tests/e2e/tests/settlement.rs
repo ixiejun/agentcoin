@@ -193,7 +193,7 @@ async fn work_settlement_flow() {
     std::fs::write(
         &manifest,
         format!(
-            r#"{{"name":"Qwen2.5-0.5B-Instruct","arch":"qwen2","quant":"int4","shards":["0x{}"],"licenseTag":"apache-2.0"}}"#,
+            r#"{{"name":"Qwen2.5-0.5B-Instruct","arch":"qwen2","quant":"bf16","shards":["0x{}"],"licenseTag":"apache-2.0"}}"#,
             "01".repeat(32)
         ),
     )
