@@ -49,6 +49,10 @@ up; epochs without reports count as zero), and the pallet implements `Settlement
 (m6-audit-hardening design D3). A list keeps at most `W` epochs, and the oldest ones are dropped
 when the provider is next settled.
 
+This storage is version 1 of the pallet. `migrations::v1::MigrateToV1` brings a version-0 chain up:
+every provider's recent revenue starts empty and the window is written with the live 24 epochs;
+the runtime runs it once with its other migrations.
+
 Shares and fee stay **held on the gateway's account** (hold reason `Pending`) until the challenge
 period ends; they are recorded per (recipient, maturity epoch, gateway).
 

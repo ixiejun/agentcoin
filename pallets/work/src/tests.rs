@@ -742,3 +742,29 @@ mod properties {
         }
     }
 }
+
+// m6-audit-hardening 3.3: version 0 → 1 writes the live window and leaves the recent revenue
+// empty; it runs once, and a fresh chain is already at version 1.
+#[test]
+fn migration_to_v1_writes_the_window_once() {
+    use frame_support::traits::{GetStorageVersion, OnRuntimeUpgrade, StorageVersion};
+    ext().execute_with(|| {
+        assert_eq!(Work::on_chain_storage_version(), 1);
+        crate::RevenueWindow::<Test>::kill();
+        StorageVersion::new(0).put::<Work>();
+
+        crate::migrations::v1::MigrateToV1::<Test>::on_runtime_upgrade();
+        assert_eq!(Work::on_chain_storage_version(), 1);
+        assert!(crate::RevenueWindow::<Test>::exists());
+        assert_eq!(
+            crate::RevenueWindow::<Test>::get(),
+            crate::LIVE_REVENUE_WINDOW
+        );
+        assert_eq!(RecentSettled::<Test>::iter().count(), 0);
+
+        // Once at version 1 it changes nothing, not even a window set since.
+        crate::RevenueWindow::<Test>::put(6);
+        crate::migrations::v1::MigrateToV1::<Test>::on_runtime_upgrade();
+        assert_eq!(crate::RevenueWindow::<Test>::get(), 6);
+    });
+}

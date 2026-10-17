@@ -33,6 +33,8 @@
 
 每个被接受的汇总项还会把它的美元计入该提供者当前纪元的结算额（`RecentSettled`）。`recent_revenue(who)` 按最近 `revenue_window` 个纪元求平均（`W`，向上取整；没有报告的纪元计为 0），本模块用它实现 `SettlementHistory`。`pallet-providers` 读取这个值，因为提供者的所需质押随营收增长（m6-audit-hardening design D3）。每个列表至多保留 `W` 个纪元，移出窗口的纪元在该提供者下一次结算时删除。
 
+这些存储属于本模块的存储版本 1。`migrations::v1::MigrateToV1` 把版本 0 的链升上来：所有提供者的近期结算额从空开始，窗口写入正式值 24 个纪元；runtime 把它与其他迁移一起执行一次。
+
 份额与网关费**冻结在网关账户上**（冻结原因 `Pending`），直到挑战期结束；链上按（收款人, 到期纪元, 网关）记账。
 
 ## 挑战期与领取

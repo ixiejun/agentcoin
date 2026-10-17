@@ -181,6 +181,7 @@ pub type UncheckedExtrinsic =
 pub type Migrations = (
     pallet_audit::migrations::v1::MigrateToV1<Runtime>,
     pallet_audit::migrations::v2::MigrateToV2<Runtime>,
+    pallet_work::migrations::v1::MigrateToV1<Runtime>,
 );
 
 /// Executive: dispatches extrinsics to the pallets.

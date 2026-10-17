@@ -10,7 +10,7 @@ use ac_primitives::market::audit::{
     AuditProfile, CURRENT_STATS, CURRENT_THRESHOLDS_VERSION, PenaltyParams, SprtEntry, SprtState,
     StatsConfig,
 };
-use ac_runtime::{Audit, Migrations, Runtime};
+use ac_runtime::{Audit, Migrations, Runtime, Work};
 use common::{issuance, preset_ext};
 use frame_support::storage::unhashed;
 use frame_support::traits::{GetStorageVersion, OnRuntimeUpgrade, StorageVersion};
@@ -51,10 +51,13 @@ fn rewind_to_v1() {
     pallet_audit::Penalty::<Runtime>::kill();
     pallet_audit::StatsEnabled::<Runtime>::kill();
     StorageVersion::new(1).put::<Audit>();
+    // Work settlement before its recent revenue (version 0).
+    pallet_work::RevenueWindow::<Runtime>::kill();
+    StorageVersion::new(0).put::<Work>();
 }
 
 #[test]
-fn migrations_bring_a_v1_chain_to_v2() {
+fn migrations_bring_a_chain_from_before_them_up_to_date() {
     preset_ext(sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET).execute_with(|| {
         rewind_to_v1();
         let before = issuance();
@@ -63,6 +66,13 @@ fn migrations_bring_a_v1_chain_to_v2() {
 
         assert_eq!(Audit::on_chain_storage_version(), 2);
         assert_eq!(Audit::in_code_storage_version(), 2);
+        assert_eq!(Work::on_chain_storage_version(), 1);
+        assert_eq!(Work::in_code_storage_version(), 1);
+        assert_eq!(
+            pallet_work::RevenueWindow::<Runtime>::get(),
+            pallet_work::LIVE_REVENUE_WINDOW
+        );
+        assert!(pallet_work::RevenueWindow::<Runtime>::exists());
         let adjustable = pallet_audit::Adjustable::<Runtime>::get().unwrap();
         assert_eq!(
             (adjustable.stake_usd, adjustable.spot_check_bps),
@@ -94,9 +104,10 @@ fn migrations_bring_a_v1_chain_to_v2() {
 }
 
 #[test]
-fn a_fresh_chain_is_already_at_v2() {
+fn a_fresh_chain_is_already_up_to_date() {
     preset_ext(sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET).execute_with(|| {
         assert_eq!(Audit::on_chain_storage_version(), 2);
+        assert_eq!(Work::on_chain_storage_version(), 1);
         let adjustable = pallet_audit::Adjustable::<Runtime>::get();
         <Migrations as OnRuntimeUpgrade>::on_runtime_upgrade();
         assert_eq!(pallet_audit::Adjustable::<Runtime>::get(), adjustable);

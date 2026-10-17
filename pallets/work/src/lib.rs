@@ -36,6 +36,7 @@ pub struct ReadmeDoctests;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
+pub mod migrations;
 #[cfg(test)]
 mod mock;
 #[cfg(test)]
@@ -93,7 +94,7 @@ pub mod pallet {
         Balanced, BalancedHold, Credit, Inspect, InspectHold, Mutate, MutateHold,
     };
     use frame_support::traits::tokens::{Fortitude, Precision, Preservation, Restriction};
-    use frame_support::traits::{Get, OnUnbalanced};
+    use frame_support::traits::{Get, OnUnbalanced, StorageVersion};
     use frame_support::{Blake2_128Concat, BoundedVec, PalletId, Twox64Concat};
     use frame_system::pallet_prelude::OriginFor;
     use sp_runtime::helpers_128bit::multiply_by_rational_with_rounding;
@@ -106,7 +107,12 @@ pub mod pallet {
     /// A stored report.
     pub type ReportOf = ReportRecord<AccountId32, Balance>;
 
+    /// Storage version 1 adds the recent revenue (m6-audit-hardening); see
+    /// [`crate::migrations::v1`].
+    pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+
     #[pallet::pallet]
+    #[pallet::storage_version(STORAGE_VERSION)]
     pub struct Pallet<T>(_);
 
     #[pallet::config]
