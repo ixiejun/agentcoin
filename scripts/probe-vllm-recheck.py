@@ -12,11 +12,16 @@ socket) and checks, for a few chat requests:
    the completion's `completion_tokens` for its finish reason);
 3. `/v1/completions` accepts a list of token IDs as the prompt and counts them as prompt tokens;
 4. the engine-internal request ID of a completion sent with `X-Request-Id` contains that ID (the
-   plugin's segments carry it).
+   plugin's segments carry it);
+5. a chat completion with `return_token_ids`, streamed and not, gives the prompt's token IDs
+   (top level; the first chunk when streamed) and the output token IDs (the choice; each chunk's
+   delta when streamed), as many as `usage` counts, and the prompt IDs are those of `/tokenize`
+   (m6-token-binding 1.1: the provider commits to these IDs in the receipt).
 
-Interface failures (1, 3, 4, an error status or a missing field) fail the script; the
-round-trip statistics of 2 are printed for the design (re-tokenizing is allowed to fail: the
-re-check then reports "inconclusive").
+Interface failures (1, 3, 4, 5, an error status or a missing field) fail the script; the
+round-trip statistics of 2 are printed (re-tokenizing is no longer used by the re-check, which
+takes the committed IDs; how often the generated IDs differ from re-tokenizing the text is
+printed too, issue I-023).
 
 Usage: scripts/probe-vllm-recheck.py   (after scripts/setup-vllm-cpu.sh; env AC_VLLM_MODEL,
 AC_VLLM_REVISION)
@@ -35,8 +40,8 @@ import time
 import urllib.request
 from pathlib import Path
 
-MODEL = os.environ["AC_VLLM_MODEL"]
-REVISION = os.environ["AC_VLLM_REVISION"]
+MODEL = os.environ.get("AC_VLLM_MODEL", "")
+REVISION = os.environ.get("AC_VLLM_REVISION", "")
 NAME = "probe-model"
 TOPK = 128
 PROMPTS = [
@@ -96,6 +101,56 @@ class FakeProvider:
                 self.requests.add(p[3 : 3 + idlen].decode())
 
 
+def token_ids_of(chunks: list[dict]) -> tuple[list[int] | None, list[int], str, dict | None]:
+    """The prompt token IDs (first chunk), the output token IDs (each choice's delta, in order),
+    the streamed text and the usage of a streamed chat completion's chunks."""
+    prompt = None
+    output: list[int] = []
+    text = ""
+    usage = None
+    for c in chunks:
+        if prompt is None and c.get("prompt_token_ids") is not None:
+            prompt = list(c["prompt_token_ids"])
+        for choice in c.get("choices") or []:
+            output.extend(choice.get("token_ids") or [])
+            text += (choice.get("delta") or {}).get("content") or ""
+        if c.get("usage"):
+            usage = c["usage"]
+    return prompt, output, text, usage
+
+
+def token_ids_of_response(resp: dict) -> tuple[list[int] | None, list[int] | None, str, dict | None]:
+    """The prompt token IDs, the output token IDs, the text and the usage of a non-streamed chat
+    completion (one choice)."""
+    prompt = resp.get("prompt_token_ids")
+    choices = resp.get("choices") or [{}]
+    choice = choices[0]
+    output = choice.get("token_ids")
+    text = (choice.get("message") or {}).get("content") or ""
+    return (None if prompt is None else list(prompt), None if output is None else list(output), text,
+            resp.get("usage"))
+
+
+def stream(base: str, body: dict) -> list[dict]:
+    """The JSON chunks of a streamed request (SSE `data:` lines up to `[DONE]`)."""
+    req = urllib.request.Request(
+        base + "/v1/chat/completions",
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    chunks = []
+    with urllib.request.urlopen(req, timeout=300) as r:
+        for raw in r:
+            line = raw.decode().strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[len("data:"):].strip()
+            if data == "[DONE]":
+                break
+            chunks.append(json.loads(data))
+    return chunks
+
+
 def post(base: str, path: str, body: dict, headers: dict | None = None) -> dict:
     req = urllib.request.Request(
         base + path,
@@ -107,6 +162,9 @@ def post(base: str, path: str, body: dict, headers: dict | None = None) -> dict:
 
 
 def main() -> int:
+    if not MODEL or not REVISION:
+        print("set AC_VLLM_MODEL and AC_VLLM_REVISION (scripts/setup-vllm-cpu.sh)")
+        return 1
     workdir = tempfile.mkdtemp(prefix="ac-vllm-probe-")
     sock = os.path.join(workdir, "toploc.sock")
     provider = FakeProvider(sock)
@@ -138,7 +196,7 @@ def main() -> int:
             check(False, "vllm serve started within 15 minutes")
             return 1
 
-        fits = round_trips = 0
+        fits = round_trips = differ = 0
         for i, text in enumerate(PROMPTS):
             messages = [{"role": "user", "content": text}]
             chat = post(base, "/v1/chat/completions", {
@@ -171,8 +229,43 @@ def main() -> int:
             check(any(request_id in r for r in provider.requests),
                   f"prompt {i}: the engine-internal request ID contains X-Request-Id")
 
+            # 5. The token IDs a provider commits to (m6-token-binding).
+            chunks = stream(base, {
+                "model": NAME, "messages": messages, "temperature": 0.7, "top_p": 0.95,
+                "max_tokens": 24 if i % 2 else 200, "stream": True,
+                "stream_options": {"include_usage": True}, "return_token_ids": True,
+            })
+            prompt_ids, output_ids, text, s_usage = token_ids_of(chunks)
+            check(prompt_ids is not None and s_usage is not None,
+                  f"prompt {i}: the stream has prompt_token_ids and usage")
+            if prompt_ids is None or s_usage is None:
+                continue
+            check(len(prompt_ids) == s_usage["prompt_tokens"] and prompt_ids == tok["tokens"],
+                  f"prompt {i}: {len(prompt_ids)} prompt IDs = prompt_tokens {s_usage['prompt_tokens']} "
+                  "and = /tokenize(messages)")
+            check(len(output_ids) == s_usage["completion_tokens"],
+                  f"prompt {i}: {len(output_ids)} output IDs = completion_tokens {s_usage['completion_tokens']}")
+            again = post(base, "/tokenize", {"model": NAME, "prompt": text, "add_special_tokens": False})
+            differ += again["tokens"] != output_ids[: len(again["tokens"])] or len(again["tokens"]) > len(output_ids)
+
+            whole = post(base, "/v1/chat/completions", {
+                "model": NAME, "messages": messages, "temperature": 0.7, "top_p": 0.95,
+                "max_tokens": 24 if i % 2 else 200, "return_token_ids": True,
+            })
+            prompt_ids, output_ids, _, w_usage = token_ids_of_response(whole)
+            check(prompt_ids is not None and output_ids is not None and w_usage is not None,
+                  f"prompt {i}: the response has prompt_token_ids, the choice's token_ids and usage")
+            if prompt_ids is None or output_ids is None or w_usage is None:
+                continue
+            check(prompt_ids == tok["tokens"] and len(prompt_ids) == w_usage["prompt_tokens"],
+                  f"prompt {i}: non-streamed prompt IDs = /tokenize(messages) = prompt_tokens")
+            check(len(output_ids) == w_usage["completion_tokens"],
+                  f"prompt {i}: non-streamed {len(output_ids)} output IDs = completion_tokens "
+                  f"{w_usage['completion_tokens']}")
+
         print(f"re-tokenizing: {round_trips}/{len(PROMPTS)} round trips exact, "
-              f"{fits}/{len(PROMPTS)} with the expected token count")
+              f"{fits}/{len(PROMPTS)} with the expected token count; "
+              f"{differ}/{len(PROMPTS)} sampled answers re-tokenize to other IDs than generated")
         print("internal request IDs seen:", sorted(provider.requests)[:4], "...")
     finally:
         engine.terminate()
