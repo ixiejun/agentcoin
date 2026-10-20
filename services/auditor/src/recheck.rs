@@ -1,4 +1,8 @@
 //! Re-checking one inference (spec `market/auditor-agent`; design D5 of m6-toploc-verify).
+//!
+//! The re-check takes the tokens the receipt's content commitment binds (m6-token-binding design
+//! D5): it never re-tokenizes the answer, so an honest answer whose text re-tokenizes to other
+//! IDs passes (I-023), and a provider that computed another prompt fails.
 
 use std::time::Duration;
 
@@ -6,6 +10,7 @@ use ac_market_proto::engine::request_id_header;
 use ac_market_proto::toploc::{
     AUDIT_THRESHOLDS, MARKET_PARAMS, Thresholds, ToplocError, ToplocProofs, check, judge,
 };
+use ac_market_proto::{ReceiptTokens, check_content};
 use ac_primitives::market::model::QuantType;
 use ac_primitives::market::{ModelId, SignedReceipt};
 use ac_toploc::{Phase, ProofPoly, compare_from_candidates};
@@ -92,6 +97,14 @@ impl Verifier {
         {
             return inconclusive(Inconclusive::InputMismatch);
         }
+        // 1b. The messages, salt and token IDs open the receipt's content commitment (spec
+        // "复核一次推理"); otherwise the case says nothing about the provider.
+        let Ok(committed) = case.receipt_tokens() else {
+            return (Outcome::ContentMismatch, Vec::new(), None);
+        };
+        if check_content(body, committed.as_ref(), case.message_list()).is_err() {
+            return (Outcome::ContentMismatch, Vec::new(), None);
+        }
         // 2. Only bfloat16 models are re-checked (spec "只复核 bfloat16 模型").
         if quant != QuantType::Bf16 {
             return inconclusive(Inconclusive::UnsupportedPrecision);
@@ -117,10 +130,14 @@ impl Verifier {
         let Some(proofs) = proofs.as_ref().and_then(decode_proofs) else {
             return fail(FailReason::CommitmentMismatch);
         };
-        // 4. The tokens (spec "重现 token").
-        let tokens = match self.tokens(case).await {
-            Ok(Some(t)) => t,
-            Ok(None) => return inconclusive(Inconclusive::Tokens),
+        // 4. The committed tokens (spec "按承诺的 token 复算"); proofs come with tokens, as the
+        // content check above made sure.
+        let Some(committed) = committed else {
+            return fail(FailReason::NoProof);
+        };
+        let tokens = match self.tokens(case, &committed).await {
+            Ok(Ok(t)) => t,
+            Ok(Err(outcome)) => return (outcome, Vec::new(), None),
             Err(_) => return inconclusive(Inconclusive::Engine),
         };
         // 5. Prefill and collect one row per token.
@@ -136,42 +153,55 @@ impl Verifier {
             return inconclusive(Inconclusive::InputMismatch);
         };
         match compare_from_candidates(&rows, &proofs, &MARKET_PARAMS) {
-            Ok(cmp) => (
-                Outcome::from_judgement(judge(&cmp, &self.thresholds, prompt_tokens)),
-                cmp.iter().map(ChunkMetrics::from).collect(),
-                Some(prompt_tokens),
-            ),
+            Ok(cmp) => {
+                let mut outcome =
+                    Outcome::from_judgement(judge(&cmp, &self.thresholds, prompt_tokens));
+                // Only the answer's text is not committed: changing it can turn a pass into
+                // "inconclusive", never into a failure.
+                if outcome == Outcome::Pass && !tokens.answer_matches {
+                    outcome = Outcome::Inconclusive(Inconclusive::OutputMismatch);
+                }
+                (
+                    outcome,
+                    cmp.iter().map(ChunkMetrics::from).collect(),
+                    Some(prompt_tokens),
+                )
+            }
             Err(_) => inconclusive(Inconclusive::Engine),
         }
     }
 
-    /// The re-created sequence, or `None` if the tokens cannot be re-created.
-    async fn tokens(&self, case: &RecheckCase) -> anyhow::Result<Option<Tokens>> {
+    /// The re-computed sequence from the committed tokens, or the outcome that stops the
+    /// re-check: the prompt is not the chat template of the messages (a failure), or there is
+    /// no output token.
+    async fn tokens(
+        &self,
+        case: &RecheckCase,
+        committed: &ReceiptTokens,
+    ) -> anyhow::Result<Result<Tokens, Outcome>> {
         let model = &case.engine_model;
         let prompt = self.engine.chat_tokens(model, &case.messages).await?;
-        let completion = usize::try_from(case.usage.completion_tokens)?;
-        if u32::try_from(prompt.len()).ok() != Some(case.usage.prompt_tokens) || completion == 0 {
-            return Ok(None);
+        if prompt != committed.prompt_ids {
+            return Ok(Err(Outcome::Fail(FailReason::PromptMismatch)));
         }
-        let output = self.engine.text_tokens(model, &case.output).await?;
-        if self.engine.detokenize(model, &output).await? != case.output {
-            return Ok(None);
-        }
-        // The last generated token is never fed back: with `stop` it is the end token, which
-        // the text does not show; with `length` the text shows it.
-        let expected = match case.finish_reason.as_str() {
-            "stop" => completion.checked_sub(1),
-            "length" => Some(completion),
-            _ => None,
+        let output = &committed.output_ids;
+        let Some(fed) = output.len().checked_sub(1) else {
+            return Ok(Err(Outcome::Inconclusive(Inconclusive::InputMismatch)));
         };
-        if expected != Some(output.len()) {
-            return Ok(None);
-        }
-        let mut sequence = prompt.clone();
-        sequence.extend(output.iter().take(completion.saturating_sub(1)));
-        Ok(Some(Tokens {
-            prompt: prompt.len(),
+        // The answer shows every token but a final end token (`stop`), which is special.
+        let shown = if case.finish_reason == "stop" {
+            output.get(..fed).unwrap_or_default()
+        } else {
+            output.as_slice()
+        };
+        let answer_matches = self.engine.detokenize(model, shown).await? == case.output;
+        // The last generated token is never fed back, whatever the finish reason.
+        let mut sequence = prompt;
+        sequence.extend(output.iter().take(fed));
+        Ok(Ok(Tokens {
+            prompt: committed.prompt_ids.len(),
             sequence,
+            answer_matches,
         }))
     }
 
@@ -211,6 +241,8 @@ struct Tokens {
     prompt: usize,
     /// The prompt and every output token but the last.
     sequence: Vec<u32>,
+    /// Whether the output tokens decode to the answer's text.
+    answer_matches: bool,
 }
 
 fn decode_proofs(p: &ToplocProofs) -> Option<Vec<ProofPoly>> {

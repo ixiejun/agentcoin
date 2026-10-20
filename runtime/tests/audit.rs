@@ -101,6 +101,7 @@ fn receipt(provider: &Signer, gateway: &Signer, model: ModelId, id: u8) -> Signe
         out_tokens: 2_000,
         fee: fee_for(&PRICE, 1_000, 2_000).unwrap(),
         toploc_commit: [9; 32],
+        content_commit: [8; 32],
         ttft_ms: 50,
         total_ms: 900,
     };

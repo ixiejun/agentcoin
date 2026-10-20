@@ -148,6 +148,141 @@ async fn the_failure_switch_drops_the_stream() {
     );
 }
 
+/// The prompt and output token IDs of a streamed answer, as vLLM sends them with
+/// `return_token_ids`, and its text.
+fn stream_ids(bytes: &[u8]) -> (Vec<u64>, Vec<u64>, String) {
+    let (mut prompt, mut output, mut text) = (Vec::new(), Vec::new(), String::new());
+    for e in events(bytes) {
+        let SseEvent::Data(d) = e else { continue };
+        let v: Value = serde_json::from_slice(&d).unwrap();
+        if let Some(p) = v.get("prompt_token_ids").and_then(Value::as_array) {
+            prompt = p.iter().map(|x| x.as_u64().unwrap()).collect();
+        }
+        if let Some(ids) = v.pointer("/choices/0/token_ids").and_then(Value::as_array) {
+            output.extend(ids.iter().map(|x| x.as_u64().unwrap()));
+        }
+        if let Some(t) = v
+            .pointer("/choices/0/delta/content")
+            .and_then(Value::as_str)
+        {
+            text.push_str(t);
+        }
+    }
+    (prompt, output, text)
+}
+
+async fn tokenize(client: &Client, base: &str, body: Value) -> Vec<u64> {
+    let resp = client
+        .post(
+            &join(base, "/tokenize"),
+            "application/json",
+            body.to_string(),
+        )
+        .await
+        .unwrap();
+    let v: Value =
+        serde_json::from_slice(&read_body(resp.into_body(), 1 << 20).await.unwrap()).unwrap();
+    v["tokens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_u64().unwrap())
+        .collect()
+}
+
+// m6-token-binding 4.1: with `return_token_ids` the engine returns as many prompt and output IDs
+// as its usage counts, streamed and not; the prompt IDs are those of `/tokenize`.
+#[tokio::test]
+async fn token_ids_match_the_usage() {
+    let engine = spawn(
+        "127.0.0.1:0",
+        Config {
+            ttft: Duration::ZERO,
+            token_interval: Duration::ZERO,
+            ..Config::default()
+        },
+    )
+    .await
+    .unwrap();
+    let client = Client::new().unwrap();
+    let mut req = request(true);
+    req["return_token_ids"] = json!(true);
+    let (_, s) = post(&client, &engine.url(), &req).await;
+    let (prompt, output, text) = stream_ids(&s);
+    assert_eq!((prompt.len(), output.len()), (5, 5));
+    assert_eq!(text, "hello there world lorem ipsum ");
+    let messages = req["messages"].clone();
+    let want = tokenize(
+        &client,
+        &engine.url(),
+        json!({"model": "mock-model", "messages": messages}),
+    )
+    .await;
+    assert_eq!(prompt, want);
+    // Without the parameter, no IDs.
+    let (_, s) = post(&client, &engine.url(), &request(true)).await;
+    assert_eq!(stream_ids(&s).0.len() + stream_ids(&s).1.len(), 0);
+
+    let mut req = request(false);
+    req["return_token_ids"] = json!(true);
+    let (_, b) = post(&client, &engine.url(), &req).await;
+    let v: Value = serde_json::from_slice(&b).unwrap();
+    assert_eq!(v["prompt_token_ids"].as_array().unwrap().len(), 5);
+    let ids: Vec<u64> = v["choices"][0]["token_ids"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_u64().unwrap())
+        .collect();
+    assert_eq!(ids, output, "streamed and whole answers have the same IDs");
+    assert_eq!(v["usage"]["completion_tokens"], 5);
+}
+
+// m6-token-binding 4.1: with the split switch `lorem` is generated as two tokens; the text reads
+// the same but re-tokenizes to other IDs than generated (I-023), and `/detokenize` of the
+// generated IDs gives the text back.
+#[tokio::test]
+async fn split_words_re_tokenize_to_other_ids() {
+    let engine = spawn(
+        "127.0.0.1:0",
+        Config {
+            ttft: Duration::ZERO,
+            token_interval: Duration::ZERO,
+            split_words: true,
+            ..Config::default()
+        },
+    )
+    .await
+    .unwrap();
+    let client = Client::new().unwrap();
+    let mut req = request(true);
+    req["max_tokens"] = json!(6);
+    req["return_token_ids"] = json!(true);
+    let (_, s) = post(&client, &engine.url(), &req).await;
+    let (_, output, text) = stream_ids(&s);
+    assert_eq!(text, "hello there world lorem ipsum ");
+    assert_eq!(output.len(), 6, "lor + em");
+    let again = tokenize(
+        &client,
+        &engine.url(),
+        json!({"model": "mock-model", "prompt": text}),
+    )
+    .await;
+    assert_eq!(again.len(), 5);
+    assert_ne!(again, output);
+    let resp = client
+        .post(
+            &join(&engine.url(), "/detokenize"),
+            "application/json",
+            json!({"model": "mock-model", "tokens": output}).to_string(),
+        )
+        .await
+        .unwrap();
+    let v: Value =
+        serde_json::from_slice(&read_body(resp.into_body(), 1 << 20).await.unwrap()).unwrap();
+    assert_eq!(v["prompt"], text.as_str());
+}
+
 /// Receives the stand-in plugin's messages on a Unix socket (as a provider would).
 async fn toploc_receiver(
     path: std::path::PathBuf,

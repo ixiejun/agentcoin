@@ -930,6 +930,11 @@ pub mod pallet {
         BadMarks,
         /// An open dispute or spot check cites the auditor's verdicts: its unbonding stake stays.
         Locked,
+        /// The reason is retired: receipts v2 commit to the tokens, so "tokens could not be
+        /// re-created" is no longer given (m6-token-binding).
+        RetiredReason,
+        /// The receipt's TOPLOC and content commitments are not both zero or both set.
+        ReceiptCommitments,
     }
 
     impl<T> From<ProfileError> for Error<T> {
@@ -958,6 +963,7 @@ pub mod pallet {
                 ReceiptError::ModelNotOffered => Self::ReceiptModel,
                 ReceiptError::FeeMismatch { .. } | ReceiptError::Overflow => Self::ReceiptFee,
                 ReceiptError::WrongProviderKey | ReceiptError::WrongGatewayKey => Self::ReceiptKey,
+                ReceiptError::CommitmentMismatch => Self::ReceiptCommitments,
                 _ => Self::ReceiptSignature,
             }
         }
@@ -1141,6 +1147,11 @@ pub mod pallet {
             ensure!(
                 thresholds_version == profile.thresholds_version,
                 Error::<T>::WrongThresholdsVersion
+            );
+            // Spec "裁决": "tokens could not be re-created" is retired with receipts v2.
+            ensure!(
+                !matches!(outcome, VerdictOutcome::Inconclusive(r) if !r.is_current()),
+                Error::<T>::RetiredReason
             );
             let judged = outcome.judged_by_thresholds();
             ensure!(

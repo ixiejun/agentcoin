@@ -12,9 +12,11 @@ use ac_crypto::sealed::{Acceptor, ReplayCache, recipient_id};
 use ac_crypto::sig::SigningKey;
 use ac_crypto::{KemPublicKey, OsRng};
 use ac_market_proto::engine::request_id_header;
-use ac_market_proto::openai::{SseDecoder, SseEvent, has_content, usage_of};
+use ac_market_proto::openai::{SseDecoder, SseEvent, has_content, take_token_ids, usage_of};
 use ac_market_proto::toploc::ToplocProofs;
-use ac_market_proto::{ChatRequest, ErrorCode, ProviderMsg, ProviderReq, Usage, msg};
+use ac_market_proto::{
+    ChatRequest, ErrorCode, ProviderMsg, ProviderReq, ReceiptTokens, Usage, msg,
+};
 use ac_primitives::market::receipt::{RECEIPT_CONTEXT, ReceiptContext, check_receipt, fee_for};
 use ac_primitives::market::voucher::key_fingerprint;
 use ac_primitives::market::work::JobKind;
@@ -293,6 +295,11 @@ impl Service {
             Some(c) if chat.choices() <= 1 => c.expect(job.request_id),
             _ => false,
         };
+        // The receipt commits to the token IDs the engine computed (m6-token-binding design D1).
+        if collecting {
+            chat.set_return_token_ids();
+        }
+        let mut ids = EngineIds::default();
         let request_id = request_id_header(&job.request_id);
         let resp = self
             .http
@@ -324,6 +331,8 @@ impl Service {
                 match event {
                     SseEvent::Done => done = true,
                     SseEvent::Data(data) => {
+                        // The IDs never reach the gateway's stream: they come with the receipt.
+                        let data = if collecting { ids.take(&data) } else { data };
                         if let Some(u) = usage_of(&data) {
                             usage = Some(u);
                         }
@@ -359,11 +368,27 @@ impl Service {
                 None
             }
         };
-        let toploc_commit = match &toploc {
-            Some(p) => p
-                .commitment()
-                .map_err(|_| (ErrorCode::Internal, "proof encoding failed"))?,
-            None => [0; 32],
+        // Without the content the receipt cannot commit to, it carries no proof at all: the two
+        // commitments are both set or both zero (receipt v2).
+        let tokens = match toploc {
+            Some(_) => match ids.tokens(chat.messages(), usage) {
+                Some(t) => Some(t),
+                None => {
+                    self.no_proof(&job.request_id, Missing::NoTokenIds);
+                    None
+                }
+            },
+            None => None,
+        };
+        let toploc = if tokens.is_some() { toploc } else { None };
+        let (toploc_commit, content_commit) = match (&toploc, &tokens) {
+            (Some(p), Some(t)) => (
+                p.commitment()
+                    .map_err(|_| (ErrorCode::Internal, "proof encoding failed"))?,
+                t.commit(chat.messages())
+                    .map_err(|_| (ErrorCode::Internal, "content commitment failed"))?,
+            ),
+            _ => ([0; 32], [0; 32]),
         };
         let total = millis(job.started.elapsed());
         let body = ReceiptBody {
@@ -377,6 +402,7 @@ impl Service {
             out_tokens: usage.completion_tokens,
             fee,
             toploc_commit,
+            content_commit,
             ttft_ms: ttft.unwrap_or(total),
             total_ms: total,
         };
@@ -389,6 +415,7 @@ impl Service {
             signature,
             usage,
             toploc: toploc.clone(),
+            tokens,
         };
         if !writer.send(&msg::encode(&receipt), true).await {
             return Ok(None);
@@ -457,6 +484,49 @@ impl Service {
         self.store
             .save(receipt, proofs.as_ref(), self.block.load(Ordering::Relaxed))
             .context("storing the receipt")
+    }
+}
+
+/// The token IDs taken out of an engine stream. Content: never logged, never stored.
+#[derive(Default)]
+struct EngineIds {
+    prompt: Option<Vec<u32>>,
+    output: Vec<u32>,
+    malformed: bool,
+}
+
+impl EngineIds {
+    /// Takes the IDs out of a chunk and returns the chunk to forward.
+    fn take(&mut self, data: &[u8]) -> Vec<u8> {
+        let t = take_token_ids(data);
+        if let Some(p) = t.prompt {
+            self.malformed |= self.prompt.is_some();
+            self.prompt = Some(p);
+        }
+        self.output.extend(t.output.unwrap_or_default());
+        self.malformed |= t.malformed;
+        t.chunk
+    }
+
+    /// The receipt's tokens with a fresh salt, if the engine gave as many IDs as its usage and
+    /// the messages have a canonical text.
+    fn tokens(&mut self, messages: &[serde_json::Value], usage: Usage) -> Option<ReceiptTokens> {
+        let prompt = self.prompt.take()?;
+        let output = core::mem::take(&mut self.output);
+        let counts_fit = u32::try_from(prompt.len()).ok() == Some(usage.prompt_tokens)
+            && u32::try_from(output.len()).ok() == Some(usage.completion_tokens);
+        if self.malformed || !counts_fit {
+            return None;
+        }
+        let mut salt = [0u8; 32];
+        rand_core::TryRng::try_fill_bytes(&mut OsRng::new().ok()?, &mut salt).ok()?;
+        let tokens = ReceiptTokens {
+            salt,
+            prompt_ids: prompt,
+            output_ids: output,
+        };
+        tokens.commit(messages).ok()?;
+        Some(tokens)
     }
 }
 

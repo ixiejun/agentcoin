@@ -6,11 +6,11 @@ AgentCoin 审计员代理（M6，MVP 方案 §5.5；规格 `market/auditor-agent
 
 一次复核：
 
-1. 检查双签收据与这次回答一致（模型、prompt 与输出 token 数），否则结果为**无法判定（输入不一致）**；
+1. 检查双签收据与这次回答一致（模型、prompt 与输出 token 数），否则结果为**无法判定（输入不一致）**；再检查案例的消息列表、盐与 token ID 能打开收据的内容承诺（收据 v2，m6-token-binding），否则结果为**内容与收据不符**（`mismatch`）：这不是对提供者的结论，也永远不作为裁决；
 2. 只复核登记为 **bfloat16** 的模型；其他精度为**无法判定（精度不支持）**，永远不会判为不通过；
 3. TOPLOC 承诺为全零时判**不通过（没有证明）**：审计请求没有证明，无论原因都不通过；证明与承诺不符，或参数、份数不是市场规定的，也不通过；
-4. 用自己的引擎重现 token：prompt 由消息按模型的对话模板得到（`/tokenize`），输出由其文本得到（`/tokenize`，再经 `/detokenize` 必须得到相同的文本）。prompt 的 token 数必须等于收据中的值；回答因结束符停止（`stop`，结束符不在文本中）时，输出的 token 数必须比收据少 1，达到长度上限（`length`）时必须相等；否则结果为**无法判定（无法重现 token）**；
-5. 经 `/v1/completions`、带随机的 `X-Request-Id`，预填充 prompt 与除最后一个之外的全部输出 token（最后一个 token 从不经过前向计算）；引擎中处于**复核**模式的 TOPLOC 插件为每个 token 行向审计员的套接字发送一段候选；
+4. 使用**承诺的** token，不再对回答重新分词（I-023）。引擎按模型的对话模板由消息得到的 prompt（`/tokenize`）必须与承诺的 prompt ID 完全相同，否则**不通过（prompt 与请求不符）**，例如隐藏的系统提示词。承诺的输出 ID（回答因结束符停止即 `stop` 时去掉最后的结束符）经 `/detokenize` 必须等于回答文本；不等时复核照常进行：不通过仍为不通过，通过则改为**无法判定（回答与 token 不符）**；
+5. 经 `/v1/completions`、带随机的 `X-Request-Id`，预填充承诺的 prompt 与除最后一个之外的全部承诺输出 token（最后一个 token 从不经过前向计算），与结束原因无关；引擎中处于**复核**模式的 TOPLOC 插件为每个 token 行向审计员的套接字发送一段候选；
 6. 由这些行重建原推理的分块（prompt 的各行为预填充，其后每行为一个解码步骤），与证明比对（`ac_toploc::compare_from_candidates`），并按市场带版本的阈值判定（`ac_market_proto::toploc::judge`）：**通过**，或在第一个超限的块上**不通过**。引擎出错或缺少行时为**无法判定（复核引擎出错）**。
 
 ## 用法
@@ -49,17 +49,20 @@ ac-auditor recheck --engine http://127.0.0.1:8000 --socket /run/agentcoin/rechec
   "finish_reason": "length",
   "usage": {"prompt_tokens": 40, "completion_tokens": 24},
   "receipt": "<SCALE 编码的 SignedReceipt，十六进制>",
-  "toploc": "<SCALE 编码的 ToplocProofs，十六进制，或 null>"
+  "toploc": "<SCALE 编码的 ToplocProofs，十六进制，或 null>",
+  "tokens": {"salt": "<32 字节，十六进制>", "prompt_ids": [151644, …], "output_ids": [785, …]}
 }
 ```
 
-每行输出包含 `case`、`outcome`（`pass`、`fail`、`inconclusive`）、`reason`、`request`（收据的请求 ID）、`thresholds_version` 与 `chunks`（每块的指数不一致次数、尾数误差之和与项数、中位数）。
+`tokens` 是网关随收据交回的盐与 token ID（`ReceiptTokens`）；没有证明的收据没有它。
 
-`ac-auditor calibration-case` 把证明方引擎的候选（与上面相同的 JSON，只是用 `segments: [{phase, len, candidates: [[index, bits], …]}]` 或 `null` 代替 `receipt` 与 `toploc`）转为一个案例，其收据由本次运行生成的密钥签名。它用于阈值校准（`scripts/calibrate-toploc.py`）与测试，不用于审计。
+每行输出包含 `case`、`outcome`（`pass`、`fail`、`inconclusive`、`mismatch`）、`reason`、`request`（收据的请求 ID）、`thresholds_version` 与 `chunks`（每块的指数不一致次数、尾数误差之和与项数、中位数）。
+
+`ac-auditor calibration-case` 把证明方引擎的候选（与上面相同的 JSON，只是用 `segments: [{phase, len, candidates: [[index, bits], …]}]` 或 `null` 代替 `receipt` 与 `toploc`，有候选时还要给出引擎的 `tokens`）转为一个案例，其收据承诺证明与内容，由本次运行生成的密钥签名。它用于阈值校准（`scripts/calibrate-toploc.py`）与测试，不用于审计。
 
 ### 证据（链上审计）
 
-链上不通过的裁决承诺的是这次复核的证据（m6-audit-chain；规格 `market/auditor-agent`“审计证据”）。`ac-auditor evidence --case c.json --out e.bin` 写出证据（SCALE 字节：messages、回答、用量、收据、证明），并打印 `{"commitment": "<hex>"}`。争议的复核人用 `ac-auditor recheck --evidence e.bin --commitment <链上的十六进制承诺> --engine-model <名称> …` 复核：字节与承诺不符时输出 `{"outcome": "mismatch", …}`，不调用任何引擎；相符时按其案例复核。每一行复核结果还带有 `onchain`：链上编码的结果（十六进制），供 `ac-wallet audit verdict` 提交。
+链上不通过的裁决承诺的是这次复核的证据（m6-audit-chain；规格 `market/auditor-agent`“审计证据”）。`ac-auditor evidence --case c.json --out e.bin` 写出证据（SCALE 字节：messages、回答、用量、收据、证明，自证据 v2（m6-token-binding，上下文 `agentcoin 2026-10 audit-evidence v2`）起还有盐与 token ID），并打印 `{"commitment": "<hex>"}`。争议的复核人用 `ac-auditor recheck --evidence e.bin --commitment <链上的十六进制承诺> --engine-model <名称> …` 复核：字节与承诺不符，或其内容打不开收据的内容承诺时，输出 `{"outcome": "mismatch", …}`，不调用任何引擎；否则按其案例复核。因此提出者能改动的只有回答文本，最多得到无法判定。除 `mismatch` 外，每一行复核结果还带有 `onchain`：链上编码的结果（十六进制），供 `ac-wallet audit verdict` 提交。
 
 通过，或在某块超限的不通过，属于“由阈值判定”：其裁决同样承诺证据，并带 `stats`（OpenSpec 变更 `m6-audit-sprt`，设计 D1）。统计量为 prompt token 数、预填充块的尾数误差均值、各解码块均值的平均值与解码块数。它们都是整数，均值以百分之一为单位，按代理内置的统计参数版本给出。由证据复核得到与原案例相同的统计量。链把每条裁决的统计量计入提供者的统计累计状态；统计争议的复核人由每条裁决的证据重算统计量。
 

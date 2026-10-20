@@ -2,6 +2,7 @@
 //! case exported as the evidence a verdict commits to, and a case rebuilt from evidence for the
 //! reviewers of a dispute. Neither ever logs the evidence's content.
 
+use ac_market_proto::ReceiptTokens;
 use ac_market_proto::audit::{AuditEvidence, audit_metric, evidence_from_case};
 use ac_primitives::market::audit::{FailReason as ChainFail, InconclusiveReason, VerdictOutcome};
 use anyhow::{Context, Result};
@@ -9,8 +10,8 @@ use parity_scale_codec::Encode;
 
 use crate::case::{CaseUsage, FailReason, Inconclusive, Outcome, RecheckCase};
 
-/// The evidence of `case`: its messages as compact JSON, its answer, usage, receipt and proofs
-/// (through `ac-market-proto`, as wallets compute it).
+/// The evidence of `case`: its messages as compact JSON, its answer, usage, receipt, proofs and
+/// tokens (through `ac-market-proto`, as wallets compute it).
 ///
 /// # Errors
 ///
@@ -39,18 +40,21 @@ pub fn case_of(evidence: &AuditEvidence, engine_model: &str) -> Result<RecheckCa
         },
         receipt: hex::encode(evidence.receipt.encode()),
         toploc: evidence.proofs.as_ref().map(|p| hex::encode(p.encode())),
+        tokens: evidence.tokens.as_ref().map(ReceiptTokens::to_json),
     })
 }
 
-/// The on-chain form of a re-check's outcome, as a verdict carries it.
+/// The on-chain form of a re-check's outcome, as a verdict carries it; `None` when the content
+/// does not open the receipt, which is never a verdict.
 #[must_use]
-pub fn onchain_outcome(outcome: &Outcome) -> VerdictOutcome {
-    match outcome {
+pub fn onchain_outcome(outcome: &Outcome) -> Option<VerdictOutcome> {
+    Some(match outcome {
         Outcome::Pass => VerdictOutcome::Pass,
         Outcome::Fail(f) => VerdictOutcome::Fail(match f {
             FailReason::NoProof => ChainFail::NoProof,
             FailReason::CommitmentMismatch => ChainFail::CommitmentMismatch,
             FailReason::ParamsOrChunks => ChainFail::ParamsOrChunks,
+            FailReason::PromptMismatch => ChainFail::PromptMismatch,
             FailReason::Threshold { chunk, metric } => ChainFail::Threshold {
                 chunk: u32::try_from(*chunk).unwrap_or(u32::MAX),
                 metric: audit_metric(*metric),
@@ -59,10 +63,11 @@ pub fn onchain_outcome(outcome: &Outcome) -> VerdictOutcome {
         Outcome::Inconclusive(i) => VerdictOutcome::Inconclusive(match i {
             Inconclusive::InputMismatch => InconclusiveReason::InputMismatch,
             Inconclusive::UnsupportedPrecision => InconclusiveReason::Precision,
-            Inconclusive::Tokens => InconclusiveReason::Tokens,
+            Inconclusive::OutputMismatch => InconclusiveReason::OutputMismatch,
             Inconclusive::Engine => InconclusiveReason::Engine,
         }),
-    }
+        Outcome::ContentMismatch => return None,
+    })
 }
 
 #[cfg(test)]
@@ -74,20 +79,28 @@ mod tests {
 
     #[test]
     fn outcomes_map_to_their_chain_form() {
-        assert_eq!(onchain_outcome(&Outcome::Pass), VerdictOutcome::Pass);
+        assert_eq!(onchain_outcome(&Outcome::Pass), Some(VerdictOutcome::Pass));
         assert_eq!(
             onchain_outcome(&Outcome::Fail(FailReason::Threshold {
                 chunk: 3,
                 metric: Metric::MantissaMedian
             })),
-            VerdictOutcome::Fail(ChainFail::Threshold {
+            Some(VerdictOutcome::Fail(ChainFail::Threshold {
                 chunk: 3,
                 metric: ac_primitives::market::audit::AuditMetric::MantissaMedian
-            })
+            }))
         );
         assert_eq!(
-            onchain_outcome(&Outcome::Inconclusive(Inconclusive::Tokens)),
-            VerdictOutcome::Inconclusive(InconclusiveReason::Tokens)
+            onchain_outcome(&Outcome::Fail(FailReason::PromptMismatch)),
+            Some(VerdictOutcome::Fail(ChainFail::PromptMismatch))
         );
+        assert_eq!(
+            onchain_outcome(&Outcome::Inconclusive(Inconclusive::OutputMismatch)),
+            Some(VerdictOutcome::Inconclusive(
+                InconclusiveReason::OutputMismatch
+            ))
+        );
+        // m6-token-binding: content that does not open the receipt is never a verdict.
+        assert_eq!(onchain_outcome(&Outcome::ContentMismatch), None);
     }
 }

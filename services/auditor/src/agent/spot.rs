@@ -169,7 +169,9 @@ impl Agent {
         if report.verdict == Outcome::Inconclusive(Inconclusive::Engine) {
             return SpotFinding::EngineDown;
         }
-        if same_outcome(&v.outcome, &onchain_outcome(&report.verdict)) {
+        // Evidence whose content does not open its receipt does not back the verdict
+        // (m6-token-binding design D6).
+        if onchain_outcome(&report.verdict).is_some_and(|o| same_outcome(&v.outcome, &o)) {
             SpotFinding::Matches
         } else {
             SpotFinding::Differs

@@ -1,0 +1,141 @@
+{
+  "cases": [
+    {
+      "canonical": [
+        "{\"content\":\"Write a haiku about a lighthouse.\",\"role\":\"user\"}"
+      ],
+      "commit": "baffe58bf8e55fe433e4cf0f8687e1ae637d757dffde2c445b373cb454012e75",
+      "messages_json": [
+        "{\"role\": \"user\", \"content\": \"Write a haiku about a lighthouse.\"}"
+      ],
+      "name": "one user message",
+      "output_ids": [
+        785,
+        13,
+        151645
+      ],
+      "preimage": "010101010101010101010101010101010101010101010101010101010101010104f47b22636f6e74656e74223a2257726974652061206861696b752061626f75742061206c69676874686f7573652e222c22726f6c65223a2275736572227d145c50020068030000c6000000311f0000080100000c110300000d0000005d500200",
+      "prompt_ids": [
+        151644,
+        872,
+        198,
+        7985,
+        264
+      ],
+      "salt": "0101010101010101010101010101010101010101010101010101010101010101"
+    },
+    {
+      "canonical": [
+        "{\"content\":\"Write a haiku about a lighthouse.\",\"role\":\"user\"}"
+      ],
+      "commit": "baffe58bf8e55fe433e4cf0f8687e1ae637d757dffde2c445b373cb454012e75",
+      "messages_json": [
+        "{\"content\":\"Write a haiku about a lighthouse.\",\"role\":\"user\"}"
+      ],
+      "name": "the same message with its keys in another order",
+      "output_ids": [
+        785,
+        13,
+        151645
+      ],
+      "preimage": "010101010101010101010101010101010101010101010101010101010101010104f47b22636f6e74656e74223a2257726974652061206861696b752061626f75742061206c69676874686f7573652e222c22726f6c65223a2275736572227d145c50020068030000c6000000311f0000080100000c110300000d0000005d500200",
+      "prompt_ids": [
+        151644,
+        872,
+        198,
+        7985,
+        264
+      ],
+      "salt": "0101010101010101010101010101010101010101010101010101010101010101"
+    },
+    {
+      "canonical": [
+        "{\"content\":\"你是一个乐于助人的助手。\",\"role\":\"system\"}",
+        "{\"content\":\"Grüße 👋 — ça va? Ελληνικά\",\"role\":\"user\"}"
+      ],
+      "commit": "6af5f24229fd2bb04a8b2979b9fe78c7b169addae227fa5978a34de6d099da3e",
+      "messages_json": [
+        "{\"role\":\"system\",\"content\":\"你是一个乐于助人的助手。\"}",
+        "{\"role\":\"user\",\"content\":\"Grüße 👋 — ça va? Ελληνικά\"}"
+      ],
+      "name": "multi-byte characters",
+      "output_ids": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "preimage": "02020202020202020202020202020202020202020202020202020202020202020809017b22636f6e74656e74223a22e4bda0e698afe4b880e4b8aae4b990e4ba8ee58aa9e4babae79a84e58aa9e6898be38082222c22726f6c65223a2273797374656d227d15017b22636f6e74656e74223a224772c3bcc39f6520f09f918b20e2809420c3a7612076613f20ce95cebbcebbceb7cebdceb9cebaceac222c22726f6c65223a2275736572227d0c0100000002000000030000001004000000050000000600000007000000",
+      "prompt_ids": [
+        1,
+        2,
+        3
+      ],
+      "salt": "0202020202020202020202020202020202020202020202020202020202020202"
+    },
+    {
+      "canonical": [
+        "{\"content\":\"quote \\\" backslash \\\\ slash / newline \\n tab \\t cr \\r bs \\b ff \\f nul \\u0000 us \\u001f del  nbsp  \",\"role\":\"user\"}"
+      ],
+      "commit": "6c1c97f7a183dc01f0ee780f26ea10685421180d9545e4ebca7a8a8cd3278461",
+      "messages_json": [
+        "{\"role\":\"user\",\"content\":\"quote \\\" backslash \\\\ slash \\/ newline \\n tab \\t cr \\r bs \\b ff \\f nul \\u0000 us \\u001f del \\u007f nbsp  \"}"
+      ],
+      "name": "escaped characters",
+      "output_ids": [
+        12
+      ],
+      "preimage": "03030303030303030303030303030303030303030303030303030303030303030401027b22636f6e74656e74223a2271756f7465205c22206261636b736c617368205c5c20736c617368202f206e65776c696e65205c6e20746162205c74206372205c72206273205c62206666205c66206e756c205c7530303030207573205c75303031662064656c207f206e62737020c2a0222c22726f6c65223a2275736572227d080a0000000b000000040c000000",
+      "prompt_ids": [
+        10,
+        11
+      ],
+      "salt": "0303030303030303030303030303030303030303030303030303030303030303"
+    },
+    {
+      "canonical": [
+        "{\"content\":[{\"text\":\"What is the weather?\",\"type\":\"text\"}],\"name\":\"alice\",\"role\":\"user\"}",
+        "{\"content\":null,\"refusal\":false,\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"arguments\":\"{\\\"city\\\": \\\"Paris\\\"}\",\"name\":\"weather\"},\"id\":\"call_1\",\"index\":0,\"type\":\"function\"}]}",
+        "{\"content\":\"18\",\"extra\":{\"a\":[true,null,12345678901234],\"z\":-3},\"role\":\"tool\",\"tool_call_id\":\"call_1\"}"
+      ],
+      "commit": "2549754b30a1168a144bd7482b321134068bbd3f3cb293926874572d663a8c3c",
+      "messages_json": [
+        "{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"What is the weather?\"}],\"name\":\"alice\"}",
+        "{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"weather\",\"arguments\":\"{\\\"city\\\": \\\"Paris\\\"}\"},\"index\":0}],\"refusal\":false}",
+        "{\"role\":\"tool\",\"tool_call_id\":\"call_1\",\"content\":\"18\",\"extra\":{\"z\":-3,\"a\":[true,null,12345678901234]}}"
+      ],
+      "name": "nested objects, integers, booleans and null",
+      "output_ids": [
+        500,
+        600
+      ],
+      "preimage": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a50c61017b22636f6e74656e74223a5b7b2274657874223a22576861742069732074686520776561746865723f222c2274797065223a2274657874227d5d2c226e616d65223a22616c696365222c22726f6c65223a2275736572227dc1027b22636f6e74656e74223a6e756c6c2c227265667573616c223a66616c73652c22726f6c65223a22617373697374616e74222c22746f6f6c5f63616c6c73223a5b7b2266756e6374696f6e223a7b22617267756d656e7473223a227b5c22636974795c223a205c2250617269735c227d222c226e616d65223a2277656174686572227d2c226964223a2263616c6c5f31222c22696e646578223a302c2274797065223a2266756e6374696f6e227d5d7d99017b22636f6e74656e74223a223138222c226578747261223a7b2261223a5b747275652c6e756c6c2c31323334353637383930313233345d2c227a223a2d337d2c22726f6c65223a22746f6f6c222c22746f6f6c5f63616c6c5f6964223a2263616c6c5f31227d1064000000c80000002c0100009001000008f401000058020000",
+      "prompt_ids": [
+        100,
+        200,
+        300,
+        400
+      ],
+      "salt": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+    },
+    {
+      "canonical": [
+        "{\"content\":\"\",\"role\":\"user\"}"
+      ],
+      "commit": "43d9dbccb389003c6985e00fdebb98bcf4a3551f7ecf79a74eb1c47d17e57df1",
+      "messages_json": [
+        "{\"role\":\"user\",\"content\":\"\"}"
+      ],
+      "name": "no output tokens",
+      "output_ids": [],
+      "preimage": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff04707b22636f6e74656e74223a22222c22726f6c65223a2275736572227d0800000000ffffffff00",
+      "prompt_ids": [
+        0,
+        4294967295
+      ],
+      "salt": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+    }
+  ],
+  "context": "agentcoin 2026-10 receipt-content v1",
+  "non_integer_number_is_refused": "{\"role\":\"user\",\"content\":\"x\",\"temperature\":0.5}"
+}

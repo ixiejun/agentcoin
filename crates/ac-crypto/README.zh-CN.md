@@ -73,15 +73,19 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 | `agentcoin 2026-09 randomness-subject v1` | 哈希 | 由纪元随机数按主题派生的值 | 自 M2 起使用 |
 | `agentcoin 2026-09 model-id v1` | 哈希 | 模型 ID：权重清单的 SCALE 编码 | 自 M5 起使用 |
 | `agentcoin 2026-09 voucher-payload v1` | 哈希 | 透明额度凭证的 32 字节签名载荷 | 自 M5 起使用 |
-| `agentcoin 2026-09 receipt-payload v1` | 哈希 | 推理收据的 32 字节签名载荷 | 自 M5 起使用 |
-| `agentcoin 2026-09 receipt-leaf v1` | 哈希 | 工作报告收据树的叶子：签名收据的 SCALE 编码 | 自 M5 起使用 |
+| `agentcoin 2026-09 receipt-payload v1` | 哈希 | 推理收据的 32 字节签名载荷 | 已停用（收据 v1；m6-token-binding 改用 v2） |
+| `agentcoin 2026-09 receipt-leaf v1` | 哈希 | 工作报告收据树的叶子：签名收据的 SCALE 编码 | 已停用（收据 v1；m6-token-binding 改用 v2） |
 | `agentcoin 2026-09 receipt-node v1` | 哈希 | 收据树的内部节点：`左 ‖ 右` | 自 M5 起使用 |
 | `agentcoin 2026-09 toploc-commit v1` | 哈希 | 收据中的 TOPLOC 承诺：参数与各块证明编码 | 自 M5 起使用 |
 | `agentcoin 2026-09 sealed-recipient v1` | 哈希 | 密封通道：接收方封装公钥的摘要 | 自 M5 起使用 |
 | `agentcoin 2026-09 sealed-handshake v1` | 哈希 | 密封通道：握手中被签名的消息；重放缓存的键 | 自 M5 起使用 |
 | `agentcoin 2026-09 sealed-key v1` | 哈希 | 密封通道：由共享秘密与签名握手派生两个方向的密钥 | 自 M5 起使用 |
 | `agentcoin 2026-09 gateway-kem-payload v1` | 哈希 | 网关公布封装公钥时签名的载荷 | 自 M5 起使用 |
-| `agentcoin 2026-10 audit-evidence v1` | 哈希 | 审计证据的承诺：证据的 SCALE 编码（`ac-market-proto::audit`） | 自 M6 起使用 |
+| `agentcoin 2026-10 audit-evidence v1` | 哈希 | 审计证据的承诺：证据的 SCALE 编码（`ac-market-proto::audit`） | 已停用（证据 v1；m6-token-binding 改用 v2） |
+| `agentcoin 2026-10 audit-evidence v2` | 哈希 | 审计证据 v2 的承诺（加入收据的盐与 token ID）：证据的 SCALE 编码 | 自 M6 起使用（m6-token-binding） |
+| `agentcoin 2026-10 receipt-content v1` | 哈希 | 收据 v2 的内容承诺：`SCALE(盐, 规范 JSON 的消息, prompt token ID, 输出 token ID)` | 自 M6 起使用（m6-token-binding） |
+| `agentcoin 2026-10 receipt-payload v2` | 哈希 | 收据 v2（含内容承诺）的 32 字节签名载荷 | 自 M6 起使用（m6-token-binding） |
+| `agentcoin 2026-10 receipt-leaf v2` | 哈希 | 工作报告收据树的叶子：签名收据 v2 的 SCALE 编码 | 自 M6 起使用（m6-token-binding） |
 | `agentcoin 2026-10 audit-assign v1` | 哈希 | 审计分配抽样：`种子 ‖ 提供者 ‖ u32_le(i)` | 自 M6 起使用（链上） |
 | `agentcoin 2026-10 audit-review v1` | 哈希 | 争议复核人抽样：`种子 ‖ 提供者 ‖ u64_le(争议编号) ‖ u32_le(i)` | 自 M6 起使用（链上） |
 | `agentcoin 2026-10 audit-spot-reviewers v1` | 哈希 | 抽查复核人抽样：`种子 ‖ 提供者 ‖ u64_le(抽查编号) ‖ u32_le(i)` | 自 M6 起使用（链上，m6-audit-hardening） |
@@ -97,7 +101,8 @@ AgentCoin 的抗量子密码库。所有公钥、签名和密文都带有**算�
 | `agentcoin/validator-pop/v1` | 签名 | 质押注册的验证人公钥的持有证明 | 自 M3 起使用（共识关键） |
 | `agentcoin/evm-verify/v1` | 签名 | 合约通过 `pq_verify` 预编译验证的消息 | 自 M4 起使用 |
 | `agentcoin/voucher/v1` | 签名 | 透明额度凭证（按通道累计） | 自 M5 起使用 |
-| `agentcoin/receipt/v1` | 签名 | 推理收据（提供者与网关各签一次） | 自 M5 起使用 |
+| `agentcoin/receipt/v1` | 签名 | 推理收据（提供者与网关各签一次） | 已停用（收据 v1；m6-token-binding） |
+| `agentcoin/receipt/v2` | 签名 | 推理收据 v2，带内容承诺（提供者与网关各签一次） | 自 M6 起使用（m6-token-binding） |
 | `agentcoin/sealed-channel/v1` | 签名 | 密封通道握手（发送方身份认证） | 自 M5 起使用 |
 | `agentcoin/gateway-kem/v1` | 签名 | 网关公布自己的封装公钥 | 自 M5 起使用 |
 

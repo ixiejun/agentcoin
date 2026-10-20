@@ -62,8 +62,9 @@ fn pallet_indices_are_fixed() {
     // m6-public-jobs (design D9): public jobs at 23, new calls.
     assert_eq!(<ac_runtime::PublicJobs as PalletInfoAccess>::index(), 23);
     // m6-audit-sprt: verdicts carry statistics, a new audit call.
-    assert_eq!(VERSION.transaction_version, 9);
-    assert_eq!(VERSION.spec_version, 11);
+    assert_eq!(VERSION.transaction_version, 10);
+    // m6-token-binding: verdicts carry receipts v2.
+    assert_eq!(VERSION.spec_version, 12);
 }
 
 // The M2 runtime APIs are declared by the runtime.

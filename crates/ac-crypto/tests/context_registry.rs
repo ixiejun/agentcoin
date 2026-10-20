@@ -5,7 +5,7 @@
 use ac_crypto::hash::validate_context;
 
 /// The registered hashing contexts, as listed in README.md.
-const REGISTERED: [&str; 27] = [
+const REGISTERED: [&str; 31] = [
     "agentcoin 2026-09 account-id v1",
     "agentcoin 2026-09 test-rng v1",
     "agentcoin 2026-09 tx-payload v1",
@@ -33,6 +33,10 @@ const REGISTERED: [&str; 27] = [
     "agentcoin 2026-10 audit-review v1",
     "agentcoin 2026-10 audit-spot-check v1",
     "agentcoin 2026-10 audit-spot-reviewers v1",
+    "agentcoin 2026-10 audit-evidence v2",
+    "agentcoin 2026-10 receipt-content v1",
+    "agentcoin 2026-10 receipt-payload v2",
+    "agentcoin 2026-10 receipt-leaf v2",
 ];
 
 #[test]
@@ -59,7 +63,7 @@ fn readme_lists_every_context() {
 }
 
 /// The registered signature contexts, as listed in README.md.
-const SIGNATURE_CONTEXTS: [&str; 10] = [
+const SIGNATURE_CONTEXTS: [&str; 11] = [
     "agentcoin/tx/v1",
     "agentcoin/aura-seal/v1",
     "agentcoin/key-rotation/v1",
@@ -70,6 +74,7 @@ const SIGNATURE_CONTEXTS: [&str; 10] = [
     "agentcoin/voucher/v1",
     "agentcoin/sealed-channel/v1",
     "agentcoin/gateway-kem/v1",
+    "agentcoin/receipt/v2",
 ];
 
 // A purpose's context is never reused (AGENT.md §6.2): the registry has no duplicates, so a

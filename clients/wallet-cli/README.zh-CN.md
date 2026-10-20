@@ -107,7 +107,7 @@ ac-wallet market work --epoch 12                                          # 某�
 
 | 命令 | 作用 |
 |---|---|
-| `market receipt new` | 构造收据（费用 = 提供者对该模型的价格，向上取整到微美元；`--toploc`、`--request-id`、`--ttft-ms`、`--total-ms` 可选），并以提供者或网关身份签名 |
+| `market receipt new` | 构造收据 v2（费用 = 提供者对该模型的价格，向上取整到微美元；`--toploc`、`--content-commit`、`--request-id`、`--ttft-ms`、`--total-ms` 可选；两个承诺缺省为全零，且必须同为零或同非零），并以提供者或网关身份签名 |
 | `market receipt cosign --file` | 以另一方身份追加签名 |
 | `market receipt check --file` | 按链上的公钥与价格校验两方签名、创世哈希与费用 |
 | `market report submit` | 计算 Merkle 根和按（提供者, 模型）的汇总，逐条校验收据并核对汇总等于凭证增量后提交；不一致时指出出错的文件或凭证，不提交任何交易 |
@@ -140,7 +140,7 @@ ac-wallet audit pot && ac-wallet audit params
 |---|---|
 | `audit register [--stake]`、`bond`、`unbond`、`exit`、`withdraw` | 审计员质押，与提供者相同 |
 | `audit assignments` | 当前轮次与本账户被分配的提供者（已提交或待提交） |
-| `audit verdict --report --case` | 提交一行 `ac-auditor recheck` 结果对某案例的裁决：结果与阈值版本取自该行，收据取自案例，不通过或由阈值判定时附证据承诺（并打印）；由阈值判定的裁决还附该行的统计量（OpenSpec 变更 `m6-audit-sprt`）；本账户未被分配、模型没有审计档案或版本与档案不一致时在签名前拒绝 |
+| `audit verdict --report --case` | 提交一行 `ac-auditor recheck` 结果对某案例的裁决：结果与阈值版本取自该行，收据取自案例，不通过或由阈值判定时附证据承诺（并打印；证据 v2 包含案例的 `tokens`，m6-token-binding）；由阈值判定的裁决还附该行的统计量（OpenSpec 变更 `m6-audit-sprt`）；本账户未被分配、模型没有审计档案或版本与档案不一致时在签名前拒绝 |
 | `audit verdicts --provider [--round]` | 提供者在某轮（默认当前轮）的裁决、各自的统计量及是否被抽中复查（由下一轮的种子与当前抽查比例重算；种子产生前显示待定） |
 | `audit disputes --provider` | 提供者的裁决计数、相对判定界的累计状态、未关闭的争议及其种类（不通过争议或统计争议）、提出者与复核人的投票 |
 | `audit vote --provider --id --vote confirm\|reject [--unavailable 0,2]`、`audit close` | 以复核人身份投票，列出未取得证据的被引用裁决的位置（从 0 起）；期满后关闭未决的争议 |
@@ -178,7 +178,7 @@ ac-wallet public rewards --address atc1… && ac-wallet public params
 `ac-wallet market serve` 在本机提供 OpenAI 兼容接口（`GET /v1/models`、`POST /v1/chat/completions`，流式与非流式），用你的额度通道向网关付费，使未修改的 OpenAI SDK 可以直接使用推理市场。命令与 Python 示例见英文版 [README.md](README.md)：先托管额度，再运行 `market serve --gateway <网关地址> --max-usd 5`，然后把 OpenAI SDK 的 `base_url` 指向 `http://127.0.0.1:8411/v1`（模型可写名称或 `0x…` ID）。
 
 - 启动时检查：你与该网关有额度通道、钱包密钥是通道的凭证密钥、网关的加密公钥由网关账户签名。
-- 每个请求都密封给网关（X-Wing + ML-DSA），并附带恰好等于你已付总额的凭证。响应结束后，代理校验双签收据（签名、链、网关、模型、token 数与返回的 `usage` 一致、费用等于提供者的链上价格、网关的已计费总额）及其 TOPLOC 证明（承诺为全零时不得带证明；否则参数为市场参数、每块输出一份证明、复算承诺等于收据中的承诺），通过后才付清该总额。任何一项校验失败，代理都会停止后续所有付款与请求。证明不会被保存。
+- 每个请求都密封给网关（X-Wing + ML-DSA），并附带恰好等于你已付总额的凭证。响应结束后，代理校验双签收据（签名、链、网关、模型、token 数与返回的 `usage` 一致、费用等于提供者的链上价格、网关的已计费总额）及其 TOPLOC 证明（承诺为全零时不得带证明；否则参数为市场参数、每块输出一份证明、复算承诺等于收据中的承诺），以及收据的内容承诺（收据 v2，m6-token-binding：代理发出的消息列表与网关交回的盐、token ID 必须能打开承诺，且 ID 个数等于计费的 token 数），全部通过后才付清该总额。任何一项校验失败，代理都会停止后续所有付款与请求。证明与 token ID 都不保存、不写日志。
 - `--max-usd` 限制通道的累计付款；已付总额保存在钱包旁的 `serve-<网关>.json`（`--state`），重启后不会重复付款。
 - 带请求头 `X-AgentCoin-Provider: atc1…` 的请求指定该提供者：网关只转给它，否则回答 `no_provider`（从不改用其他提供者）；代理只为收据中提供者是该提供者的请求付款。OpenAI SDK 写法：`client.chat.completions.create(..., extra_headers={"X-AgentCoin-Provider": "atc1…"})`。
 - 默认只监听 `127.0.0.1:8411`，且没有鉴权：切勿对外暴露。私钥从不离开本机，代理也不记录 prompt 或输出。

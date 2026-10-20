@@ -106,15 +106,19 @@ reused for another purpose.
 | `agentcoin 2026-09 randomness-subject v1` | hash | per-subject values derived from epoch randomness | in use from M2 |
 | `agentcoin 2026-09 model-id v1` | hash | model IDs: SCALE encoding of the weight manifest | in use from M5 |
 | `agentcoin 2026-09 voucher-payload v1` | hash | 32-byte signing payload of transparent credit vouchers | in use from M5 |
-| `agentcoin 2026-09 receipt-payload v1` | hash | 32-byte signing payload of inference receipts | in use from M5 |
-| `agentcoin 2026-09 receipt-leaf v1` | hash | leaves of a work report's receipt tree: SCALE encoding of the signed receipt | in use from M5 |
+| `agentcoin 2026-09 receipt-payload v1` | hash | 32-byte signing payload of inference receipts | retired (receipt v1; replaced by v2 in m6-token-binding) |
+| `agentcoin 2026-09 receipt-leaf v1` | hash | leaves of a work report's receipt tree: SCALE encoding of the signed receipt | retired (receipt v1; replaced by v2 in m6-token-binding) |
 | `agentcoin 2026-09 receipt-node v1` | hash | inner nodes of a receipt tree: `left ‖ right` | in use from M5 |
 | `agentcoin 2026-09 toploc-commit v1` | hash | TOPLOC commitment in a receipt: parameters and proof encodings | in use from M5 |
 | `agentcoin 2026-09 sealed-recipient v1` | hash | sealed channel: digest of the recipient's encapsulation key | in use from M5 |
 | `agentcoin 2026-09 sealed-handshake v1` | hash | sealed channel: message signed in a handshake; replay-cache key | in use from M5 |
 | `agentcoin 2026-09 sealed-key v1` | hash | sealed channel: per-direction keys from the shared secret and the signed handshake | in use from M5 |
 | `agentcoin 2026-09 gateway-kem-payload v1` | hash | payload signed when a gateway announces its encapsulation key | in use from M5 |
-| `agentcoin 2026-10 audit-evidence v1` | hash | commitment to audit evidence: its SCALE encoding (`ac-market-proto::audit`) | in use from M6 |
+| `agentcoin 2026-10 audit-evidence v1` | hash | commitment to audit evidence: its SCALE encoding (`ac-market-proto::audit`) | retired (evidence v1; replaced by v2 in m6-token-binding) |
+| `agentcoin 2026-10 audit-evidence v2` | hash | commitment to audit evidence v2, which adds the receipt's salt and token IDs: its SCALE encoding | in use from M6 (m6-token-binding) |
+| `agentcoin 2026-10 receipt-content v1` | hash | content commitment of a receipt v2: `SCALE(salt, messages as canonical JSON, prompt token IDs, output token IDs)` | in use from M6 (m6-token-binding) |
+| `agentcoin 2026-10 receipt-payload v2` | hash | 32-byte signing payload of receipts v2 (with the content commitment) | in use from M6 (m6-token-binding) |
+| `agentcoin 2026-10 receipt-leaf v2` | hash | leaves of a work report's receipt tree: SCALE encoding of the signed receipt v2 | in use from M6 (m6-token-binding) |
 | `agentcoin 2026-10 audit-assign v1` | hash | audit assignment draw: `seed ‖ provider ‖ u32_le(i)` | in use from M6 (on chain) |
 | `agentcoin 2026-10 audit-review v1` | hash | dispute reviewer draw: `seed ‖ provider ‖ u64_le(dispute) ‖ u32_le(i)` | in use from M6 (on chain) |
 | `agentcoin 2026-10 audit-spot-reviewers v1` | hash | spot-check reviewer draw: `seed ‖ provider ‖ u64_le(spot check) ‖ u32_le(i)` | in use from M6 (on chain, m6-audit-hardening) |
@@ -130,7 +134,8 @@ reused for another purpose.
 | `agentcoin/validator-pop/v1` | signature | proof of possession of a validator key registered for staking | in use from M3 (consensus-critical) |
 | `agentcoin/evm-verify/v1` | signature | messages verified by contracts through the `pq_verify` precompile | in use from M4 |
 | `agentcoin/voucher/v1` | signature | transparent credit vouchers (cumulative, per channel) | in use from M5 |
-| `agentcoin/receipt/v1` | signature | inference receipts (signed by provider and gateway) | in use from M5 |
+| `agentcoin/receipt/v1` | signature | inference receipts (signed by provider and gateway) | retired (receipt v1; m6-token-binding) |
+| `agentcoin/receipt/v2` | signature | inference receipts v2, with the content commitment (signed by provider and gateway) | in use from M6 (m6-token-binding) |
 | `agentcoin/sealed-channel/v1` | signature | sealed-channel handshakes (sender authentication) | in use from M5 |
 | `agentcoin/gateway-kem/v1` | signature | a gateway's announcement of its encapsulation key | in use from M5 |
 

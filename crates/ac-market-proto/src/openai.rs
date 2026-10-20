@@ -87,6 +87,16 @@ impl ChatRequest {
             .find_map(|k| self.0.get(*k).and_then(as_u32))
     }
 
+    /// The `messages` array (checked by [`ChatRequest::parse`] to be non-empty objects); the
+    /// receipt's content commitment covers it (m6-token-binding).
+    #[must_use]
+    pub fn messages(&self) -> &[Value] {
+        self.0
+            .get("messages")
+            .and_then(Value::as_array)
+            .map_or(&[], Vec::as_slice)
+    }
+
     /// Number of choices asked for (`n`, default 1).
     #[must_use]
     pub fn choices(&self) -> u32 {
@@ -129,6 +139,12 @@ impl ChatRequest {
         } else {
             self.0.remove("stream_options");
         }
+    }
+
+    /// Asks the engine for the prompt and output token IDs (vLLM's `return_token_ids`), which
+    /// the receipt's content commitment covers (m6-token-binding).
+    pub fn set_return_token_ids(&mut self) {
+        self.0.insert("return_token_ids".into(), Value::Bool(true));
     }
 
     /// Sets the output-token limit (both spellings, so every engine honours it).
@@ -280,6 +296,85 @@ pub fn has_content(json: &[u8]) -> bool {
         })
 }
 
+/// The token IDs a streamed chunk carries with `return_token_ids`, and the chunk without them.
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct ChunkTokens {
+    /// The chunk to forward: unchanged when it has no IDs, else without `prompt_token_ids` and
+    /// the choices' `token_ids`.
+    pub chunk: Vec<u8>,
+    /// The prompt's IDs (vLLM sends them in the first chunk).
+    pub prompt: Option<Vec<u32>>,
+    /// The output IDs of this chunk, in order; `None` if the chunk had no `token_ids`.
+    pub output: Option<Vec<u32>>,
+    /// More than one choice carried IDs, or an ID was not a `u32`.
+    pub malformed: bool,
+}
+
+// Token IDs are content: Debug shows only the counts.
+impl core::fmt::Debug for ChunkTokens {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ChunkTokens")
+            .field("prompt", &self.prompt.as_ref().map(Vec::len))
+            .field("output", &self.output.as_ref().map(Vec::len))
+            .field("malformed", &self.malformed)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Takes the token IDs out of a streamed chunk (vLLM 0.30 with `return_token_ids`: a top-level
+/// `prompt_token_ids` in the first chunk, each choice's `token_ids` for its delta), so the user
+/// sees the stream of an ordinary request.
+#[must_use]
+pub fn take_token_ids(json: &[u8]) -> ChunkTokens {
+    let unchanged = || ChunkTokens {
+        chunk: json.to_vec(),
+        ..ChunkTokens::default()
+    };
+    let Ok(Value::Object(mut map)) = serde_json::from_slice::<Value>(json) else {
+        return unchanged();
+    };
+    let mut out = ChunkTokens::default();
+    let ids = |v: &Value, malformed: &mut bool| -> Vec<u32> {
+        v.as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| {
+                        let id = as_u32(x);
+                        *malformed |= id.is_none();
+                        id
+                    })
+                    .collect()
+            })
+            .unwrap_or_else(|| {
+                *malformed |= !v.is_null();
+                Vec::new()
+            })
+    };
+    let mut changed = false;
+    if let Some(p) = map.remove("prompt_token_ids") {
+        changed = true;
+        if !p.is_null() {
+            out.prompt = Some(ids(&p, &mut out.malformed));
+        }
+    }
+    if let Some(Value::Array(choices)) = map.get_mut("choices") {
+        for c in choices.iter_mut() {
+            if let Some(t) = c.as_object_mut().and_then(|o| o.remove("token_ids")) {
+                changed = true;
+                if out.output.is_some() {
+                    out.malformed = true;
+                }
+                out.output = Some(ids(&t, &mut out.malformed));
+            }
+        }
+    }
+    if !changed {
+        return unchanged();
+    }
+    out.chunk = serde_json::to_vec(&map).unwrap_or_else(|_| json.to_vec());
+    out
+}
+
 /// Sets or replaces `usage` in a JSON object (the proxy reports the receipt's usage).
 #[must_use]
 pub fn with_usage(json: &[u8], usage: Usage) -> Vec<u8> {
@@ -391,6 +486,35 @@ impl Assembler {
 
 #[cfg(test)]
 mod tests {
+    // m6-token-binding 4.2: the IDs come out of the chunk, which then reads like any other.
+    #[test]
+    fn token_ids_are_taken_out_of_chunks() {
+        let first = br#"{"id":"x","prompt_token_ids":[1,2,3],"choices":[{"index":0,"delta":{"role":"assistant","content":""},"token_ids":[]}]}"#;
+        let t = take_token_ids(first);
+        assert_eq!(t.prompt, Some(vec![1, 2, 3]));
+        assert_eq!(t.output, Some(vec![]));
+        assert!(!t.malformed);
+        let v: Value = serde_json::from_slice(&t.chunk).unwrap();
+        assert!(v.get("prompt_token_ids").is_none());
+        assert!(v["choices"][0].get("token_ids").is_none());
+        assert_eq!(v["choices"][0]["delta"]["role"], "assistant");
+
+        let t = take_token_ids(
+            br#"{"choices":[{"index":0,"delta":{"content":"Hi"},"token_ids":[7,8]}]}"#,
+        );
+        assert_eq!((t.prompt, t.output), (None, Some(vec![7, 8])));
+        // A chunk without IDs is forwarded byte for byte.
+        let plain = br#"{"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2}}"#;
+        let t = take_token_ids(plain);
+        assert_eq!(t.chunk, plain.to_vec());
+        assert_eq!((t.prompt, t.output), (None, None));
+        // IDs of two choices, or IDs that are not u32, are malformed.
+        assert!(take_token_ids(br#"{"choices":[{"token_ids":[1]},{"token_ids":[2]}]}"#).malformed);
+        assert!(take_token_ids(br#"{"choices":[{"token_ids":[-1]}]}"#).malformed);
+        let shown = format!("{:?}", take_token_ids(first));
+        assert!(!shown.contains("1, 2, 3"), "{shown}");
+    }
+
     use super::*;
 
     // The request example of the OpenAI API reference ("Create chat completion").

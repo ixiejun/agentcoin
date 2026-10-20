@@ -147,6 +147,10 @@ pub enum FailReason {
         /// The bound it exceeded.
         metric: AuditMetric,
     },
+    /// The committed prompt token IDs are not the registered model's chat template applied to
+    /// the committed messages (m6-token-binding): the provider computed another prompt.
+    #[codec(index = 4)]
+    PromptMismatch,
 }
 
 /// Why a re-check could not decide.
@@ -172,12 +176,26 @@ pub enum InconclusiveReason {
     /// The model's registered precision is not re-checked.
     #[codec(index = 1)]
     Precision = 1,
-    /// The answer's tokens could not be re-created.
+    /// The answer's tokens could not be re-created. Retired with receipts v2, which commit to
+    /// the tokens (m6-token-binding): kept to decode old records, refused for new verdicts.
     #[codec(index = 2)]
     Tokens = 2,
     /// The re-check engine failed.
     #[codec(index = 3)]
     Engine = 3,
+    /// The committed output token IDs do not decode to the answer the user received, while the
+    /// re-computation passed (m6-token-binding).
+    #[codec(index = 4)]
+    OutputMismatch = 4,
+}
+
+impl InconclusiveReason {
+    /// Whether a new verdict may give this reason; [`InconclusiveReason::Tokens`] only decodes
+    /// old records.
+    #[must_use]
+    pub const fn is_current(self) -> bool {
+        !matches!(self, Self::Tokens)
+    }
 }
 
 /// An auditor's verdict on one inference.
@@ -1039,6 +1057,15 @@ mod tests {
             VerdictOutcome::Inconclusive(InconclusiveReason::Tokens).encode(),
             [2, 2]
         );
+        // m6-token-binding: new reasons take new indices.
+        assert_eq!(
+            VerdictOutcome::Fail(FailReason::PromptMismatch).encode(),
+            [1, 4]
+        );
+        assert_eq!(
+            VerdictOutcome::Inconclusive(InconclusiveReason::OutputMismatch).encode(),
+            [2, 4]
+        );
         assert_eq!(Vote::Reject.encode(), [1]);
         assert_eq!(DisputeKind::Fail.encode(), [0]);
         assert_eq!(
@@ -1058,5 +1085,24 @@ mod tests {
         assert!(!VerdictOutcome::Fail(FailReason::NoProof).judged_by_thresholds());
         assert!(!VerdictOutcome::Fail(FailReason::CommitmentMismatch).judged_by_thresholds());
         assert!(!VerdictOutcome::Inconclusive(InconclusiveReason::Tokens).judged_by_thresholds());
+        assert!(!VerdictOutcome::Fail(FailReason::PromptMismatch).judged_by_thresholds());
+        assert!(
+            !VerdictOutcome::Inconclusive(InconclusiveReason::OutputMismatch)
+                .judged_by_thresholds()
+        );
+    }
+
+    // m6-token-binding: "tokens could not be re-created" only decodes old records.
+    #[test]
+    fn the_tokens_reason_is_retired() {
+        assert!(!InconclusiveReason::Tokens.is_current());
+        for r in [
+            InconclusiveReason::InputMismatch,
+            InconclusiveReason::Precision,
+            InconclusiveReason::Engine,
+            InconclusiveReason::OutputMismatch,
+        ] {
+            assert!(r.is_current());
+        }
     }
 }

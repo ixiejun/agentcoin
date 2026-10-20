@@ -54,6 +54,11 @@ pub struct CalibrationInput {
     /// engine computed, as a cheating provider's own code would.
     #[serde(default)]
     pub engine_prompt_tokens: Option<u32>,
+    /// The salt and the prompt and output token IDs the engine computed
+    /// (`ReceiptTokens::to_json`), which the case's receipt commits to (m6-token-binding);
+    /// required with segments.
+    #[serde(default)]
+    pub tokens: Option<Value>,
 }
 
 /// The re-check case of `input`: proofs built from its segments (none if there are none or
@@ -103,9 +108,22 @@ pub fn case_from(input: CalibrationInput) -> Result<RecheckCase> {
     let proofs = segments
         .and_then(|s| build_proofs_from_candidates(&s, &MARKET_PARAMS).ok())
         .map(|p| ToplocProofs::new(&MARKET_PARAMS, &p));
-    let toploc_commit = match &proofs {
-        Some(p) => p.commitment().map_err(|e| anyhow::anyhow!("{e}"))?,
-        None => [0; 32],
+    // Receipt v2: proofs come with the content commitment, as the provider makes them.
+    let tokens = match (&proofs, &input.tokens) {
+        (Some(_), Some(t)) => Some(
+            ac_market_proto::ReceiptTokens::from_json(t)
+                .map_err(|e| anyhow::anyhow!("tokens: {e}"))?,
+        ),
+        (Some(_), None) => anyhow::bail!("an input with segments needs its token IDs (`tokens`)"),
+        (None, _) => None,
+    };
+    let (toploc_commit, content_commit) = match (&proofs, &tokens) {
+        (Some(p), Some(t)) => (
+            p.commitment().map_err(|e| anyhow::anyhow!("{e}"))?,
+            t.commit(input.messages.as_array().map_or(&[], Vec::as_slice))
+                .map_err(|e| anyhow::anyhow!("content commitment: {e}"))?,
+        ),
+        _ => ([0; 32], [0; 32]),
     };
 
     let mut rng = OsRng::new()?;
@@ -127,6 +145,7 @@ pub fn case_from(input: CalibrationInput) -> Result<RecheckCase> {
         out_tokens: input.usage.completion_tokens,
         fee: MicroUsd(0),
         toploc_commit,
+        content_commit,
         ttft_ms: 0,
         total_ms: 0,
     };
@@ -148,6 +167,7 @@ pub fn case_from(input: CalibrationInput) -> Result<RecheckCase> {
         usage: input.usage,
         receipt: hex::encode(receipt.encode()),
         toploc: proofs.map(|p| hex::encode(p.encode())),
+        tokens: tokens.as_ref().map(ac_market_proto::ReceiptTokens::to_json),
     })
 }
 

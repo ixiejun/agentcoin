@@ -27,6 +27,7 @@ hex = { workspace = true, features = ["std"] }
 log = { workspace = true, features = ["std"] }
 pallet-providers = { workspace = true, features = ["std"] }
 pallet-work = { workspace = true, features = ["std"] }
+rand_core = { workspace = true }
 parity-scale-codec = { workspace = true, features = ["std"] }
 serde_json = { workspace = true, features = ["std"] }
 sp-core = { workspace = true, features = ["std"] }

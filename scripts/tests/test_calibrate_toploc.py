@@ -163,7 +163,8 @@ class MergeTests(unittest.TestCase):
         code, report, condensed = merged([shard(5, a, b, samples), shard(5, a, a, samples)])
         self.assertEqual(code, 0)
         cell = report["cells"]["NVIDIA GeForce RTX 3090 → NVIDIA A100-SXM4-80GB"]
-        self.assertEqual(cell["honest"], {"samples": 2, "pass": 2, "fail": 0, "inconclusive": 0, "inexact_prefill": 1})
+        self.assertEqual(cell["honest"], {"samples": 2, "pass": 2, "fail": 0, "inconclusive": 0, "mismatch": 0,
+                                          "inexact_prefill": 1})
         self.assertEqual(cell["cheats"]["swap"], {"samples": 1, "missed": 0, "inconclusive": 0})
         self.assertIn("NVIDIA GeForce RTX 3090 → NVIDIA GeForce RTX 3090", report["cells"])
         self.assertEqual(report["fingerprints"]["NVIDIA A100-SXM4-80GB"], [b])
@@ -285,9 +286,62 @@ class TokenMismatchTests(unittest.TestCase):
         s = {"honest": {"outcomes": {"pass": 47, "fail": 1, "inconclusive": 0}}}
         for v in cal.CHEATS:
             s[v] = {"outcomes": {"pass": 0, "fail": 8, "inconclusive": 0}}
-        bad = {"case": "honest-00007.json", "outcome": "fail", "same_token_ids": False}
+        bad = {"case": "honest-00007.json", "outcome": "fail", "reason": "chunk 3: mean", "same_token_ids": False}
         self.assertEqual(cal.quick_failures(s, {}, 8, [bad]), [])
         self.assertTrue(cal.quick_failures(s, {}, 8, [dict(bad, same_token_ids=True)]))
+        # m6-token-binding: re-checked on committed tokens, such an answer is never excused.
+        self.assertTrue(cal.quick_failures(s, {}, 8, [dict(bad, committed_tokens=True)]))
+
+    def test_committed_ones_stay_in_the_conclusion(self):
+        # m6-token-binding 7.1: still listed (the I-023 diagnostic), but judged like any other.
+        bad = dict(sample("honest-00002.json", [EXACT, chunk(exp=83, total=3500, median=25)]),
+                   prompt_tokens=200, same_token_ids=False, committed_tokens=True)
+        cheats = [dict(sample(f"{v}-00000.json", [chunk(exp=90, total=900, median=9)]), prompt_tokens=200)
+                  for v in cal.CHEATS]
+        code, report, _ = merged([shard(5, gpu_fp("A"), gpu_fp("B"), [bad] + cheats)])
+        self.assertEqual(code, 0)
+        self.assertEqual([x["case"] for x in report["token_mismatch"]], ["honest-00002.json"])
+        self.assertTrue(report["token_mismatch"][0]["committed_tokens"])
+        self.assertEqual(report["cells"]["A → B"]["honest"]["fail"], 1)
+
+
+class ContentCommitmentTests(unittest.TestCase):
+    """m6-token-binding 7.1: the Python side of the receipt content commitment checked against the
+    vectors shared with Rust (canonical JSON and the SCALE preimage; the hash is ac-crypto's)."""
+
+    VECTORS = ROOT / "crates" / "ac-primitives" / "tests" / "vectors" / "receipt_content.json"
+
+    def test_vectors(self):
+        v = json.loads(self.VECTORS.read_text())
+        self.assertEqual(v["context"], cal.RECEIPT_CONTENT_CONTEXT)
+        for c in v["cases"]:
+            messages = [json.loads(m) for m in c["messages_json"]]
+            self.assertEqual([cal.canonical_json(m) for m in messages], c["canonical"], c["name"])
+            pre = cal.content_preimage(bytes.fromhex(c["salt"]), messages, c["prompt_ids"], c["output_ids"])
+            self.assertEqual(pre.hex(), c["preimage"], c["name"])
+        with self.assertRaises(ValueError):
+            cal.canonical_json(json.loads(v["non_integer_number_is_refused"]))
+
+    def test_compact_lengths(self):
+        for n, enc in [(0, "00"), (63, "fc"), (64, "0101"), (16383, "fdff"), (16384, "02000100"),
+                       (1 << 30, "0300000040")]:
+            self.assertEqual(cal.scale_compact(n).hex(), enc, n)
+
+    def test_the_receipt_commitment_with_blake3(self):
+        try:
+            import blake3  # noqa: F401
+        except ImportError:
+            self.skipTest("the blake3 module is not installed")
+        v = json.loads(self.VECTORS.read_text())
+        c = v["cases"][4]
+        messages = [json.loads(m) for m in c["messages_json"]]
+        receipt = bytearray(cal.CONTENT_COMMIT_AT + 32 + 8)
+        receipt[cal.CONTENT_COMMIT_AT:cal.CONTENT_COMMIT_AT + 32] = bytes.fromhex(c["commit"])
+        case = {"messages": messages, "receipt": receipt.hex()}
+        tokens = {"salt": c["salt"], "prompt_ids": c["prompt_ids"], "output_ids": c["output_ids"]}
+        self.assertTrue(cal.check_content_commit(case, tokens))
+        tokens["output_ids"] = tokens["output_ids"][:-1]
+        self.assertFalse(cal.check_content_commit(case, tokens))
 
 
 class ReplayTests(unittest.TestCase):
@@ -570,6 +624,18 @@ class QuickTests(unittest.TestCase):
         self.assertTrue(cal.quick_failures(self.summary(honest={"pass": 46, "inconclusive": 2}), {}, 8))
         self.assertFalse(cal.quick_failures(self.summary(honest={"pass": 47, "inconclusive": 1}), {}, 8))
         self.assertTrue(cal.quick_failures(self.summary(cheat={"pass": 1, "fail": 7}), {}, 8))
+
+    def test_prompt_cheats_fail_on_the_prompt_and_mismatches_fail_it(self):
+        # m6-token-binding 7.1: the "prompt" cheat fails because its prompt does not match the
+        # request; content that does not open its receipt breaks the run.
+        on_prompt = {"case": "prompt-00001.json", "outcome": "fail", "reason": "prompt does not match the request"}
+        on_chunk = {"case": "prompt-00002.json", "outcome": "fail", "reason": "chunk 0: exponent mismatches"}
+        self.assertEqual(cal.quick_failures(self.summary(), {}, 8, [on_prompt]), [])
+        failures = cal.quick_failures(self.summary(), {}, 8, [on_prompt, on_chunk])
+        self.assertEqual(len(failures), 1)
+        self.assertIn("prompt-00002.json", failures[0])
+        self.assertTrue(cal.quick_failures(self.summary(honest={"pass": 47, "mismatch": 1}), {}, 8))
+        self.assertTrue(cal.quick_failures(self.summary(cheat={"fail": 7, "mismatch": 1}), {}, 8))
 
     def test_int8_may_pass(self):
         # 2026-10-09 (design D13): a single audit is not required to catch int8, in or out of the band.

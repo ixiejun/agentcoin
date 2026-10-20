@@ -12,8 +12,8 @@ use ac_crypto::{KemPublicKey, OsRng, PqPublicKey};
 use ac_market_proto::openai::{Assembler, has_content};
 use ac_market_proto::toploc::ToplocProofs;
 use ac_market_proto::{
-    ChatRequest, ErrorCode, GatewayKey, GatewayMsg, Payment, ProviderMsg, ProviderReq, Usage,
-    UserMsg, msg,
+    ChatRequest, ErrorCode, GatewayKey, GatewayMsg, Payment, ProviderMsg, ProviderReq,
+    ReceiptTokens, Usage, UserMsg, check_content, msg,
 };
 use ac_primitives::market::receipt::{RECEIPT_CONTEXT, ReceiptContext, check_receipt, fee_for};
 use ac_primitives::market::voucher::key_fingerprint;
@@ -413,6 +413,7 @@ impl Gateway {
             max_out,
             streaming,
             started,
+            messages: chat.messages().to_vec(),
         };
         let outcome = self.route(&job, &chat.to_bytes(), &choices, writer).await;
         if outcome.is_err() {
@@ -486,7 +487,7 @@ impl Gateway {
         let mut assembler = Assembler::new();
         let mut ttft = None;
         let mut pending = Some(first);
-        let (body, key, signature, usage, toploc) = loop {
+        let (body, key, signature, usage, toploc, tokens) = loop {
             let next = match pending.take() {
                 Some(d) => ProviderMsg::Delta(d),
                 None => match resp.next().await {
@@ -517,7 +518,8 @@ impl Gateway {
                     signature,
                     usage,
                     toploc,
-                } => break (body, key, signature, usage, toploc),
+                    tokens,
+                } => break (body, key, signature, usage, toploc, tokens),
                 ProviderMsg::Error { .. } | ProviderMsg::Ack => {
                     return Err(failed("the provider failed mid-stream"));
                 }
@@ -527,7 +529,12 @@ impl Gateway {
             self.router.observe(&choice.provider, t);
         }
         let receipt = match self
-            .cosign(job, choice, (body, key, signature, usage), toploc.as_ref())
+            .cosign(
+                job,
+                choice,
+                (body, key, signature, usage),
+                (toploc.as_ref(), tokens.as_ref()),
+            )
             .await
         {
             Ok(r) => r,
@@ -560,6 +567,7 @@ impl Gateway {
                     fee,
                     billed_total,
                     toploc,
+                    tokens,
                 }),
                 true,
             )
@@ -574,8 +582,8 @@ impl Gateway {
         Ok(())
     }
 
-    /// Checks the provider's receipt and its TOPLOC proofs against this request and the chain,
-    /// then adds the gateway's signature.
+    /// Checks the provider's receipt, its TOPLOC proofs and its content commitment against this
+    /// request and the chain, then adds the gateway's signature.
     async fn cosign(
         &self,
         job: &Job,
@@ -586,7 +594,7 @@ impl Gateway {
             ac_crypto::PqSignature,
             Usage,
         ),
-        toploc: Option<&ToplocProofs>,
+        (toploc, tokens): (Option<&ToplocProofs>, Option<&ReceiptTokens>),
     ) -> Result<SignedReceipt> {
         anyhow::ensure!(body.genesis == self.genesis, "wrong genesis");
         anyhow::ensure!(
@@ -611,6 +619,9 @@ impl Gateway {
             "fee differs from the listed price"
         );
         ac_market_proto::toploc::check(&body, toploc).map_err(|e| anyhow::anyhow!("{e}"))?;
+        // The messages forwarded and the IDs returned open the content commitment, one ID per
+        // billed token (spec "收据双签与计费回传", m6-token-binding).
+        check_content(&body, tokens, &job.messages).map_err(|e| anyhow::anyhow!("{e}"))?;
         let registered = self
             .chain
             .current_key(&choice.provider)
@@ -679,6 +690,9 @@ struct Job {
     max_out: u32,
     streaming: bool,
     started: Instant,
+    /// The request's messages, which the receipt's content commitment must open to. Content:
+    /// never logged (no `Debug`), dropped with the job.
+    messages: Vec<serde_json::Value>,
 }
 
 fn gw_error(code: ErrorCode, message: &str) -> GatewayMsg {

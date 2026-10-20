@@ -15,3 +15,10 @@
   from a ten-account roster (`agentcoin 2026-10 public-assign v1`) and two fingerprint direction
   blocks (`agentcoin 2026-10 public-direction v1`). Produced by `tests/public_jobs_vectors.rs`
   with `AC_WRITE_VECTORS=1`; regression only — never change these values.
+- `receipt_content.json`: repository regression vectors of the receipt content commitment
+  (m6-token-binding, context `agentcoin 2026-10 receipt-content v1`): request messages as raw
+  JSON texts (multi-byte characters, escapes, nested objects, the same message with another key
+  order), their canonical JSON texts, a salt, prompt and output token IDs and the commitment.
+  Shared with the Python implementation in `scripts/calibrate-toploc.py`. Produced by
+  `tests/receipt_content_vectors.rs` with `AC_WRITE_VECTORS=1`; regression only — never change
+  these values.

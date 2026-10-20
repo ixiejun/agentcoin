@@ -1,5 +1,6 @@
 //! What a re-check takes and what it gives (spec `market/auditor-agent` "复核一次推理").
 
+use ac_market_proto::ReceiptTokens;
 use ac_market_proto::toploc::{Judgement, Metric, ToplocProofs};
 use ac_primitives::market::SignedReceipt;
 use ac_primitives::market::audit::{AuditStats, CURRENT_STATS, ChunkMantissa, VerdictStats};
@@ -38,6 +39,10 @@ pub struct RecheckCase {
     pub receipt: String,
     /// The TOPLOC proofs that came with it, SCALE-encoded, hex; none for an all-zero commitment.
     pub toploc: Option<String>,
+    /// The salt and token IDs that came with it (`ReceiptTokens::to_json`), which open the
+    /// receipt's content commitment; none for an all-zero commitment (m6-token-binding).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<Value>,
 }
 
 impl core::fmt::Debug for RecheckCase {
@@ -74,6 +79,25 @@ impl RecheckCase {
             })
             .transpose()
     }
+
+    /// The decoded salt and token IDs, if any.
+    ///
+    /// # Errors
+    ///
+    /// A malformed `tokens` field.
+    pub fn receipt_tokens(&self) -> Result<Option<ReceiptTokens>> {
+        self.tokens
+            .as_ref()
+            .filter(|t| !t.is_null())
+            .map(|t| ReceiptTokens::from_json(t).map_err(|e| anyhow::anyhow!("tokens: {e}")))
+            .transpose()
+    }
+
+    /// The messages as a list (empty if they are not an array).
+    #[must_use]
+    pub fn message_list(&self) -> &[Value] {
+        self.messages.as_array().map_or(&[], Vec::as_slice)
+    }
 }
 
 /// Why an inference fails its re-check.
@@ -86,6 +110,9 @@ pub enum FailReason {
     CommitmentMismatch,
     /// The proofs' parameters or their number are not the market's.
     ParamsOrChunks,
+    /// The committed prompt tokens are not the registered model's chat template applied to the
+    /// committed messages (m6-token-binding).
+    PromptMismatch,
     /// A chunk is out of the thresholds.
     Threshold {
         /// The first chunk out of bounds (0 is the prefill).
@@ -103,8 +130,9 @@ pub enum Inconclusive {
     InputMismatch,
     /// The model's registered precision is not bfloat16.
     UnsupportedPrecision,
-    /// The tokens cannot be re-created from the messages and the output.
-    Tokens,
+    /// The committed output tokens do not decode to the answer's text, while the
+    /// re-computation passed (m6-token-binding).
+    OutputMismatch,
     /// The re-check engine failed or is unavailable.
     Engine,
 }
@@ -119,6 +147,9 @@ pub enum Outcome {
     Fail(FailReason),
     /// No verdict.
     Inconclusive(Inconclusive),
+    /// The case's messages, salt and token IDs do not open the receipt's content commitment:
+    /// not a finding about the provider, and never a verdict (m6-token-binding).
+    ContentMismatch,
 }
 
 impl Outcome {
@@ -131,13 +162,14 @@ impl Outcome {
         }
     }
 
-    /// `pass`, `fail` or `inconclusive`.
+    /// `pass`, `fail`, `inconclusive` or `mismatch` (the content does not open the receipt).
     #[must_use]
     pub const fn kind(&self) -> &'static str {
         match self {
             Self::Pass => "pass",
             Self::Fail(_) => "fail",
             Self::Inconclusive(_) => "inconclusive",
+            Self::ContentMismatch => "mismatch",
         }
     }
 
@@ -151,6 +183,7 @@ impl Outcome {
                 "proofs do not match the commitment".into()
             }
             Self::Fail(FailReason::ParamsOrChunks) => "proof parameters or chunk count".into(),
+            Self::Fail(FailReason::PromptMismatch) => "prompt does not match the request".into(),
             Self::Fail(FailReason::Threshold { chunk, metric }) => {
                 format!("chunk {chunk}: {metric}")
             }
@@ -158,7 +191,10 @@ impl Outcome {
             Self::Inconclusive(Inconclusive::UnsupportedPrecision) => {
                 "precision not supported".into()
             }
-            Self::Inconclusive(Inconclusive::Tokens) => "tokens cannot be re-created".into(),
+            Self::Inconclusive(Inconclusive::OutputMismatch) => {
+                "answer does not match the tokens".into()
+            }
+            Self::ContentMismatch => "content does not match the receipt".into(),
             Self::Inconclusive(Inconclusive::Engine) => "re-check engine error".into(),
         }
     }

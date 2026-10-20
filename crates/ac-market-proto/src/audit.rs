@@ -1,22 +1,27 @@
 //! Audit evidence (m6-audit-chain design D6; spec `market/audit` "审计证据与承诺").
 //!
 //! A failing verdict puts only [`AuditEvidence::commitment`] on chain. The evidence itself (the
-//! request's messages, the answer, the signed receipt and the TOPLOC proofs) stays off chain
-//! (red line 6) and is handed to the reviewers of a dispute, who check it against the
-//! commitment and re-check it. The evidence file is the SCALE encoding itself, so the commitment
-//! depends only on the file's bytes.
+//! request's messages, the answer, the signed receipt, the TOPLOC proofs and the salt and token
+//! IDs behind the receipt's content commitment) stays off chain (red line 6) and is handed to the
+//! reviewers of a dispute, who check it against the commitment, check that it opens the
+//! receipt's content commitment ([`AuditEvidence::check_content`]) and re-check it. The evidence
+//! file is the SCALE encoding itself, so the commitment depends only on the file's bytes.
+//!
+//! Evidence v2 (m6-token-binding design D6) adds the [`ReceiptTokens`]: an accuser can then
+//! change nothing but the answer's text without the evidence failing to open the receipt.
 
 use ac_primitives::market::SignedReceipt;
 use ac_primitives::market::audit::AuditMetric;
 use parity_scale_codec::{Decode, Encode};
 
+use crate::content::{ContentError, ReceiptTokens, check_content};
 use crate::toploc::{Metric, ToplocProofs};
 
-/// Hashing context of the evidence commitment.
-pub const EVIDENCE_CONTEXT: &str = "agentcoin 2026-10 audit-evidence v1";
+/// Hashing context of the evidence commitment (v2; `audit-evidence v1` is retired).
+pub const EVIDENCE_CONTEXT: &str = "agentcoin 2026-10 audit-evidence v2";
 
 /// Version of the evidence encoding.
-pub const EVIDENCE_VERSION: u8 = 1;
+pub const EVIDENCE_VERSION: u8 = 2;
 
 /// Token counts the provider reported.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Encode, Decode)]
@@ -32,7 +37,7 @@ pub struct EvidenceUsage {
 pub struct AuditEvidence {
     /// [`EVIDENCE_VERSION`].
     pub version: u8,
-    /// The request's `messages`, as compact JSON bytes.
+    /// The request's `messages`, as a compact JSON array.
     pub messages: Vec<u8>,
     /// The answer's text (UTF-8).
     pub output: Vec<u8>,
@@ -44,6 +49,9 @@ pub struct AuditEvidence {
     pub receipt: SignedReceipt,
     /// The proofs returned with the receipt, if any.
     pub proofs: Option<ToplocProofs>,
+    /// The salt and token IDs returned with the receipt, present exactly when the receipt has
+    /// a content commitment.
+    pub tokens: Option<ReceiptTokens>,
 }
 
 /// Why evidence bytes are not usable.
@@ -70,7 +78,7 @@ impl core::fmt::Display for EvidenceError {
 
 impl std::error::Error for EvidenceError {}
 
-/// Commitment to evidence bytes: `derive("agentcoin 2026-10 audit-evidence v1", bytes)`.
+/// Commitment to evidence bytes: `derive("agentcoin 2026-10 audit-evidence v2", bytes)`.
 ///
 /// # Errors
 ///
@@ -123,15 +131,42 @@ impl AuditEvidence {
         }
         Self::from_bytes(bytes)
     }
+
+    /// The request's messages.
+    ///
+    /// # Errors
+    ///
+    /// [`ContentError::Malformed`] if they are not a JSON array.
+    pub fn parsed_messages(&self) -> Result<Vec<serde_json::Value>, ContentError> {
+        match serde_json::from_slice(&self.messages) {
+            Ok(serde_json::Value::Array(m)) => Ok(m),
+            _ => Err(ContentError::Malformed),
+        }
+    }
+
+    /// Checks that the messages, salt and token IDs open the receipt's content commitment (see
+    /// [`check_content`]). Evidence that does not is the accuser's fault, never the provider's.
+    ///
+    /// # Errors
+    ///
+    /// The [`ContentError`] of the first failing rule.
+    pub fn check_content(&self) -> Result<(), ContentError> {
+        check_content(
+            &self.receipt.body,
+            self.tokens.as_ref(),
+            &self.parsed_messages()?,
+        )
+    }
 }
 
 /// The evidence of a re-check case given as JSON (the `ac-auditor` case format: `messages`,
 /// `output`, `finish_reason`, `usage`, `receipt` and optional `toploc`, the last two as hex
-/// SCALE). Wallets and auditors both go through this function, so their commitments agree.
+/// SCALE, and optional `tokens`, see [`ReceiptTokens::from_json`]). Wallets and auditors both go
+/// through this function, so their commitments agree.
 ///
 /// # Errors
 ///
-/// [`EvidenceError::Decode`] for a missing field or a bad receipt or proofs.
+/// [`EvidenceError::Decode`] for a missing field or a bad receipt, proofs or tokens.
 pub fn evidence_from_case(case: &serde_json::Value) -> Result<AuditEvidence, EvidenceError> {
     let text = |k: &str| {
         case.get(k)
@@ -156,6 +191,12 @@ pub fn evidence_from_case(case: &serde_json::Value) -> Result<AuditEvidence, Evi
         }
         None => None,
     };
+    let tokens = match case.get("tokens") {
+        Some(t) if !t.is_null() => {
+            Some(ReceiptTokens::from_json(t).map_err(|_| EvidenceError::Decode)?)
+        }
+        _ => None,
+    };
     Ok(AuditEvidence {
         version: EVIDENCE_VERSION,
         messages: serde_json::to_vec(case.get("messages").ok_or(EvidenceError::Decode)?)
@@ -168,6 +209,7 @@ pub fn evidence_from_case(case: &serde_json::Value) -> Result<AuditEvidence, Evi
         },
         receipt,
         proofs,
+        tokens,
     })
 }
 
@@ -224,6 +266,13 @@ mod tests {
             .unwrap()
         };
         let (p, g) = (key("provider"), key("gateway"));
+        let messages = br#"[{"content":"hi","role":"user"}]"#.to_vec();
+        let tokens = ReceiptTokens {
+            salt: [8; 32],
+            prompt_ids: (100..112).collect(),
+            output_ids: vec![7, 8, 2],
+        };
+        let parsed: Vec<serde_json::Value> = serde_json::from_slice(&messages).unwrap();
         let body = ReceiptBody {
             genesis: H256([1; 32]),
             gateway: AccountId32::new([2; 32]),
@@ -235,6 +284,11 @@ mod tests {
             out_tokens: 3,
             fee: MicroUsd(7),
             toploc_commit: if proofs { [6; 32] } else { [0; 32] },
+            content_commit: if proofs {
+                tokens.commit(&parsed).unwrap()
+            } else {
+                [0; 32]
+            },
             ttft_ms: 10,
             total_ms: 20,
         };
@@ -249,7 +303,7 @@ mod tests {
         };
         AuditEvidence {
             version: EVIDENCE_VERSION,
-            messages: br#"[{"role":"user","content":"hi"}]"#.to_vec(),
+            messages,
             output: b"hello there".to_vec(),
             finish_reason: b"stop".to_vec(),
             usage: EvidenceUsage {
@@ -263,7 +317,69 @@ mod tests {
                 skip_prefill: false,
                 proofs: vec![vec![0xab; 258]],
             }),
+            tokens: proofs.then_some(tokens),
         }
+    }
+
+    // Regression vector of evidence v2 (m6-token-binding design D6): the commitment of the
+    // sample with proofs. The evidence format is published: never change it.
+    #[test]
+    fn evidence_v2_vector() {
+        let c = sample(true).commitment().unwrap();
+        assert_eq!(hex::encode(c), VECTOR_COMMITMENT_V2);
+    }
+
+    const VECTOR_COMMITMENT_V2: &str =
+        "e20ac97fd5ec1404f9eed8a05500056cd7792d6f235ef16107ca7450be9d60aa";
+
+    // Spec market/auditor-agent "审计证据", scenario "证据可以打开收据的内容承诺".
+    #[test]
+    fn evidence_opens_the_receipt_content() {
+        assert_eq!(sample(true).check_content(), Ok(()));
+        assert_eq!(sample(false).check_content(), Ok(()));
+    }
+
+    // Spec market/auditor-agent "审计证据", scenario "证据中的内容被改动": a changed message,
+    // token ID or salt byte does not open the receipt, even with a fresh evidence commitment.
+    #[test]
+    fn altered_content_does_not_open_the_receipt() {
+        let mut e = sample(true);
+        e.messages = br#"[{"role":"user","content":"ho"}]"#.to_vec();
+        assert_eq!(e.check_content(), Err(ContentError::Commitment));
+        let mut e = sample(true);
+        e.tokens.as_mut().unwrap().prompt_ids[3] ^= 1;
+        assert_eq!(e.check_content(), Err(ContentError::Commitment));
+        let mut e = sample(true);
+        e.tokens.as_mut().unwrap().salt[31] ^= 1;
+        assert_eq!(e.check_content(), Err(ContentError::Commitment));
+        let mut e = sample(true);
+        e.tokens = None;
+        assert_eq!(e.check_content(), Err(ContentError::Missing));
+        let mut e = sample(true);
+        e.messages = b"{}".to_vec();
+        assert_eq!(e.check_content(), Err(ContentError::Malformed));
+        // The answer's text is not committed: changing it leaves the content open.
+        let mut e = sample(true);
+        e.output = b"something else".to_vec();
+        assert_eq!(e.check_content(), Ok(()));
+    }
+
+    #[test]
+    fn cases_carry_the_tokens() {
+        let e = sample(true);
+        let case = serde_json::json!({
+            "messages": serde_json::from_slice::<serde_json::Value>(&e.messages).unwrap(),
+            "output": "hello there",
+            "finish_reason": "stop",
+            "usage": {"prompt_tokens": 12, "completion_tokens": 3},
+            "receipt": hex::encode(e.receipt.encode()),
+            "toploc": hex::encode(e.proofs.as_ref().unwrap().encode()),
+            "tokens": e.tokens.as_ref().unwrap().to_json(),
+        });
+        assert_eq!(evidence_from_case(&case).unwrap(), e);
+        let mut bad = case.clone();
+        bad["tokens"]["salt"] = serde_json::json!("00");
+        assert_eq!(evidence_from_case(&bad), Err(EvidenceError::Decode));
     }
 
     #[test]
@@ -301,11 +417,12 @@ mod tests {
             AuditEvidence::from_bytes(&bytes),
             Err(EvidenceError::Decode)
         );
+        // Version 1 (without token IDs) is retired.
         let mut e = sample(false);
-        e.version = 2;
+        e.version = 1;
         assert_eq!(
             AuditEvidence::from_bytes(&e.to_bytes()),
-            Err(EvidenceError::Version(2))
+            Err(EvidenceError::Version(1))
         );
     }
 }

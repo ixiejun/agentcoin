@@ -10,21 +10,26 @@ requests, sampling and verdicts on chain come with later M6 changes.
 A re-check:
 
 1. checks that the double-signed receipt is the answer's (model, prompt and output token
-   counts); otherwise the result is **inconclusive (input mismatch)**;
+   counts); otherwise the result is **inconclusive (input mismatch)**. It then checks that the
+   case's messages, salt and token IDs open the receipt's content commitment (receipt v2,
+   m6-token-binding). Otherwise the result is **mismatch (content does not match the receipt)**:
+   that says nothing about the provider, and it is never a verdict;
 2. re-checks only models registered as **bfloat16**; any other precision is **inconclusive
    (precision not supported)** and never a failure;
 3. **fails (no proof)** on an all-zero TOPLOC commitment: an audited request without proofs fails
    whatever the reason; proofs that do not match the commitment, or whose parameters or count
    are not the market's, fail too;
-4. re-creates the tokens with its own engine: the prompt from the messages under the model's chat
-   template (`/tokenize`), the output from its text (`/tokenize`, then `/detokenize` must give the
-   same text). The prompt count must equal the receipt's, and the output count must be one less
-   than the receipt's when the answer stopped on the end token (`stop`; the end token is not in
-   the text) and equal to it when it hit the length limit (`length`); otherwise the result is
-   **inconclusive (tokens cannot be re-created)**;
-5. prefills the prompt and every output token but the last (the last one is never fed back)
-   through `/v1/completions` with a random `X-Request-Id`; the engine's TOPLOC plugin, in the
-   **verify** mode, sends one candidate segment per token row to the auditor's socket;
+4. takes the **committed** tokens and never re-tokenizes the answer (I-023). The prompt the
+   engine gives the messages under the model's chat template (`/tokenize`) must be exactly the
+   committed prompt IDs; otherwise the inference **fails (prompt does not match the request)**,
+   e.g. a hidden system prompt. The committed output IDs, without a final end token when the
+   answer stopped (`stop`), must decode (`/detokenize`) to the answer's text. When they do not,
+   the re-check still runs: a failure stays a failure, and a pass becomes **inconclusive (answer
+   does not match the tokens)**;
+5. prefills the committed prompt and every committed output token but the last (the last one
+   is never fed back), whatever the finish reason, through `/v1/completions` with a random
+   `X-Request-Id`; the engine's TOPLOC plugin, in the **verify** mode, sends one candidate
+   segment per token row to the auditor's socket;
 6. rebuilds the original inference's chunks from the rows (the prompt rows are the prefill, every
    later row a decode step), compares them with the proofs (`ac_toploc::compare_from_candidates`)
    and judges them by the market's versioned thresholds (`ac_market_proto::toploc::judge`):
@@ -68,30 +73,37 @@ A case (`RecheckCase`) is JSON:
   "finish_reason": "length",
   "usage": {"prompt_tokens": 40, "completion_tokens": 24},
   "receipt": "<SCALE SignedReceipt, hex>",
-  "toploc": "<SCALE ToplocProofs, hex, or null>"
+  "toploc": "<SCALE ToplocProofs, hex, or null>",
+  "tokens": {"salt": "<32 bytes, hex>", "prompt_ids": [151644, …], "output_ids": [785, …]}
 }
 ```
 
-Each output line has `case`, `outcome` (`pass`, `fail`, `inconclusive`), `reason`, `request`
+`tokens` is what the gateway returns with the receipt (`ReceiptTokens`); it is absent for a
+receipt without proofs.
+
+Each output line has `case`, `outcome` (`pass`, `fail`, `inconclusive`, `mismatch`), `reason`, `request`
 (the receipt's request ID), `thresholds_version` and `chunks` (every chunk's exponent mismatches,
 mantissa error sum and count, and median).
 
 `ac-auditor calibration-case` turns a prover engine's candidates (the same JSON with
 `segments: [{phase, len, candidates: [[index, bits], …]}]` or `null` instead of `receipt` and
-`toploc`) into a case whose receipt is signed by a key made for the run. It serves the
+`toploc`, and with segments the engine's `tokens`) into a case whose receipt, committing to the
+proofs and the content, is signed by a key made for the run. It serves the
 calibration of the thresholds (`scripts/calibrate-toploc.py`) and tests, not audits.
 
 ### Evidence (audits on chain)
 
 A failing verdict on chain commits to the evidence of the re-check (m6-audit-chain; spec
 `market/auditor-agent` "审计证据"). `ac-auditor evidence --case c.json --out e.bin` writes the
-evidence (SCALE bytes: messages, answer, usage, receipt, proofs) and prints
-`{"commitment": "<hex>"}`. A reviewer of a dispute re-checks it with
+evidence (SCALE bytes: messages, answer, usage, receipt, proofs and, from evidence v2
+(m6-token-binding, context `agentcoin 2026-10 audit-evidence v2`), the salt and token IDs) and
+prints `{"commitment": "<hex>"}`. A reviewer of a dispute re-checks it with
 `ac-auditor recheck --evidence e.bin --commitment <hex from the chain> --engine-model <name> …`:
-if the bytes do not match the commitment the output line is `{"outcome": "mismatch", …}` and no
-engine is involved; otherwise the evidence is re-checked like its case. Every report line also
-carries `onchain`: the outcome as the chain encodes it (hex), which `ac-wallet audit verdict`
-submits.
+if the bytes do not match the commitment, or their content does not open the receipt's content
+commitment, the output line is `{"outcome": "mismatch", …}` and no engine is involved; otherwise
+the evidence is re-checked like its case. An accuser can therefore change only the answer's text,
+which gives at most an inconclusive result. Every report line but a mismatch also carries
+`onchain`: the outcome as the chain encodes it (hex), which `ac-wallet audit verdict` submits.
 
 A pass, or a failure on a chunk out of bounds, is judged by the thresholds: its verdict also
 commits to the evidence and carries `stats` (OpenSpec change `m6-audit-sprt`, design D1). The

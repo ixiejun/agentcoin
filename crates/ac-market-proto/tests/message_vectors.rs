@@ -77,6 +77,7 @@ fn message_vectors_are_stable() {
 fn chat_to_takes_index_two_and_existing_indices_stay() {
     let v = vectors();
     let prefix = |i: usize| v["user"][i]["encoding"].as_str().unwrap()[..4].to_string();
-    assert_eq!([prefix(0), prefix(1), prefix(2)], ["0200", "0201", "0202"]);
+    // Protocol version 3 (m6-token-binding); the user messages themselves are unchanged.
+    assert_eq!([prefix(0), prefix(1), prefix(2)], ["0300", "0301", "0302"]);
     assert_eq!(&v["evidence"][2]["encoding"], "01");
 }

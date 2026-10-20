@@ -4,6 +4,11 @@
 //! gateway until the challenge period ends; the chain only sees their Merkle root in a work
 //! report. A receipt never holds the prompt, the output or the paying user (red line 6).
 //!
+//! Receipt v2 (m6-token-binding design D3) adds a salted content commitment
+//! ([`super::content::content_commit`]) that binds the request's messages and the token IDs the
+//! engine computed, so an auditor re-checks those tokens and evidence cannot be altered. Receipts
+//! v1 (signed under `agentcoin/receipt/v1`, without the commitment) are invalid.
+//!
 //! [`check_receipt`] is the single implementation of the validity rules, used by wallets,
 //! gateways and (from M6) auditors.
 
@@ -19,11 +24,11 @@ use super::usd::{MICRO_USD_PER_USD, MicroUsd, PricePerMTok};
 use super::voucher::key_fingerprint;
 use super::work::JobKind;
 
-/// Signing context of receipts (registered in M0, in use from M5).
-pub const RECEIPT_CONTEXT: &[u8] = b"agentcoin/receipt/v1";
+/// Signing context of receipts v2 (m6-token-binding; `agentcoin/receipt/v1` is retired).
+pub const RECEIPT_CONTEXT: &[u8] = b"agentcoin/receipt/v2";
 
-/// Hashing context of the 32-byte receipt signing payload.
-pub const RECEIPT_PAYLOAD_CONTEXT: &str = "agentcoin 2026-09 receipt-payload v1";
+/// Hashing context of the 32-byte receipt signing payload (v2).
+pub const RECEIPT_PAYLOAD_CONTEXT: &str = "agentcoin 2026-10 receipt-payload v2";
 
 /// What one request cost and how it was served.
 #[derive(
@@ -48,8 +53,12 @@ pub struct ReceiptBody {
     pub out_tokens: u32,
     /// Fee: [`fee_for`] of the provider's price for the model.
     pub fee: MicroUsd,
-    /// TOPLOC commitment of the proofs of this request (`ac-toploc`).
+    /// TOPLOC commitment of the proofs of this request (`ac-toploc`); all zero without proofs.
     pub toploc_commit: [u8; 32],
+    /// Salted commitment to the messages and the prompt and output token IDs
+    /// ([`super::content::content_commit`]); all zero exactly when `toploc_commit` is, and for
+    /// every job kind but inference.
+    pub content_commit: [u8; 32],
     /// Milliseconds from the gateway accepting the request to the first token.
     pub ttft_ms: u32,
     /// Milliseconds from the gateway accepting the request to the last token.
@@ -58,7 +67,7 @@ pub struct ReceiptBody {
 
 impl ReceiptBody {
     /// The 32-byte message both parties sign:
-    /// `derive("agentcoin 2026-09 receipt-payload v1", SCALE(body))`.
+    /// `derive("agentcoin 2026-10 receipt-payload v2", SCALE(body))`.
     ///
     /// # Errors
     ///
@@ -118,6 +127,9 @@ pub enum ReceiptError {
     WrongGenesis,
     /// A job kind that cannot be settled yet.
     UnsupportedJobKind,
+    /// One of the TOPLOC and content commitments is zero and the other is not, or a job kind
+    /// other than inference has a content commitment.
+    CommitmentMismatch,
     /// The provider does not offer the model.
     ModelNotOffered,
     /// The fee does not follow the provider's price.
@@ -142,6 +154,9 @@ impl core::fmt::Display for ReceiptError {
         match self {
             Self::WrongGenesis => f.write_str("the receipt was signed for another chain"),
             Self::UnsupportedJobKind => f.write_str("the receipt's job kind cannot be settled yet"),
+            Self::CommitmentMismatch => {
+                f.write_str("the TOPLOC and content commitments are not both zero or both set")
+            }
             Self::ModelNotOffered => f.write_str("the provider does not offer the model"),
             Self::FeeMismatch { expected } => write!(
                 f,
@@ -173,12 +188,21 @@ pub struct ReceiptContext<'a> {
     pub price: Option<&'a PricePerMTok>,
 }
 
+/// Whether the commitments follow the rule of receipt v2: the TOPLOC and content commitments
+/// are both zero (no proof) or both set, and only inference has content.
+#[must_use]
+pub fn commitments_agree(body: &ReceiptBody) -> bool {
+    let toploc = body.toploc_commit != [0; 32];
+    let content = body.content_commit != [0; 32];
+    toploc == content && (!content || body.kind == JobKind::Inference)
+}
+
 /// Checks `receipt` against `ctx`.
 ///
 /// # Errors
 ///
-/// The first failing rule, in this order: genesis, job kind, model, fee, provider key, gateway
-/// key, provider signature, gateway signature.
+/// The first failing rule, in this order: genesis, job kind, commitments, model, fee, provider
+/// key, gateway key, provider signature, gateway signature.
 pub fn check_receipt(
     receipt: &SignedReceipt,
     ctx: &ReceiptContext<'_>,
@@ -189,6 +213,9 @@ pub fn check_receipt(
     }
     if !body.kind.is_supported() {
         return Err(ReceiptError::UnsupportedJobKind);
+    }
+    if !commitments_agree(body) {
+        return Err(ReceiptError::CommitmentMismatch);
     }
     let price = ctx.price.ok_or(ReceiptError::ModelNotOffered)?;
     let expected = fee_for(price, body.in_tokens, body.out_tokens).ok_or(ReceiptError::Overflow)?;
@@ -249,6 +276,7 @@ mod tests {
             out_tokens: 2_000,
             fee: MicroUsd(700),
             toploc_commit: [0x77; 32],
+            content_commit: [0x88; 32],
             ttft_ms: 120,
             total_ms: 3_400,
         }
@@ -289,21 +317,111 @@ mod tests {
         bytes.iter().map(|b| alloc::format!("{b:02x}")).collect()
     }
 
-    // Regression vectors (design D2): encoding, payload and a deterministic ML-DSA-44 signature
-    // prefix of a fixed receipt. The receipt format is published: never change these.
+    // Regression vectors of receipt v2 (m6-token-binding design D3): encoding, payload and a
+    // deterministic ML-DSA-44 signature prefix of a fixed receipt. The receipt format is
+    // published: never change these.
     #[test]
     fn receipt_vectors() {
         let b = body();
-        assert_eq!(hexs(&b.encode()), VECTOR_BODY);
-        assert_eq!(hexs(&b.payload().unwrap()), VECTOR_PAYLOAD);
+        assert_eq!(hexs(&b.encode()), VECTOR_BODY_V2);
+        assert_eq!(hexs(&b.payload().unwrap()), VECTOR_PAYLOAD_V2);
         let r = sign(b, &key("bob"), &key("charlie"));
         let sig = r.provider_sig.to_canonical();
-        assert_eq!(hexs(sig.get(..16).unwrap()), VECTOR_PROVIDER_SIG_PREFIX);
+        assert_eq!(hexs(sig.get(..16).unwrap()), VECTOR_PROVIDER_SIG_PREFIX_V2);
     }
 
+    const VECTOR_BODY_V2: &str = "1111111111111111111111111111111111111111111111111111111111111111bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc0042424242424242424242424242424242424242424242424242424242424242420101010101010101010101010101010101010101010101010101010101010101e8030000d0070000bc0200000000000000000000000000007777777777777777777777777777777777777777777777777777777777777777888888888888888888888888888888888888888888888888888888888888888878000000480d0000";
+    const VECTOR_PAYLOAD_V2: &str =
+        "419d0ba9a0739d5aae91aa02b33cca75e3e8b2035ac3cc62740b3bfab442ab14";
+    const VECTOR_PROVIDER_SIG_PREFIX_V2: &str = "01ee73f7cafd2711e6910050d19eca4e";
+
+    // The published receipt v1 (m5-work-settlement design D2), kept to show it stays invalid:
+    // its encoding is the v2 body without the content commitment.
     const VECTOR_BODY: &str = "1111111111111111111111111111111111111111111111111111111111111111bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc0042424242424242424242424242424242424242424242424242424242424242420101010101010101010101010101010101010101010101010101010101010101e8030000d0070000bc020000000000000000000000000000777777777777777777777777777777777777777777777777777777777777777778000000480d0000";
     const VECTOR_PAYLOAD: &str = "1b717587a184e2baf60082c8860a23e0b666b42ddb60da2b09c6470318e194f8";
     const VECTOR_PROVIDER_SIG_PREFIX: &str = "0113968911e3ad0b2b447c839a4f1af9";
+
+    // Scenario "旧格式收据": the v1 vectors still hold, a v1 body does not decode as v2, and
+    // signatures made under the v1 context over the v1 payload do not make a valid receipt.
+    #[test]
+    fn a_receipt_v1_is_invalid() {
+        let v1 = hex::decode(VECTOR_BODY).unwrap();
+        let mut v2 = body().encode();
+        v2.drain(217..249);
+        assert_eq!(v1, v2, "v1 is v2 without the content commitment");
+        let v1_payload =
+            ac_crypto::hash::derive("agentcoin 2026-09 receipt-payload v1", &v1).unwrap();
+        assert_eq!(hexs(&v1_payload), VECTOR_PAYLOAD);
+        let (bob, charlie) = (key("bob"), key("charlie"));
+        let v1_sig = bob
+            .sign_deterministic(&v1_payload, b"agentcoin/receipt/v1")
+            .unwrap();
+        assert_eq!(
+            hexs(v1_sig.to_canonical().get(..16).unwrap()),
+            VECTOR_PROVIDER_SIG_PREFIX
+        );
+        assert!(ReceiptBody::decode(&mut v1.as_slice()).is_err());
+
+        let mut r = sign(body(), &bob, &charlie);
+        r.provider_sig = v1_sig;
+        r.gateway_sig = charlie
+            .sign_deterministic(&v1_payload, b"agentcoin/receipt/v1")
+            .unwrap();
+        assert_eq!(
+            check(&r, Some(&price())),
+            Err(ReceiptError::BadProviderSignature)
+        );
+        // Nor do v2 payloads signed under the v1 context.
+        let payload = body().payload().unwrap();
+        let mut r = sign(body(), &bob, &charlie);
+        r.provider_sig = bob
+            .sign_deterministic(&payload, b"agentcoin/receipt/v1")
+            .unwrap();
+        assert_eq!(
+            check(&r, Some(&price())),
+            Err(ReceiptError::BadProviderSignature)
+        );
+    }
+
+    // Scenario "没有证明时内容承诺为零": both commitments zero or both set.
+    #[test]
+    fn the_commitments_are_both_zero_or_both_set() {
+        let (bob, charlie) = (key("bob"), key("charlie"));
+        let none = ReceiptBody {
+            toploc_commit: [0; 32],
+            content_commit: [0; 32],
+            ..body()
+        };
+        assert_eq!(
+            check(&sign(none.clone(), &bob, &charlie), Some(&price())),
+            Ok(())
+        );
+        for b in [
+            ReceiptBody {
+                content_commit: [0; 32],
+                ..body()
+            },
+            ReceiptBody {
+                toploc_commit: [0; 32],
+                ..body()
+            },
+        ] {
+            assert!(!commitments_agree(&b));
+            assert_eq!(
+                check(&sign(b, &bob, &charlie), Some(&price())),
+                Err(ReceiptError::CommitmentMismatch)
+            );
+        }
+        // Content is defined for inference only.
+        assert!(!commitments_agree(&ReceiptBody {
+            kind: JobKind::Eval,
+            ..body()
+        }));
+        assert!(commitments_agree(&ReceiptBody {
+            kind: JobKind::Eval,
+            ..none
+        }));
+    }
 
     // Scenario "双签收据有效".
     #[test]

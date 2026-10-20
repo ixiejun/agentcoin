@@ -51,6 +51,9 @@ pub enum Missing {
     Recomputed,
     /// The candidates do not build proofs.
     Invalid,
+    /// The engine returned no token IDs, or not as many as its usage, or the messages have no
+    /// canonical text: the receipt cannot commit to the content (m6-token-binding).
+    NoTokenIds,
 }
 
 impl Missing {
@@ -63,6 +66,7 @@ impl Missing {
             Self::Incomplete => "incomplete segments",
             Self::Recomputed => "recomputed",
             Self::Invalid => "invalid candidates",
+            Self::NoTokenIds => "no token IDs",
         }
     }
 }

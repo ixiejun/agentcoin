@@ -364,6 +364,7 @@ dependencies = [
  "pallet-providers",
  "pallet-work",
  "parity-scale-codec",
+ "rand_core 0.10.1",
  "serde_json",
  "sp-core",
  "sp-runtime",

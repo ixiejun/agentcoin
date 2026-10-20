@@ -152,6 +152,10 @@ pub enum ReceiptCommand {
         /// TOPLOC commitment (hex, 32 bytes); zero if omitted.
         #[arg(long)]
         toploc: Option<String>,
+        /// Content commitment (hex, 32 bytes); zero if omitted. Zero exactly when the TOPLOC
+        /// commitment is (receipt v2).
+        #[arg(long)]
+        content_commit: Option<String>,
         /// Request ID (hex, 32 bytes); random if omitted.
         #[arg(long)]
         request_id: Option<String>,
@@ -824,6 +828,7 @@ async fn run_receipt(command: ReceiptCommand) -> Result<()> {
             in_tokens,
             out_tokens,
             toploc,
+            content_commit,
             request_id,
             ttft_ms,
             total_ms,
@@ -833,6 +838,12 @@ async fn run_receipt(command: ReceiptCommand) -> Result<()> {
             let provider = parse_address(&provider)?;
             let model = market::parse_model_id(&model)?;
             let toploc_commit = toploc.map_or(Ok([0; 32]), |t| hex32(&t, "TOPLOC commitment"))?;
+            let content_commit =
+                content_commit.map_or(Ok([0; 32]), |c| hex32(&c, "content commitment"))?;
+            // Receipt v2: both commitments zero (no proof) or both set.
+            if (toploc_commit == [0; 32]) != (content_commit == [0; 32]) {
+                bail!("--toploc and --content-commit must be both zero or both set");
+            }
             let client = NodeClient::new(&signed.node.node)?;
             let price = client
                 .market_provider(&provider)
@@ -863,6 +874,7 @@ async fn run_receipt(command: ReceiptCommand) -> Result<()> {
                 out_tokens,
                 fee,
                 toploc_commit,
+                content_commit,
                 ttft_ms,
                 total_ms,
             };

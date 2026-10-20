@@ -108,7 +108,7 @@ fn an_inconclusive_verdict_carries_no_statistics() {
     // "裁决" / "无法判定不带统计量"; a failure without a proof carries none either.
     new_test_ext(6).execute_with(|| {
         let a = assigned(PROVIDER)[0].clone();
-        let tokens = VerdictOutcome::Inconclusive(InconclusiveReason::Tokens);
+        let tokens = VerdictOutcome::Inconclusive(InconclusiveReason::OutputMismatch);
         assert_noop!(
             Audit::submit_verdict(
                 RuntimeOrigin::signed(a.clone()),

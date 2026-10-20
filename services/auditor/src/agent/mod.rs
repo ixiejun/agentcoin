@@ -177,6 +177,10 @@ fn case_of_answer(
         },
         receipt: hex::encode(done.receipt.encode()),
         toploc: done.proofs.as_ref().map(|p| hex::encode(p.encode())),
+        tokens: done
+            .tokens
+            .as_ref()
+            .map(ac_market_proto::ReceiptTokens::to_json),
     })
 }
 
@@ -281,7 +285,11 @@ impl Agent {
         };
         let report = self.engines.recheck(&case, quant).await;
         bump(&self.counters.audited);
-        let outcome = onchain_outcome(&report.verdict);
+        // The proxy paid only for content that opens the receipt; a mismatch here is never a
+        // verdict (spec "复核一次推理").
+        let Some(outcome) = onchain_outcome(&report.verdict) else {
+            return Audited::Missed("the content does not match the receipt".into());
+        };
         let judged = outcome.judged_by_thresholds();
         #[cfg(feature = "lenient")]
         let outcome = if self.lenient && judged {

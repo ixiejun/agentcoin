@@ -17,7 +17,7 @@ use ac_crypto::sig::{SecretSeed, SigningKey};
 use ac_crypto::{KemAlg, KemPublicKey, OsRng, SigAlg, account_id};
 use ac_market_proto::openai::{SseDecoder, SseEvent, usage_of};
 use ac_market_proto::toploc::{MARKET_PARAMS, ToplocProofs};
-use ac_market_proto::{ErrorCode, GatewayMsg, Payment, UserMsg, msg};
+use ac_market_proto::{ErrorCode, GatewayMsg, Payment, ReceiptTokens, UserMsg, msg};
 use ac_primitives::market::receipt::{RECEIPT_CONTEXT, fee_for};
 use ac_primitives::market::voucher::key_fingerprint;
 use ac_primitives::market::work::JobKind;
@@ -59,6 +59,9 @@ enum Mode {
     Proofs,
     /// Receipts whose proofs were altered after the commitment was signed.
     BadProofs,
+    /// Receipts with proofs whose content commitment is to other messages (a hidden system
+    /// prompt; m6-token-binding).
+    BadContent,
 }
 
 /// Proofs for `USAGE`: a prefill and 499 decode steps of 256 values.
@@ -91,7 +94,12 @@ struct FakeGateway {
 }
 
 impl FakeGateway {
-    fn receipt(&self, fee_bump: u128, toploc_commit: [u8; 32]) -> SignedReceipt {
+    fn receipt(
+        &self,
+        fee_bump: u128,
+        toploc_commit: [u8; 32],
+        content_commit: [u8; 32],
+    ) -> SignedReceipt {
         let fee = fee_for(&PRICE, USAGE.0, USAGE.1).unwrap();
         let body = ReceiptBody {
             genesis: GENESIS,
@@ -104,6 +112,7 @@ impl FakeGateway {
             out_tokens: USAGE.1,
             fee: MicroUsd(fee.0 + fee_bump),
             toploc_commit,
+            content_commit,
             ttft_ms: 1,
             total_ms: 2,
         };
@@ -123,19 +132,32 @@ impl FakeGateway {
         }
     }
 
-    /// The receipt and proofs of one request.
-    fn bill(&self) -> (SignedReceipt, Option<ToplocProofs>) {
+    /// The receipt, proofs and tokens of one request with `messages`.
+    fn bill(
+        &self,
+        messages: &[Value],
+    ) -> (SignedReceipt, Option<ToplocProofs>, Option<ReceiptTokens>) {
         match (self.mode, &self.proofs) {
-            (Mode::Overcharge, _) => (self.receipt(1, [0; 32]), None),
-            (Mode::Proofs | Mode::BadProofs, Some(p)) => {
-                let receipt = self.receipt(0, p.commitment().unwrap());
+            (Mode::Overcharge, _) => (self.receipt(1, [0; 32], [0; 32]), None, None),
+            (Mode::Proofs | Mode::BadProofs | Mode::BadContent, Some(p)) => {
+                let tokens = ReceiptTokens {
+                    salt: [3; 32],
+                    prompt_ids: (0..USAGE.0).collect(),
+                    output_ids: (0..USAGE.1).collect(),
+                };
+                let mut committed = messages.to_vec();
+                if self.mode == Mode::BadContent {
+                    committed.insert(0, json!({ "role": "system", "content": "hidden" }));
+                }
+                let content = tokens.commit(&committed).unwrap();
+                let receipt = self.receipt(0, p.commitment().unwrap(), content);
                 let mut sent = p.clone();
                 if self.mode == Mode::BadProofs {
                     sent.proofs[3][10] ^= 1;
                 }
-                (receipt, Some(sent))
+                (receipt, Some(sent), Some(tokens))
             }
-            _ => (self.receipt(0, [0; 32]), None),
+            _ => (self.receipt(0, [0; 32], [0; 32]), None, None),
         }
     }
 
@@ -178,10 +200,10 @@ impl FakeGateway {
                         message: b"unpaid".to_vec(),
                     }];
                 }
-                let stream = serde_json::from_slice::<Value>(&request).unwrap()["stream"]
-                    .as_bool()
-                    .unwrap_or(false);
-                let (receipt, toploc) = self.bill();
+                let request = serde_json::from_slice::<Value>(&request).unwrap();
+                let stream = request["stream"].as_bool().unwrap_or(false);
+                let messages = request["messages"].as_array().cloned().unwrap_or_default();
+                let (receipt, toploc, tokens) = self.bill(&messages);
                 let fee = receipt.body.fee;
                 *billed += fee.0;
                 let usage = json!({ "prompt_tokens": USAGE.0, "completion_tokens": USAGE.1 });
@@ -190,6 +212,7 @@ impl FakeGateway {
                     fee,
                     billed_total: MicroUsd(*billed),
                     toploc,
+                    tokens,
                 };
                 if stream {
                     let chunk = |c: &str| json!({ "id": "x", "object": "chat.completion.chunk", "choices": [{ "index": 0, "delta": { "content": c } }] });
@@ -222,7 +245,7 @@ async fn fake_gateway(
         billed: Mutex::new(0),
         vouchers: Mutex::new(Vec::new()),
         mode,
-        proofs: matches!(mode, Mode::Proofs | Mode::BadProofs).then(proofs),
+        proofs: matches!(mode, Mode::Proofs | Mode::BadProofs | Mode::BadContent).then(proofs),
         replay: Mutex::new(ReplayCache::default()),
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -488,6 +511,28 @@ async fn proofs_must_match_the_receipt_before_paying() {
     assert_eq!(*s.gateway.vouchers.lock().unwrap(), [0]);
 }
 
+// m6-token-binding 5.1: scenario "内容承诺不符时拒绝付费": the receipt commits to messages the
+// user did not send (a hidden system prompt), so the proxy pays nothing and stops.
+#[tokio::test]
+async fn the_content_commitment_must_open_before_paying() {
+    let s = setup("bad-content", Mode::BadContent, None).await;
+    let (status, body) = chat(&s.base, false).await;
+    assert_eq!(status, 402, "{}", String::from_utf8_lossy(&body));
+    assert_eq!(s.proxy.paid().await.total, MicroUsd(0));
+    assert!(
+        s.proxy
+            .halted()
+            .unwrap()
+            .contains("content commitment does not match"),
+        "{:?}",
+        s.proxy.halted()
+    );
+    assert_eq!(*s.gateway.vouchers.lock().unwrap(), [0]);
+    let (status, _) = chat(&s.base, true).await;
+    assert_eq!(status, 402);
+    assert_eq!(*s.gateway.vouchers.lock().unwrap(), [0]);
+}
+
 async fn chat_pinned(base: &str, provider: &str) -> (u16, Vec<u8>) {
     let body = json!({ "model": "Qwen-test", "messages": [{ "role": "user", "content": "hi" }] });
     let resp = Client::new()
@@ -552,6 +597,14 @@ async fn the_library_form_returns_receipt_and_proofs() {
     assert_eq!(
         done.proofs.unwrap().commitment().unwrap(),
         done.receipt.body.toploc_commit
+    );
+    // And the tokens that open its content commitment.
+    assert_eq!(
+        done.tokens
+            .unwrap()
+            .commit(&body["messages"].as_array().unwrap().clone())
+            .unwrap(),
+        done.receipt.body.content_commit
     );
     assert_eq!(s.proxy.paid().await.total, done.fee);
     let streamed = json!({ "model": "Qwen-test", "messages": [], "stream": true });

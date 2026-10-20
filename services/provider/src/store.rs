@@ -150,6 +150,7 @@ mod tests {
             out_tokens: 1,
             fee: MicroUsd(1),
             toploc_commit: [0; 32],
+            content_commit: [0; 32],
             ttft_ms: 1,
             total_ms: 2,
         };

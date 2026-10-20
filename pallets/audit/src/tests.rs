@@ -320,7 +320,7 @@ fn evidence_goes_with_failures_and_judged_verdicts() {
         let mut s = submission(
             PROVIDER,
             1,
-            VerdictOutcome::Inconclusive(InconclusiveReason::Tokens),
+            VerdictOutcome::Inconclusive(InconclusiveReason::OutputMismatch),
         );
         s.evidence = Some([1; 32]);
         assert_noop!(
@@ -353,12 +353,80 @@ fn inconclusive_is_counted_not_punished() {
             submission(
                 PROVIDER,
                 1,
-                VerdictOutcome::Inconclusive(InconclusiveReason::Tokens)
+                VerdictOutcome::Inconclusive(InconclusiveReason::Engine)
             )
         ));
         assert_eq!(ProviderStats::<Test>::get(acc(PROVIDER)).inconclusive, 1);
         assert!(penalties().is_empty());
         assert!(!jailed(&acc(PROVIDER)));
+    });
+}
+
+#[test]
+fn the_retired_tokens_reason_is_refused() {
+    // "裁决" / "旧的无法判定原因" (m6-token-binding).
+    new_test_ext(6).execute_with(|| {
+        let a = assigned(PROVIDER)[0].clone();
+        assert_noop!(
+            Audit::submit_verdict(
+                RuntimeOrigin::signed(a.clone()),
+                submission(
+                    PROVIDER,
+                    1,
+                    VerdictOutcome::Inconclusive(InconclusiveReason::Tokens)
+                )
+            ),
+            Error::<Test>::RetiredReason
+        );
+        // The new reasons are accepted: an output mismatch is counted like any inconclusive
+        // verdict, a prompt mismatch is a failure with evidence.
+        assert_ok!(Audit::submit_verdict(
+            RuntimeOrigin::signed(a),
+            submission(
+                PROVIDER,
+                1,
+                VerdictOutcome::Inconclusive(InconclusiveReason::OutputMismatch)
+            )
+        ));
+        assert_eq!(ProviderStats::<Test>::get(acc(PROVIDER)).inconclusive, 1);
+        let b = assigned(PROVIDER)[1].clone();
+        assert_ok!(Audit::submit_verdict(
+            RuntimeOrigin::signed(b),
+            submission(
+                PROVIDER,
+                2,
+                VerdictOutcome::Fail(FailReason::PromptMismatch)
+            )
+        ));
+        assert_eq!(ProviderStats::<Test>::get(acc(PROVIDER)).fail, 1);
+    });
+}
+
+#[test]
+fn receipts_v1_and_asymmetric_commitments_are_refused() {
+    // "裁决" / "旧格式收据的裁决" (m6-token-binding): a receipt signed under the v1 context.
+    new_test_ext(6).execute_with(|| {
+        let a = assigned(PROVIDER)[0].clone();
+        let mut s = submission(PROVIDER, 1, VerdictOutcome::Pass);
+        let payload = s.receipt.body.payload().unwrap();
+        let sign = |n: u8| {
+            crate::mock::key(n)
+                .sign_deterministic(&payload, b"agentcoin/receipt/v1")
+                .unwrap()
+        };
+        s.receipt.provider_sig = sign(PROVIDER);
+        s.receipt.gateway_sig = sign(GATEWAY);
+        assert_noop!(
+            Audit::submit_verdict(RuntimeOrigin::signed(a.clone()), s),
+            Error::<Test>::ReceiptSignature
+        );
+        // A receipt whose content commitment is zero while its TOPLOC commitment is not.
+        let mut s = submission(PROVIDER, 1, VerdictOutcome::Pass);
+        s.receipt = crate::mock::receipt_with(PROVIDER, GATEWAY, 1, |b| b.content_commit = [0; 32]);
+        assert_noop!(
+            Audit::submit_verdict(RuntimeOrigin::signed(a), s),
+            Error::<Test>::ReceiptCommitments
+        );
     });
 }
 

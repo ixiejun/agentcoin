@@ -263,3 +263,36 @@ let t1 = MicroUsd::from_usd(1_000).unwrap();
 assert_eq!(required_stake(t1, k, MicroUsd::from_usd(100).unwrap()), MicroUsd::from_usd(3_500).unwrap());
 assert_eq!(required_stake(t1, k, MicroUsd::from_usd(10).unwrap()), t1);
 ```
+
+## Receipt content commitment
+
+OpenSpec change `m6-token-binding` makes receipts v2 (signing context `agentcoin/receipt/v2`,
+payload `agentcoin 2026-10 receipt-payload v2`, tree leaves `agentcoin 2026-10 receipt-leaf v2`).
+A receipt v2 adds `content_commit`. It is zero exactly when `toploc_commit` is (no proof), and
+for every job kind but inference (`commitments_agree`; `check_receipt` rejects other receipts).
+Receipts v1 are invalid.
+
+- `market::content::content_commit` hashes, under `agentcoin 2026-10 receipt-content v1`, the
+  SCALE encoding of a 32-byte salt, the messages as canonical JSON texts, the prompt token IDs and
+  the output token IDs (including the end token). The salt keeps the on-chain commitment from
+  confirming a guessed prompt.
+- `canonical_json` (with `std`) writes a message canonically: keys in byte order, no whitespace,
+  only `"`, `\` and control characters escaped, integers in decimal. A non-integer number is
+  refused, and such a request is not committed. Python's
+  `json.dumps(m, sort_keys=True, separators=(",", ":"), ensure_ascii=False)` writes the same
+  text. `tests/vectors/receipt_content.json` holds vectors for both languages.
+
+```rust
+use ac_primitives::market::content::{canonical_messages, content_commit};
+
+let a: serde_json::Value = serde_json::from_str(r#"{"role": "user", "content": "Hi"}"#).unwrap();
+let b: serde_json::Value = serde_json::from_str(r#"{"content":"Hi","role":"user"}"#).unwrap();
+let (ca, cb) = (canonical_messages(&[a]).unwrap(), canonical_messages(&[b]).unwrap());
+assert_eq!(ca, cb); // key order and spacing do not matter
+assert_eq!(ca[0], br#"{"content":"Hi","role":"user"}"#.to_vec());
+let salt = [7u8; 32];
+let commit = content_commit(&salt, &ca, &[1, 2, 3], &[4, 5]).unwrap();
+// Another salt, or one token ID changed, gives another commitment.
+assert_ne!(commit, content_commit(&[8u8; 32], &ca, &[1, 2, 3], &[4, 5]).unwrap());
+assert_ne!(commit, content_commit(&salt, &ca, &[1, 2, 3], &[4, 6]).unwrap());
+```

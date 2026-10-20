@@ -15,7 +15,9 @@ use ac_crypto::KemPublicKey;
 use ac_crypto::sig::SigningKey;
 use ac_market_proto::openai::{SSE_DONE, error_json, sse_data, usage_of, with_usage};
 use ac_market_proto::toploc::ToplocProofs;
-use ac_market_proto::{ChatRequest, ErrorCode, GatewayMsg, Payment, Usage, UserMsg, msg};
+use ac_market_proto::{
+    ChatRequest, ErrorCode, GatewayMsg, Payment, ReceiptTokens, Usage, UserMsg, check_content, msg,
+};
 use ac_primitives::market::voucher::VOUCHER_CONTEXT;
 use ac_primitives::market::{
     MicroUsd, ModelId, ReceiptBody, SignedReceipt, SignedVoucher, VoucherBody,
@@ -93,17 +95,22 @@ pub struct Completed {
     pub receipt: SignedReceipt,
     /// The TOPLOC proofs it commits to, if any.
     pub proofs: Option<ToplocProofs>,
+    /// The salt and token IDs that open the receipt's content commitment (m6-token-binding).
+    pub tokens: Option<ReceiptTokens>,
     /// The fee paid for it.
     pub fee: MicroUsd,
 }
 
-/// What a receipt must match besides the chain facts.
-#[derive(Clone, Debug, Default)]
+/// What a receipt must match besides the chain facts. No `Debug`: it holds the request's
+/// messages, which never reach logs.
+#[derive(Clone, Default)]
 struct Expect {
     /// The model, when the request names it unambiguously.
     model: Option<ModelId>,
     /// The provider a pinned request names.
     provider: Option<AccountId32>,
+    /// The request's messages, which the receipt's content commitment must open to.
+    messages: Vec<serde_json::Value>,
 }
 
 /// The paid total and the voucher that paid it: requests reuse that voucher, so the gateway
@@ -318,6 +325,7 @@ impl Proxy {
         let expect = Expect {
             model: self.expected_model(chat.model()).await,
             provider: pin.cloned(),
+            messages: chat.messages().to_vec(),
         };
         let streaming = chat.stream();
         // A concurrent request's bill may reach the gateway between reading the paid total and
@@ -452,11 +460,12 @@ impl Proxy {
                             fee,
                             billed_total,
                             toploc,
+                            tokens,
                         }) = drain(&mut resp).await
                         {
                             let _ = self
                                 .settle(
-                                    (&receipt, toploc.as_ref()),
+                                    (&receipt, toploc.as_ref(), tokens.as_ref()),
                                     (fee, billed_total),
                                     &expect,
                                     observed,
@@ -471,10 +480,11 @@ impl Proxy {
                     fee,
                     billed_total,
                     toploc,
+                    tokens,
                 } => {
                     if let Err(e) = self
                         .settle(
-                            (&receipt, toploc.as_ref()),
+                            (&receipt, toploc.as_ref(), tokens.as_ref()),
                             (fee, billed_total),
                             &expect,
                             observed,
@@ -516,13 +526,14 @@ impl Proxy {
                 "unexpected gateway response".into(),
             ));
         };
-        let (receipt, fee, billed, toploc) = match next_msg(&mut resp).await {
+        let (receipt, fee, billed, toploc, tokens) = match next_msg(&mut resp).await {
             Ok(GatewayMsg::Billing {
                 receipt,
                 fee,
                 billed_total,
                 toploc,
-            }) => (receipt, fee, billed_total, toploc),
+                tokens,
+            }) => (receipt, fee, billed_total, toploc, tokens),
             Ok(GatewayMsg::Error { code, message }) => {
                 return Err((code, String::from_utf8_lossy(&message).into_owned()));
             }
@@ -535,9 +546,14 @@ impl Proxy {
             Err(e) => return Err((ErrorCode::ProviderFailed, format!("{e:#}"))),
         };
         let observed = usage_of(&completion);
-        self.settle((&receipt, toploc.as_ref()), (fee, billed), expect, observed)
-            .await
-            .map_err(|e| (ErrorCode::PaymentRequired, format!("{e:#}")))?;
+        self.settle(
+            (&receipt, toploc.as_ref(), tokens.as_ref()),
+            (fee, billed),
+            expect,
+            observed,
+        )
+        .await
+        .map_err(|e| (ErrorCode::PaymentRequired, format!("{e:#}")))?;
         let usage = Usage {
             prompt_tokens: receipt.body.in_tokens,
             completion_tokens: receipt.body.out_tokens,
@@ -546,6 +562,7 @@ impl Proxy {
             response: with_usage(&completion, usage),
             receipt,
             proofs: toploc,
+            tokens,
             fee,
         })
     }
@@ -553,7 +570,11 @@ impl Proxy {
     /// Checks a bill and, if it is right, pays exactly the new total.
     async fn settle(
         &self,
-        (receipt, toploc): (&SignedReceipt, Option<&ToplocProofs>),
+        (receipt, toploc, tokens): (
+            &SignedReceipt,
+            Option<&ToplocProofs>,
+            Option<&ReceiptTokens>,
+        ),
         (fee, billed_total): (MicroUsd, MicroUsd),
         expect: &Expect,
         observed: Option<Usage>,
@@ -564,10 +585,17 @@ impl Proxy {
             Err(e) => Err(anyhow::anyhow!(
                 "TOPLOC proofs do not match the receipt: {e}"
             )),
-            Ok(()) => {
-                self.verify(receipt, fee, billed_total, (state.paid, expect, observed))
-                    .await
-            }
+            // The messages sent and the token IDs returned must open the receipt's content
+            // commitment, with as many IDs as it bills (spec "本地推理代理", m6-token-binding).
+            Ok(()) => match check_content(&receipt.body, tokens, &expect.messages) {
+                Err(e) => Err(anyhow::anyhow!(
+                    "the receipt's content commitment does not match: {e}"
+                )),
+                Ok(()) => {
+                    self.verify(receipt, fee, billed_total, (state.paid, expect, observed))
+                        .await
+                }
+            },
         };
         if let Err(e) = verdict {
             self.halt(format!("{e:#}"));

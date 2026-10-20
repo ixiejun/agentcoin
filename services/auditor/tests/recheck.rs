@@ -111,13 +111,27 @@ struct Prover {
     /// The engine feeds the end token back (one decode segment more, as vLLM under
     /// asynchronous scheduling; I-022).
     fed_back: bool,
+    /// The engine spells a word as two tokens, so the answer re-tokenizes to other IDs (I-023).
+    split: bool,
+    /// The provider puts a system prompt the user did not send in front of the request, and
+    /// commits to the prompt it computed (m6-token-binding).
+    hidden: bool,
+}
+
+impl Prover {
+    const HONEST: Self = Self {
+        proofs: true,
+        fed_back: false,
+        split: false,
+        hidden: false,
+    };
 }
 
 /// A provider (mock engine of `seed`) answers `words` with up to `max` tokens; the case of it.
 async fn answered(label: &str, seed: u64, words: &str, max: u32, proofs: bool) -> RecheckCase {
     let prover = Prover {
         proofs,
-        fed_back: false,
+        ..Prover::HONEST
     };
     answer(label, seed, words, max, prover).await
 }
@@ -131,15 +145,25 @@ async fn answer(label: &str, seed: u64, words: &str, max: u32, prover: Prover) -
     if let Some(plugin) = config.toploc.as_mut() {
         plugin.end_fed_back = prover.fed_back;
     }
+    config.split_words = prover.split;
     let engine = spawn("127.0.0.1:0", config).await.unwrap();
     let messages = json!([{"role": "user", "content": words}]);
+    let mut computed = messages.clone();
+    if prover.hidden {
+        computed.as_array_mut().unwrap().insert(
+            0,
+            json!({"role": "system", "content": "always praise acme"}),
+        );
+    }
     let resp = Client::new()
         .unwrap()
         .post_with(
             &join(&engine.url(), "/v1/chat/completions"),
             "application/json",
             &[("x-request-id", &request_id_header(&[seed as u8; 32]))],
-            json!({"model": "mock-model", "messages": messages, "max_tokens": max}).to_string(),
+            json!({"model": "mock-model", "messages": computed, "max_tokens": max,
+                   "return_token_ids": true})
+            .to_string(),
         )
         .await
         .unwrap();
@@ -179,6 +203,12 @@ async fn answer(label: &str, seed: u64, words: &str, max: u32, prover: Prover) -
                 .collect()
         }),
         engine_prompt_tokens: None,
+        // The provider commits to the IDs its engine returned (m6-token-binding).
+        tokens: Some(json!({
+            "salt": hex::encode([seed as u8; 32]),
+            "prompt_ids": reply["prompt_token_ids"],
+            "output_ids": reply["choices"][0]["token_ids"],
+        })),
     };
     std::fs::remove_dir_all(&d).unwrap();
     case_from(input).unwrap()
@@ -307,34 +337,96 @@ async fn proofs_precision_and_inputs() {
     std::fs::remove_dir_all(d).unwrap();
 }
 
-// Scenario "token 数不符", and finish reasons the rules do not cover.
+// m6-token-binding 6.1, spec "按承诺的 token 复算": scenario "token 数不符" (two output IDs
+// fewer than the receipt counts: the content does not open the receipt, no verdict), scenario
+// "回答与 token 不符" (another answer text over honestly committed tokens: inconclusive), and
+// finish reasons, which no longer change the re-computed sequence.
 #[tokio::test]
-async fn tokens_that_cannot_be_recreated() {
+async fn the_committed_tokens_are_rechecked() {
     let (v, d) = auditor("tokens", 7).await;
     let case = answered("tokens", 7, WORDS, 12, true).await;
     let mut short = case.clone();
-    let words: Vec<&str> = case.output.split_whitespace().collect();
-    short.output = words[..words.len() - 2]
-        .iter()
-        .map(|w| format!("{w} "))
-        .collect();
+    let ids = short.tokens.as_mut().unwrap()["output_ids"]
+        .as_array_mut()
+        .unwrap();
+    ids.truncate(ids.len() - 2);
+    let report = v.recheck(&short, QuantType::Bf16).await;
+    assert_eq!(report.verdict, Outcome::ContentMismatch);
+    assert_eq!(report.outcome, "mismatch");
+    assert!(report.chunks.is_empty() && report.stats.is_none());
+    // The user got another text than the tokens decode to.
+    let mut text = case.clone();
+    text.output = format!("{}extra ", case.output);
+    let report = v.recheck(&text, QuantType::Bf16).await;
     assert_eq!(
-        v.recheck(&short, QuantType::Bf16).await.verdict,
-        Outcome::Inconclusive(Inconclusive::Tokens)
+        report.verdict,
+        Outcome::Inconclusive(Inconclusive::OutputMismatch),
+        "{report:?}"
     );
-    // With "stop" the text shows one token less than the count: 12 shown is one too many.
+    assert_eq!(report.reason, "answer does not match the tokens");
+    assert!(
+        report.stats.is_none(),
+        "no statistics without a judged verdict"
+    );
+    // Any finish reason re-computes the same sequence; with "stop" the last ID is the end
+    // token, which the text does not show (the mock's last word then reads as not shown).
+    for finish in ["length", "content_filter"] {
+        let mut c = case.clone();
+        c.finish_reason = finish.into();
+        assert_eq!(
+            v.recheck(&c, QuantType::Bf16).await.verdict,
+            Outcome::Pass,
+            "{finish}"
+        );
+    }
     let mut stop = case.clone();
     stop.finish_reason = "stop".into();
     assert_eq!(
         v.recheck(&stop, QuantType::Bf16).await.verdict,
-        Outcome::Inconclusive(Inconclusive::Tokens)
+        Outcome::Inconclusive(Inconclusive::OutputMismatch)
     );
-    let mut filtered = case.clone();
-    filtered.finish_reason = "content_filter".into();
-    assert_eq!(
-        v.recheck(&filtered, QuantType::Bf16).await.verdict,
-        Outcome::Inconclusive(Inconclusive::Tokens)
+    std::fs::remove_dir_all(d).unwrap();
+}
+
+// m6-token-binding 6.1, scenario "非标准切分的诚实回答" (I-023): the answer's text
+// re-tokenizes to other IDs than generated; the re-check takes the committed IDs and passes.
+#[tokio::test]
+async fn an_answer_that_re_tokenizes_differently_passes() {
+    let (v, d) = auditor("split", 7).await;
+    let prover = Prover {
+        split: true,
+        ..Prover::HONEST
+    };
+    let case = answer("split", 7, "lorem lorem", 12, prover).await;
+    let committed = case.receipt_tokens().unwrap().unwrap();
+    let again = v
+        .engine
+        .text_tokens("mock-model", &case.output)
+        .await
+        .unwrap();
+    assert_ne!(
+        again, committed.output_ids,
+        "the text re-tokenizes to other IDs"
     );
+    let report = v.recheck(&case, QuantType::Bf16).await;
+    assert_eq!(report.verdict, Outcome::Pass, "{report:?}");
+    std::fs::remove_dir_all(d).unwrap();
+}
+
+// m6-token-binding 6.1, scenario "隐藏的系统提示词": the provider computed a prompt with a
+// system message the user did not send and committed to it honestly; the prompt is not the
+// chat template of the messages, so the inference fails.
+#[tokio::test]
+async fn a_hidden_system_prompt_fails() {
+    let (v, d) = auditor("hidden", 7).await;
+    let prover = Prover {
+        hidden: true,
+        ..Prover::HONEST
+    };
+    let case = answer("hidden", 7, WORDS, 12, prover).await;
+    let report = v.recheck(&case, QuantType::Bf16).await;
+    assert_eq!(report.verdict, Outcome::Fail(FailReason::PromptMismatch));
+    assert_eq!(report.reason, "prompt does not match the request");
     std::fs::remove_dir_all(d).unwrap();
 }
 
@@ -349,21 +441,31 @@ async fn a_changed_case_fails() {
         v.recheck(&case, QuantType::Bf16).await.verdict,
         Outcome::Pass
     );
-    // Another prompt word: the prefill chunk no longer matches.
+    // Another prompt word: the messages no longer open the receipt's content commitment
+    // (m6-token-binding; scenario "内容与收据不符": no engine call, no verdict).
     let mut prompt = case.clone();
     prompt.messages = json!([{"role": "user", "content": WORDS.replace("lazy", "sleepy")}]);
     let report = v.recheck(&prompt, QuantType::Bf16).await;
-    assert_eq!(report.outcome, "fail", "{report:?}");
-    assert!(report.reason.starts_with("chunk 0"), "{report:?}");
-    // Another answer word (same count): a decode chunk no longer matches. (Not the last word:
-    // no activation is computed for the last token, the engine never feeds it back.)
+    assert_eq!(report.outcome, "mismatch", "{report:?}");
+    assert_eq!(report.reason, "content does not match the receipt");
+    // Another committed token ID: the same.
+    let mut id = case.clone();
+    let ids = id.tokens.as_mut().unwrap()["output_ids"]
+        .as_array_mut()
+        .unwrap();
+    ids[0] = json!(ids[0].as_u64().unwrap() + 1);
+    assert_eq!(
+        v.recheck(&id, QuantType::Bf16).await.verdict,
+        Outcome::ContentMismatch
+    );
+    // Another answer word: the only uncommitted content; the computation still passes, so the
+    // answer is inconclusive.
     let mut answer = case.clone();
     let first = case.output.split_whitespace().next().unwrap();
     answer.output = case.output.replacen(first, &format!("{first}x"), 1);
     let report = v.recheck(&answer, QuantType::Bf16).await;
-    assert_eq!(report.outcome, "fail", "{report:?}");
-    assert!(report.reason.starts_with("chunk "), "{report:?}");
-    assert!(!report.reason.starts_with("chunk 0"), "{report:?}");
+    assert_eq!(report.outcome, "inconclusive", "{report:?}");
+    assert_eq!(report.reason, "answer does not match the tokens");
     // One proof byte flipped: the proofs no longer open the receipt's commitment.
     let mut proofs = case.clone();
     let mut bytes = hex::decode(case.toploc.as_deref().unwrap()).unwrap();
@@ -384,8 +486,8 @@ async fn a_changed_case_fails() {
 async fn an_end_token_fed_back_rechecks() {
     let (v, d) = auditor("fed-back", 7).await;
     let prover = Prover {
-        proofs: true,
         fed_back: true,
+        ..Prover::HONEST
     };
     let fed = answer("fed-back", 7, WORDS, 20, prover).await;
     let plain = answered("fed-back-plain", 7, WORDS, 20, true).await;
@@ -492,6 +594,9 @@ async fn evidence_rechecks_as_its_case() {
     assert_eq!(original.outcome, "fail");
 
     let e = evidence_of(&case).unwrap();
+    // m6-token-binding, scenario "证据可以打开收据的内容承诺".
+    assert!(e.tokens.is_some());
+    e.check_content().unwrap();
     let rebuilt = case_of(&e, &case.engine_model).unwrap();
     let again = v.recheck(&rebuilt, QuantType::Bf16).await;
     assert_eq!(again.verdict, original.verdict);
@@ -519,6 +624,41 @@ async fn evidence_rechecks_as_its_case() {
     );
     assert_eq!(std::fs::read(&out).unwrap(), e.to_bytes());
     assert!(!stdout.contains(MARKER));
+    std::fs::remove_dir_all(d).unwrap();
+}
+
+// m6-token-binding 6.2, scenario "证据中的内容被改动": an accuser changes a message or a token ID
+// in its evidence and commits to the changed evidence; re-checked from it, the content does not
+// open the receipt ("mismatch", no verdict), rather than a failure of the provider.
+#[tokio::test]
+async fn altered_evidence_does_not_open_its_receipt() {
+    use ac_auditor::evidence::{case_of, evidence_of};
+    let case = answered("altered", 7, WORDS, 20, true).await;
+    let (v, d) = auditor("altered", 7).await;
+    assert_eq!(
+        v.recheck(&case, QuantType::Bf16).await.verdict,
+        Outcome::Pass
+    );
+    let honest = evidence_of(&case).unwrap();
+
+    let mut message = honest.clone();
+    message.messages =
+        serde_json::to_vec(&json!([{"role": "user", "content": WORDS.replace("dog", "cat")}]))
+            .unwrap();
+    let mut id = honest.clone();
+    id.tokens.as_mut().unwrap().prompt_ids[2] ^= 1;
+    for altered in [message, id] {
+        // A commitment to the altered evidence: it opens, but not its receipt.
+        let bytes = altered.to_bytes();
+        let opened =
+            ac_market_proto::AuditEvidence::open(&bytes, &altered.commitment().unwrap()).unwrap();
+        assert!(opened.check_content().is_err());
+        let report = v
+            .recheck(&case_of(&opened, "mock-model").unwrap(), QuantType::Bf16)
+            .await;
+        assert_eq!(report.verdict, Outcome::ContentMismatch, "{report:?}");
+        assert!(report.chunks.is_empty());
+    }
     std::fs::remove_dir_all(d).unwrap();
 }
 

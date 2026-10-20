@@ -479,6 +479,7 @@ mod tests {
             out_tokens: 2_000,
             fee: MicroUsd(700),
             toploc_commit: [0; 32],
+            content_commit: [0; 32],
             ttft_ms: 100,
             total_ms: 900,
         }
@@ -530,6 +531,18 @@ mod tests {
         );
         let err = check(&tampered.signed().unwrap(), &facts(&p, &g)).unwrap_err();
         assert!(err.to_string().contains("fee"), "{err}");
+        // Receipt v2: a TOPLOC commitment without a content commitment is invalid
+        // (m6-token-binding 5.2).
+        let half = ReceiptBody {
+            toploc_commit: [9; 32],
+            ..body(&p, &g, 1)
+        };
+        let err = check(
+            &signed_file(&p, &g, &half).signed().unwrap(),
+            &facts(&p, &g),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("content"), "{err}");
     }
 
     #[test]
@@ -537,6 +550,7 @@ mod tests {
         let (p, q, g) = (key("bob"), key("dave"), key("charlie"));
         let proven = ReceiptBody {
             toploc_commit: [9; 32],
+            content_commit: [8; 32],
             ..body(&p, &g, 3)
         };
         let files = [

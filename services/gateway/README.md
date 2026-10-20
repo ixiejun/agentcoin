@@ -28,8 +28,12 @@ endpoint. The gateway:
   request's bounds, fee equal to the on-chain price) and its TOPLOC proofs (an all-zero
   commitment comes without proofs; otherwise the market parameters, one proof per chunk of the
   output and a recomputed commitment equal to the receipt's, `ac_market_proto::toploc::check`),
-  co-signs it, bills it, returns it to the user with the fee, the new total and the proofs, and
-  hands it back to the provider; a receipt whose proofs do not fit counts as invalid;
+  and its content commitment (receipt v2, m6-token-binding: the messages it forwarded, the salt
+  and the token IDs the provider returns open it, with one ID per billed token,
+  `ac_market_proto::check_content`). It then co-signs it, bills it and returns it to the user with
+  the fee, the new total, the proofs and the salt and IDs, and hands it back to the provider. A
+  receipt whose proofs or content do not fit counts as invalid. The salt and IDs are never
+  logged or stored;
 - submits work reports every `--report-interval` blocks with the receipts each channel's latest
   voucher covers (at most 16 vouchers and 128 entries per report, split otherwise), keeps the
   receipts and proofs of each report until its maturity epoch is settled, then claims its

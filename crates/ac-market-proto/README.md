@@ -19,8 +19,9 @@ can reuse it.
 
 ## Messages
 
-Every message is SCALE-encoded behind a version byte (`PROTOCOL_VERSION` = 2; version 1
-carried no TOPLOC proofs and is refused). Enum indices are wire format and never change.
+Every message is SCALE-encoded behind a version byte (`PROTOCOL_VERSION` = 3; version 1
+carried no TOPLOC proofs and version 2 receipts v1 without token IDs, and both are refused). Enum
+indices are wire format and never change.
 
 | Direction | Message | Index | Meaning |
 |---|---|---|---|
@@ -28,13 +29,13 @@ carried no TOPLOC proofs and is refused). Enum indices are wire format and never
 | | `UserMsg::Pay` | 1 | a voucher on its own, sent after a bill |
 | gateway → user | `GatewayMsg::Delta` | 0 | one streamed chunk (JSON) |
 | | `GatewayMsg::Completion` | 1 | a whole non-streamed response (JSON) |
-| | `GatewayMsg::Billing` | 2 | the double-signed receipt, its fee, the new billed total and the TOPLOC proofs (if any) |
+| | `GatewayMsg::Billing` | 2 | the double-signed receipt, its fee, the new billed total, the TOPLOC proofs and the receipt's tokens (if any) |
 | | `GatewayMsg::Error` | 3 | error code and message (never request content) |
 | | `GatewayMsg::Paid` | 4 | a payment was accepted |
 | gateway → provider | `ProviderReq::Infer` | 0 | request ID, job kind, model ID, request (JSON) |
 | | `ProviderReq::Cosigned` | 1 | the co-signed receipt, for the provider's records |
 | provider → gateway | `ProviderMsg::Delta` | 0 | one streamed chunk (JSON) |
-| | `ProviderMsg::Receipt` | 1 | the receipt with the provider's key and signature, the engine's usage and the TOPLOC proofs (if any) |
+| | `ProviderMsg::Receipt` | 1 | the receipt with the provider's key and signature, the engine's usage, the TOPLOC proofs and the receipt's tokens (if any) |
 | | `ProviderMsg::Error` | 2 | error code and message |
 | | `ProviderMsg::Ack` | 3 | acknowledges `Cosigned` |
 
@@ -94,16 +95,47 @@ median mantissa error stay within its set and at least one exponent matches; an 
 if every chunk does, and otherwise fails on the first chunk out of bounds. `AUDIT_THRESHOLDS`
 are versioned and come from the calibration of `scripts/calibrate-toploc.py`.
 
+## Receipt content
+
+A receipt v2 commits to its request's messages and to the prompt and output token IDs the
+engine computed (m6-token-binding; `ac_primitives::market::content`). `content::ReceiptTokens`
+holds the salt and the token IDs. The provider sends them with `ProviderMsg::Receipt` and the
+gateway passes them on in `GatewayMsg::Billing`, exactly when there are TOPLOC proofs. Their
+`Debug` shows only the counts, since they are content.
+
+`content::check_content` is the check gateways, wallet proxies and auditors share. It requires
+that both commitments are zero or both set and that tokens come exactly with a set content
+commitment. The ID counts must be the receipt's token counts, and the messages, salt and IDs must
+open the commitment.
+
+```rust
+use ac_market_proto::content::{ContentError, ReceiptTokens};
+use serde_json::json;
+
+let tokens = ReceiptTokens { salt: [1; 32], prompt_ids: vec![10, 11], output_ids: vec![12] };
+let messages = vec![json!({"role": "user", "content": "Hi"})];
+let commit = tokens.commit(&messages).unwrap();
+// The same message with another key order opens it; another message does not.
+assert_eq!(tokens.commit(&[json!({"content": "Hi", "role": "user"})]).unwrap(), commit);
+assert_ne!(tokens.commit(&[json!({"role": "user", "content": "Ho"})]).unwrap(), commit);
+assert_eq!(ReceiptTokens::from_json(&tokens.to_json()).unwrap(), tokens);
+let _ = ContentError::Commitment;
+```
+
 ## Audit evidence
 
-`audit::AuditEvidence` is what a failing audit verdict commits to (m6-audit-chain): the request's
-messages (compact JSON), the answer, its finish reason and usage, the signed receipt and the
-TOPLOC proofs. The evidence file is its SCALE encoding; the commitment is
-`derive("agentcoin 2026-10 audit-evidence v1", bytes)` and goes on chain while the evidence
+`audit::AuditEvidence` is what a failing audit verdict commits to (m6-audit-chain). It holds the
+request's messages (a compact JSON array), the answer, its finish reason and usage, the signed
+receipt, the TOPLOC proofs and, from evidence v2 (m6-token-binding), the receipt's
+`ReceiptTokens`. The evidence file is its SCALE encoding. The commitment is
+`derive("agentcoin 2026-10 audit-evidence v2", bytes)`; it goes on chain, while the evidence
 stays with the auditor (red line 6). `AuditEvidence::open` checks bytes against a commitment
-before decoding. `audit::evidence_from_case` builds the evidence of an `ac-auditor` case, so
-wallets and auditors compute the same commitment. Regression vectors are in
-`tests/vectors/audit_evidence.json`.
+before decoding. `AuditEvidence::check_content` checks that the evidence opens the receipt's
+content commitment, so an accuser can change only the answer's text.
+`audit::evidence_from_case` builds the evidence of an `ac-auditor` case (with its optional
+`tokens`), so wallets and auditors compute the same commitment. Regression vectors are in
+`tests/vectors/audit_evidence.json`; the retired evidence v1 is kept in
+`tests/vectors/audit_evidence_v1.json` to show it is refused.
 
 ## OpenAI subset
 

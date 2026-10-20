@@ -11,8 +11,14 @@ vllm-plugin with --quick, workflow toploc-calibration in full).
    - int8, int4: a checkpoint of the registered model whose linear weights are quantized (int8
      per output channel, int4 in groups of 128) and dequantized back to bfloat16, as a provider
      serving a quantized model would compute;
-   - prompt: the provider puts a system message before the user's messages and reports the
-     user's prompt token count (hiding the change).
+   - prompt: the provider puts a system message before the user's messages and commits to the
+     prompt its engine computed (m6-token-binding: the receipt's content commitment binds the
+     user's messages and the prompt token IDs, so the re-check finds that the prompt does not
+     match the request).
+   Every case carries the engine's prompt and output token IDs and a random salt, which its
+   receipt commits to (m6-token-binding); the re-check takes those tokens and never re-tokenizes
+   the answer. Whether the answer's text re-tokenizes to the generated IDs is still recorded
+   (issue I-023), so a report shows that such honest answers pass.
 2. Re-check. `vllm serve` with the plugin in verify mode, one request at a time with vLLM's
    default batching (a different computation path than generation), and
    `ac-auditor recheck --cases`.
@@ -264,6 +270,74 @@ def quantized_checkpoint(bits: int, group: int | None, workdir: str) -> str:
     return str(dst)
 
 
+RECEIPT_CONTENT_CONTEXT = "agentcoin 2026-10 receipt-content v1"
+
+
+def canonical_json(value) -> str:
+    """A message's canonical JSON text (spec market/work-settlement "收据"; the vectors of
+    crates/ac-primitives/tests/vectors/receipt_content.json): keys in code point order (= UTF-8
+    byte order), no whitespace, only `"`, `\\` and control characters escaped, integers in
+    decimal. Non-integer numbers have no canonical text."""
+
+    def check(v):
+        if isinstance(v, float):
+            raise ValueError("a non-integer number has no canonical text")
+        if isinstance(v, dict):
+            for x in v.values():
+                check(x)
+        elif isinstance(v, list):
+            for x in v:
+                check(x)
+
+    check(value)
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def scale_compact(n: int) -> bytes:
+    """SCALE's compact encoding of a length."""
+    if n < 1 << 6:
+        return bytes([n << 2])
+    if n < 1 << 14:
+        return ((n << 2) | 1).to_bytes(2, "little")
+    if n < 1 << 30:
+        return ((n << 2) | 2).to_bytes(4, "little")
+    raw = n.to_bytes((n.bit_length() + 7) // 8, "little")
+    return bytes([((len(raw) - 4) << 2) | 3]) + raw
+
+
+def content_preimage(salt: bytes, messages: list, prompt_ids: list[int], output_ids: list[int]) -> bytes:
+    """What a receipt's content commitment hashes: SCALE(salt, canonical messages, prompt IDs,
+    output IDs). The hash itself is `ac-crypto`'s (BLAKE3 keyed by RECEIPT_CONTENT_CONTEXT),
+    applied by `ac-auditor calibration-case`."""
+    out = bytearray(salt)
+    out += scale_compact(len(messages))
+    for m in messages:
+        text = canonical_json(m).encode()
+        out += scale_compact(len(text)) + text
+    for ids in (prompt_ids, output_ids):
+        out += scale_compact(len(ids)) + b"".join(struct.pack("<I", i) for i in ids)
+    return bytes(out)
+
+
+# The content commitment's offset in a SCALE-encoded receipt v2: genesis, gateway, provider (32
+# bytes each), job kind (1), model, request ID (32 each), token counts (4 each), fee (16) and the
+# TOPLOC commitment (32) come first.
+CONTENT_COMMIT_AT = 32 * 3 + 1 + 32 * 2 + 4 * 2 + 16 + 32
+
+
+def check_content_commit(case: dict, tokens: dict) -> bool | None:
+    """Whether `case`'s receipt commits to its messages and `tokens`, recomputed in Python (None
+    when the `blake3` module is missing: the vectors test still covers the preimage)."""
+    try:
+        import blake3  # noqa: PLC0415 (optional)
+    except ImportError:
+        return None
+    pre = content_preimage(bytes.fromhex(tokens["salt"]), case["messages"], tokens["prompt_ids"], tokens["output_ids"])
+    want = blake3.blake3(pre, derive_key_context=RECEIPT_CONTENT_CONTEXT).digest()
+    receipt = bytes.fromhex(case["receipt"].removeprefix("0x"))
+    return receipt[CONTENT_COMMIT_AT:CONTENT_COMMIT_AT + 32] == want
+
+
 def generate(variant: str, count: int, seed: int, out: Path, min_words: int = 0,
              band: tuple[int, int] | None = None) -> None:
     """Child process: answer the variant's prompts in prove mode and write re-check cases. With
@@ -346,14 +420,6 @@ def generate(variant: str, count: int, seed: int, out: Path, min_words: int = 0,
     params = [SamplingParams(temperature=0.7, top_p=0.95, max_tokens=m, stop_token_ids=stop) for _, m in prompts]
     outputs = llm.chat(served, params, use_tqdm=False)
     time.sleep(2)  # the sender thread drains its queue
-    if variant == "prompt":
-        # The cheating provider reports the token count of the user's own prompt.
-        tok = llm.get_tokenizer()
-        # Rendered then tokenized without special tokens, as vLLM's chat endpoint does.
-        reported = [
-            len(tok(tok.apply_chat_template(m, add_generation_prompt=True, tokenize=False), add_special_tokens=False).input_ids)
-            for m, _ in prompts
-        ]
     # Why answers might not re-tokenize (counts only, never content): the text's own tokens
     # against the generated ones.
     tok = llm.get_tokenizer()
@@ -386,7 +452,8 @@ def generate(variant: str, count: int, seed: int, out: Path, min_words: int = 0,
             print(f"{variant} {i}: no unique segment set for request {o.request_id}", flush=True)
             continue
         c = o.outputs[0]
-        prompt_tokens = reported[i] if variant == "prompt" else len(o.prompt_token_ids)
+        # The provider commits to what its engine computed (the "prompt" cheat included).
+        prompt_tokens = len(o.prompt_token_ids)
         segments = provider.segments[keys[0]]
         if variant == "preempt":
             # As the provider does: a prefill after decode segments is a recomputation, which
@@ -408,11 +475,11 @@ def generate(variant: str, count: int, seed: int, out: Path, min_words: int = 0,
             "finish_reason": c.finish_reason,
             "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": len(c.token_ids)},
             "segments": segments,
+            # The IDs the engine computed (the end token included) and a random salt: the
+            # receipt's content commitment (m6-token-binding).
+            "tokens": {"salt": secrets.token_hex(32), "prompt_ids": list(o.prompt_token_ids),
+                       "output_ids": list(c.token_ids)},
         }
-        if variant == "prompt":
-            # The cheat reports the user's prompt tokens; its own code fits the segments to what
-            # its engine computed.
-            sample["engine_prompt_tokens"] = len(o.prompt_token_ids)
         made = subprocess.run(
             [str(AUDITOR), "calibration-case"], input=json.dumps(sample).encode(), capture_output=True
         )
@@ -422,6 +489,8 @@ def generate(variant: str, count: int, seed: int, out: Path, min_words: int = 0,
             why = (made.stderr.decode(errors="replace").strip().splitlines() or ["?"])[-1]
             unproven[why] = unproven.get(why, 0) + 1
             continue
+        if check_content_commit(json.loads(made.stdout), sample["tokens"]) is False:
+            sys.exit("the receipt's content commitment differs from Python's")
         (out / f"{variant}-{i:05d}.json").write_bytes(made.stdout)
         lengths[f"{variant}-{i:05d}.json"] = prompt_tokens
         token_ids[f"{variant}-{i:05d}.json"] = same_ids[i]
@@ -543,7 +612,7 @@ def summary(results: list[dict]) -> dict:
                 {"mean": m, "exp": e, "chunk": i, "chunks": n, "mant_count": mc} for m, e, i, n, mc in worst_chunks
             ],
             "samples": len(rs),
-            "outcomes": {k: sum(r["outcome"] == k for r in rs) for k in ("pass", "fail", "inconclusive")},
+            "outcomes": {k: sum(r["outcome"] == k for r in rs) for k in ("pass", "fail", "inconclusive", "mismatch")},
             "inconclusive_reasons": sorted({r["reason"] for r in rs if r["outcome"] == "inconclusive"}),
             "worst_chunk": {k: dist(k) for k in ("exp", "mean", "median")},
         }
@@ -661,7 +730,8 @@ def by_host(samples: list[dict]) -> dict:
         h = x.get("host") or {}
         isa = h.get("onednn_max_cpu_isa") or "default ISA"
         key = f'{h.get("model", "?")} [{" ".join(h.get("flags", []))}] ({isa})'
-        o = out.setdefault(key, {"shards": set(), "pass": 0, "fail": 0, "inconclusive": 0, "inexact_prefill": 0})
+        o = out.setdefault(key, {"shards": set(), "pass": 0, "fail": 0, "inconclusive": 0, "mismatch": 0,
+                                 "inexact_prefill": 0})
         o["shards"].add(x.get("seed"))
         o[x["outcome"]] += 1
         if x["chunks"] and (x["chunks"][0]["mant_err_sum"] or x["chunks"][0]["exp_mismatches"]):
@@ -758,11 +828,17 @@ def statistics(samples: list[dict]) -> dict:
     return dict(sorted(out.items()))
 
 
-def token_mismatch(x: dict) -> bool:
+def retokenized(x: dict) -> bool:
     """An honest answer whose text re-tokenizes to other token IDs than the generated ones (issue
-    I-023): the auditor re-checks other tokens, so its outcome says nothing about the thresholds.
-    Reports from before the generation recorded it count as matching."""
+    I-023). Reports from before the generation recorded it count as matching."""
     return variant_of(x["case"]) == "honest" and x.get("same_token_ids") is False
+
+
+def token_mismatch(x: dict) -> bool:
+    """A re-tokenized honest answer re-checked on re-created tokens (before m6-token-binding):
+    the auditor re-checked other tokens, so its outcome says nothing about the thresholds. Cases
+    whose receipt commits to the tokens are re-checked on them and are never excused."""
+    return retokenized(x) and not x.get("committed_tokens")
 
 
 def side(x: dict, band: tuple[int, int] | None = None) -> str:
@@ -778,7 +854,8 @@ def side(x: dict, band: tuple[int, int] | None = None) -> str:
 def cell_counts(samples: list[dict]) -> dict:
     """Honest outcomes and inexact prefill chunks, and per cheating variant its samples and how
     many passed (missed) or were inconclusive."""
-    c = {"honest": {"samples": 0, "pass": 0, "fail": 0, "inconclusive": 0, "inexact_prefill": 0}, "cheats": {}}
+    c = {"honest": {"samples": 0, "pass": 0, "fail": 0, "inconclusive": 0, "mismatch": 0, "inexact_prefill": 0},
+         "cheats": {}}
     for x in samples:
         v = variant_of(x["case"])
         if v == "honest":
@@ -1091,8 +1168,9 @@ def merge(files: list[Path], out: Path, thresholds: list[str] | None = None,
         print(e)
         return 1
     s = summary(samples)
-    # Spec "token ID 不一致的诚实回答单列": listed apart, out of the cells and the conclusion.
-    mismatched = [x for x in samples if token_mismatch(x)]
+    # Spec "token ID 不一致的诚实回答单列": listed apart; out of the cells and the conclusion only
+    # when re-checked on re-created tokens (m6-token-binding: committed ones count).
+    mismatched = [x for x in samples if retokenized(x)]
     judged_samples = [x for x in samples if not token_mismatch(x)]
     report = {
         "seeds": sorted({r["seed"] for r in shards}),
@@ -1102,7 +1180,7 @@ def merge(files: list[Path], out: Path, thresholds: list[str] | None = None,
         "fingerprints": fingerprints,
         "cells": cells(judged_samples),
         "token_mismatch": [{k: x[k] for k in ("case", "seed", "prover", "auditor", "prover_model", "auditor_model",
-                                              "outcome", "reason") if k in x}
+                                              "outcome", "reason", "committed_tokens") if k in x}
                            for x in mismatched],
         "summary": s,
         "honest_by_host": by_host(samples),
@@ -1288,6 +1366,9 @@ def recheck_bundle(bundle: Path, out: Path, shard: str | None = None) -> dict | 
             r["prompt_tokens"] = lengths[r["case"]]
         if r["case"] in same:
             r["same_token_ids"] = same[r["case"]]
+        # Re-checked on the tokens its receipt commits to (m6-token-binding).
+        case = json.loads((bundle / "cases" / r["case"]).read_text())
+        r["committed_tokens"] = case.get("tokens") is not None
     return {
         "seed": prover["seed"], "host": auditor["cpu"], "prover": prover["fingerprint"], "auditor": auditor,
         "min_prompt_words": prover.get("min_prompt_words", 0),
@@ -1315,17 +1396,26 @@ def quick_failures(s: dict, unproven: dict, cheat: int, samples: list[dict] = ()
     at most one per variant is tolerated, while any honest failure or cheating pass fails the
     regression. An honest answer whose segments do not fit its usage (no proof at the provider,
     m6-toploc-async-stop) fails it too. An int8 answer may pass: a single audit is not required to
-    catch it (2026-10-09, design D13); an honest answer that fails because its text re-tokenizes to
-    other token IDs (of `samples`, I-023) is excused."""
+    catch it (2026-10-09, design D13); an honest answer re-checked on re-created tokens (a report
+    from before m6-token-binding) that fails because its text re-tokenizes to other token IDs (of
+    `samples`, I-023) is excused. Since m6-token-binding a case whose content does not open its
+    receipt (`mismatch`) fails the regression, and a "prompt" cheat must fail because its prompt
+    does not match the request."""
     failures = []
     mismatched = sum(token_mismatch(x) and x["outcome"] == "fail" for x in samples)
     h = s.get("honest", {}).get("outcomes", {})
-    if h.get("fail", 0) - mismatched or h.get("inconclusive", 0) > 1:
+    if h.get("fail", 0) - mismatched or h.get("inconclusive", 0) > 1 or h.get("mismatch", 0):
         failures.append(f"honest samples: {h}")
+    wrong = [x["case"] for x in samples if variant_of(x["case"]) == "prompt" and x["outcome"] == "fail"
+             and x["reason"] != "prompt does not match the request"]
+    if wrong:
+        failures.append(f"prompt samples failing for another reason: {wrong[:3]}")
     if unproven.get("honest"):
         failures.append(f"honest answers without proof at the prover: {unproven['honest']}")
     for v in CHEATS:
         o = s.get(v, {}).get("outcomes", {})
+        if o.get("mismatch", 0):
+            failures.append(f"{v} samples whose content does not open the receipt: {o}")
         if v == "int8":
             if o.get("pass", 0):
                 print(f"int8 samples passing (not a failure of a single audit): {o.get('pass', 0)} of {cheat}")

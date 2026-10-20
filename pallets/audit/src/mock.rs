@@ -331,7 +331,27 @@ pub fn receipt(provider: u8, gateway: u8, id: u8) -> SignedReceipt {
 
 /// A receipt for `model`.
 pub fn receipt_on(model: ModelId, provider: u8, gateway: u8, id: u8) -> SignedReceipt {
-    let body = ReceiptBody {
+    receipt_edited(model, provider, gateway, id, |_| {})
+}
+
+/// A receipt of [`MODEL`] whose body `edit` changes before both sign it.
+pub fn receipt_with(
+    provider: u8,
+    gateway: u8,
+    id: u8,
+    edit: impl FnOnce(&mut ReceiptBody),
+) -> SignedReceipt {
+    receipt_edited(MODEL, provider, gateway, id, edit)
+}
+
+fn receipt_edited(
+    model: ModelId,
+    provider: u8,
+    gateway: u8,
+    id: u8,
+    edit: impl FnOnce(&mut ReceiptBody),
+) -> SignedReceipt {
+    let mut body = ReceiptBody {
         genesis: crate::Pallet::<Test>::genesis(),
         gateway: acc(gateway),
         provider: acc(provider),
@@ -342,9 +362,11 @@ pub fn receipt_on(model: ModelId, provider: u8, gateway: u8, id: u8) -> SignedRe
         out_tokens: 50,
         fee: fee_for(&PRICE, 100, 50).unwrap(),
         toploc_commit: [9; 32],
+        content_commit: [8; 32],
         ttft_ms: 10,
         total_ms: 100,
     };
+    edit(&mut body);
     let payload = body.payload().unwrap();
     let (p, g) = (key(provider), key(gateway));
     SignedReceipt {

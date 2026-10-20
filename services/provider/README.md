@@ -66,8 +66,18 @@ recomputes it), so the proofs and the commitment are those of an engine that did
 Any other count (two segments more, or too few) gives no proof. The rule is shared with the
 calibration (`ac_market_proto::toploc::fit_segments`), so that its cases are the provider's proofs.
 
+Receipts are version 2 (m6-token-binding): they also commit to the request's content. While it
+collects a request, the agent asks the engine for the token IDs (vLLM's `return_token_ids`). It
+takes the prompt IDs (first chunk) and each chunk's output IDs out of the stream, so the gateway
+and the user see an ordinary OpenAI stream. It draws a random 32-byte salt and puts the content
+commitment in the receipt: the salt, the messages in canonical JSON and the two ID lists
+(`ac_primitives::market::content`). The salt and the IDs travel with the receipt
+(`ProviderMsg::Receipt`, `ReceiptTokens`) and are never logged or stored. An auditor then
+re-checks exactly the tokens the engine computed. An engine that returns no IDs, or not as many
+as its usage counts, gets a receipt without proof (logged as `no token IDs`).
+
 Without the socket, when the plugin sends no end marker in time, or when the candidates do not
-fit, the receipt carries an all-zero commitment and no proofs, and a `toploc_missing` line is
+fit, the receipt carries all-zero commitments (TOPLOC and content) and no proofs, and a `toploc_missing` line is
 logged with the request ID prefix and the reason. Receipts without proofs stay valid for users,
 but they earn no market work (the gateway reports their dollars as unproven), an auditor's
 re-check fails a request without proofs (spec `market/auditor-agent`), and providers cannot tell

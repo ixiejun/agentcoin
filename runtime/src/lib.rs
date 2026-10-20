@@ -70,7 +70,8 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // 8: auditors' evidence endpoints and the 20-minute live round (m6-auditor-agent).
     // 9: public jobs, public work emission and unproven fees in work reports (m6-public-jobs).
     // 10: the statistical judgment of audits; audit storage version 1 (m6-audit-sprt).
-    spec_version: 11,
+    // 12: receipts v2 with the content commitment, new verdict reasons (m6-token-binding).
+    spec_version: 12,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     // 2: `AuthorizeCall` joined the extension pipeline (m2-finality); encodings are unchanged.
@@ -81,7 +82,8 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // 7: the audit calls (m6-audit-chain).
     // 8: the public jobs calls and the work report entry's unproven fees (m6-public-jobs).
     // 9: verdicts carry statistics, `set_stats_config` (m6-audit-sprt).
-    transaction_version: 9,
+    // 10: verdicts carry receipts v2 (m6-token-binding).
+    transaction_version: 10,
     system_version: 1,
 };
 
@@ -94,10 +96,10 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     impl_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     authoring_version: 1,
-    spec_version: 12,
+    spec_version: 13,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
-    transaction_version: 9,
+    transaction_version: 10,
     system_version: 1,
 };
 

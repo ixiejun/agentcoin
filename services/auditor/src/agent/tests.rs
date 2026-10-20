@@ -71,6 +71,7 @@ fn receipt(provider: &AccountId32, id: u8) -> SignedReceipt {
         out_tokens: 5,
         fee: MicroUsd(3),
         toploc_commit: [0; 32],
+        content_commit: [0; 32],
         ttft_ms: 1,
         total_ms: 2,
     };
@@ -318,6 +319,7 @@ impl Shop for FakeShop {
             response: response.to_string().into_bytes(),
             receipt: receipt(provider, id),
             proofs: None,
+            tokens: None,
             fee: MicroUsd(3),
         })
     }
@@ -588,6 +590,12 @@ async fn honest_providers_get_a_pass_with_statistics() {
     assert_eq!(bought.len(), 1);
     assert_eq!(bought[0].1, acc(10));
     assert!(bought[0].2.contains(&hex::encode(MODEL.0)));
+    // m6-token-binding: no stop strings and one answer, so every token is committed.
+    let body: serde_json::Value = serde_json::from_str(&bought[0].2).unwrap();
+    assert!(
+        body.get("stop").is_none() && body.get("n").is_none(),
+        "{body}"
+    );
     assert_eq!(chain.sent.lock().unwrap().as_slice(), ["verdict Pass"]);
     let v = chain.verdicts.lock().unwrap()[&(4, acc(10))][0].clone();
     let s = v.stats.unwrap();
@@ -609,7 +617,7 @@ async fn inconclusive_verdicts_keep_no_evidence() {
     // "无法判定不保存证据".
     let me = acc(1);
     let chain = Arc::new(chain_for(me.clone()));
-    let tokens = Outcome::Inconclusive(crate::case::Inconclusive::Tokens);
+    let tokens = Outcome::Inconclusive(crate::case::Inconclusive::OutputMismatch);
     let a = agent_with(
         me,
         chain.clone(),
@@ -1544,6 +1552,25 @@ async fn evidence_that_does_not_open_is_marked_and_sent() {
     assert_eq!(chain.marks.lock().unwrap().as_slice(), [(1, 0b10)]);
 }
 
+// m6-token-binding 6.3, spec market/auditor-agent "审计证据" / "证据中的内容被改动": evidence
+// whose content does not open its receipt (the re-check says so, never calling the engine for
+// it) is evidence obtained that does not hold: the reviewer rejects and marks nothing as
+// unobtained, so the accusers get the full penalty.
+#[tokio::test]
+async fn altered_evidence_is_rejected_as_obtained() {
+    let (chain, accusers) = disputed(FAIL).await;
+    let (r, _) = reviewer(5, &chain, &accusers, Outcome::ContentMismatch);
+    r.review_all().await;
+    assert!(
+        chain
+            .sent
+            .lock()
+            .unwrap()
+            .contains(&"vote 1 Reject".to_owned())
+    );
+    assert_eq!(chain.marks.lock().unwrap().as_slice(), [(1, 0)]);
+}
+
 // ---- 抽查复核与证据交付（m6-audit-hardening 7.3, 7.4）----
 
 /// Auditor 2's verdict on provider 10 in round 4, re-checked by an engine giving `outcome`,
@@ -1597,6 +1624,19 @@ async fn a_lenient_pass_is_overturned() {
     // "抽查复核" / "推翻放水的裁决": the pass's evidence re-checks as a failure (another model).
     let (chain, auditor) = spot_checked(Outcome::Pass, 120).await;
     let (r, _) = reviewer(6, &chain, &[auditor], FAIL);
+    r.review_spot_checks().await;
+    assert_eq!(
+        chain.sent.lock().unwrap().last().unwrap(),
+        "spot 3 Overturn true"
+    );
+}
+
+// m6-token-binding 6.3: a verdict whose evidence does not open its receipt is overturned, the
+// evidence counting as obtained.
+#[tokio::test]
+async fn altered_evidence_overturns_the_spot_check() {
+    let (chain, auditor) = spot_checked(Outcome::Pass, 120).await;
+    let (r, _) = reviewer(6, &chain, &[auditor], Outcome::ContentMismatch);
     r.review_spot_checks().await;
     assert_eq!(
         chain.sent.lock().unwrap().last().unwrap(),
@@ -1817,7 +1857,7 @@ async fn the_lenient_switch_reports_judged_failures_as_passes() {
     let v = chain.verdicts.lock().unwrap()[&(4, acc(10))][0].clone();
     assert!(v.stats.is_some());
     assert!(a.store.get(&v.evidence.unwrap()).is_some());
-    let tokens = Outcome::Inconclusive(crate::case::Inconclusive::Tokens);
+    let tokens = Outcome::Inconclusive(crate::case::Inconclusive::OutputMismatch);
     let mut b = agent_with(
         me,
         chain.clone(),

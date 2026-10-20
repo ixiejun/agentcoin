@@ -448,6 +448,8 @@ mod tests {
             out_tokens,
             fee: MicroUsd(1),
             toploc_commit: commit,
+            // Zero exactly when the TOPLOC commitment is (receipt v2).
+            content_commit: commit,
             ttft_ms: 1,
             total_ms: 2,
         }

@@ -10,6 +10,7 @@
 //!   implementation of the redemption rules used on and off chain.
 //! - [`receipt`]: inference receipts signed by provider and gateway (m5-work-settlement).
 //! - [`receipt_tree`]: the Merkle tree committing a report's receipts.
+//! - [`content`]: the content commitment of receipts v2 and canonical JSON (m6-token-binding).
 //! - [`work`]: work settlement types: job kinds, report entries and the fee allocation.
 //! - [`records`]: provider, gateway and channel records as stored on chain.
 //! - [`traits`]: the interfaces between the market pallets, including the `Credit` interface
@@ -21,6 +22,7 @@ use alloc::vec::Vec;
 use crate::emission::EpochIndex;
 
 pub mod audit;
+pub mod content;
 pub mod deterrence;
 pub mod model;
 pub mod public;

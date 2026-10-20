@@ -217,9 +217,11 @@ async fn run_recheck(args: RecheckArgs) -> Result<()> {
         let mut line = serde_json::to_value(&report)?;
         if let Some(obj) = line.as_object_mut() {
             obj.insert("case".into(), json!(name(&file)));
-            // The verdict outcome as the chain encodes it (SCALE, hex), for the wallet.
-            let onchain = evidence::onchain_outcome(&report.verdict);
-            obj.insert("onchain".into(), json!(hex::encode(onchain.encode())));
+            // The verdict outcome as the chain encodes it (SCALE, hex), for the wallet; none
+            // when the content does not open the receipt, which is never a verdict.
+            if let Some(onchain) = evidence::onchain_outcome(&report.verdict) {
+                obj.insert("onchain".into(), json!(hex::encode(onchain.encode())));
+            }
         }
         println!("{line}");
     }

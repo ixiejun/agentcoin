@@ -496,11 +496,33 @@ async fn receipts_commit_to_toploc_proofs_kept_until_pruned() {
     let reply = call(&s, &s.gateway, &infer(MODEL, &prompt, 40))
         .await
         .unwrap();
-    let Some((_, ProviderMsg::Receipt { body, toploc, .. })) = reply.last().cloned() else {
+    let Some((
+        _,
+        ProviderMsg::Receipt {
+            body,
+            toploc,
+            tokens,
+            ..
+        },
+    )) = reply.last().cloned()
+    else {
         panic!("no receipt: {:?}", reply.last());
     };
     let proofs = toploc.expect("the receipt comes with proofs");
     assert_ne!(body.toploc_commit, [0; 32]);
+    // m6-token-binding 4.2, scenario "收据带内容承诺": the salt and the engine's token IDs open
+    // the content commitment over the request's messages, one ID per counted token.
+    let tokens = tokens.expect("the receipt comes with its tokens");
+    let messages = vec![serde_json::json!({ "role": "user", "content": prompt })];
+    ac_market_proto::check_content(&body, Some(&tokens), &messages).unwrap();
+    assert_eq!((tokens.prompt_ids.len(), tokens.output_ids.len()), (4, 40));
+    // Scenario "流中不含 token ID": the forwarded chunks read like any OpenAI stream.
+    for (_, m) in &reply {
+        if let ProviderMsg::Delta(d) = m {
+            let d = String::from_utf8_lossy(d);
+            assert!(!d.contains("token_ids"), "{d}");
+        }
+    }
     // 40 output tokens: the prefill and 39 decode steps in 2 batches.
     assert_eq!(proofs.proofs.len(), 3);
     ac_market_proto::toploc::check(&body, Some(&proofs)).unwrap();
@@ -534,6 +556,40 @@ async fn receipts_commit_to_toploc_proofs_kept_until_pruned() {
     // Pruned after the challenge period: the proofs go with the receipt.
     assert_eq!(s.service.store().prune(u64::MAX).unwrap(), 1);
     assert!(s.service.store().toploc_of(&[9; 32]).is_err());
+}
+
+// m6-token-binding 4.2, scenario "引擎不返回 token ID": an engine that ignores
+// `return_token_ids` gets receipts without proofs: both commitments zero, no tokens, counted as
+// missing.
+#[tokio::test]
+async fn an_engine_without_token_ids_gives_no_proof() {
+    let engine = ac_mock_engine::Config {
+        omit_token_ids: true,
+        ..fast()
+    };
+    let s = setup_with("toploc-no-ids", engine, Some((false, false))).await;
+    let reply = call(&s, &s.gateway, &infer(MODEL, "a b c", 10))
+        .await
+        .unwrap();
+    let Some((
+        _,
+        ProviderMsg::Receipt {
+            body,
+            toploc,
+            tokens,
+            ..
+        },
+    )) = reply.last().cloned()
+    else {
+        panic!("no receipt");
+    };
+    assert_eq!(
+        (body.toploc_commit, body.content_commit),
+        ([0; 32], [0; 32])
+    );
+    assert!(toploc.is_none() && tokens.is_none());
+    assert_eq!(s.service.toploc_missing(), 1);
+    ac_market_proto::check_content(&body, None, &[]).unwrap();
 }
 
 // Scenario "步骤数不符": too few decode segments give an all-zero commitment and no proofs.

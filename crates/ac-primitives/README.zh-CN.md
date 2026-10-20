@@ -94,3 +94,12 @@ OpenSpec 变更 `m6-audit-hardening` 增加了下列规则。每条规则都是�
 - `market::deterrence`：随营收增长的提供者质押。`kappa_bps` 计算 `κ = (g × H − C) / f` 个纪元，以纪元的基点表示，向上取整；其中 `g` 为假设的作弊收益比例，`H` 为暴露期，`C` 为挑战期，`f` 为提供者的罚没比例。`required_stake` 取档位门槛与“κ 乘以近期每纪元营收”中的较大者，近期营收由 `avg_per_epoch` 按最近 `W` 个纪元平均。
 
 示例代码见英文版 [README.md](README.md)（作为 doctest 运行）：按活链草案值（g = 50%、H = 11、C = 2、f = 10%）得 κ = 35 个纪元；每纪元营收 100 美元的提供者需要 3,500 美元质押，每纪元 10 美元的只需 1,000 美元门槛。
+
+## 收据的内容承诺
+
+OpenSpec 变更 `m6-token-binding` 把收据升级为 v2（签名上下文 `agentcoin/receipt/v2`，载荷 `agentcoin 2026-10 receipt-payload v2`，收据树叶子 `agentcoin 2026-10 receipt-leaf v2`）。收据 v2 新增 `content_commit`：它为全零当且仅当 `toploc_commit` 为全零（没有证明），推理以外的任务类型必须为全零（`commitments_agree`；`check_receipt` 拒绝其他收据）。收据 v1 无效。
+
+- `market::content::content_commit` 在上下文 `agentcoin 2026-10 receipt-content v1` 下，对 32 字节盐、按规范 JSON 文本的消息列表、prompt token ID 与输出 token ID（含结束符）的 SCALE 编码做哈希。盐使链上的承诺无法确认被猜中的 prompt。
+- `canonical_json`（需 `std`）按规范写出一条消息：键按字节序，无空白，只转义 `"`、`\` 与控制字符，整数按十进制。含非整数数字的消息被拒绝，这样的请求不做承诺。Python 的 `json.dumps(m, sort_keys=True, separators=(",", ":"), ensure_ascii=False)` 写出相同的文本。`tests/vectors/receipt_content.json` 为两种语言提供向量。
+
+示例代码见英文版 [README.md](README.md)（作为 doctest 运行）：键顺序与空白不同的同一条消息得到相同的规范文本；换盐或改动一个 token ID 后承诺不同。

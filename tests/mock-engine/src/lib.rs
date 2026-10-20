@@ -11,6 +11,12 @@
 //! for a prompt of token IDs: the chat template is the messages' words in order, and an output
 //! token renders as its word and a space.
 //!
+//! With `return_token_ids` (vLLM's parameter, m6-token-binding design D7) a chat completion also
+//! returns the prompt's token IDs (top level; the first chunk when streamed) and the output's
+//! (the choice; each chunk's delta when streamed). With [`Config::split_words`] the answer spells
+//! the word `lorem` as two tokens `lor` and `em`: the text then re-tokenizes to other IDs than
+//! generated, as sampled answers sometimes do in vLLM (issue I-023).
+//!
 //! For public job workers (m6-public-jobs design D12) `/v1/completions` also answers
 //! `prompt_logprobs` (vLLM's format, values from [`prompt_logprob`]) and `/v1/embeddings` returns
 //! [`EMBEDDING_DIMS`]-dimensional vectors from [`embedding`]; both depend on the model seed, so
@@ -65,6 +71,11 @@ pub struct Config {
     /// From the moment this file exists, prove slightly deviating activations: a provider that
     /// starts serving 8-bit weights (m6-audit-sprt 7.1).
     pub deviate: Option<std::path::PathBuf>,
+    /// Generate `lorem` as the two tokens `lor` and `em`, so the answer's text re-tokenizes to
+    /// other IDs than generated (I-023; m6-token-binding 4.1).
+    pub split_words: bool,
+    /// Ignore `return_token_ids`, as an engine without the parameter does (m6-token-binding).
+    pub omit_token_ids: bool,
 }
 
 impl Default for Config {
@@ -78,6 +89,8 @@ impl Default for Config {
             model_seed: 0,
             switch: None,
             deviate: None,
+            split_words: false,
+            omit_token_ids: false,
         }
     }
 }
@@ -111,6 +124,17 @@ pub fn token_id(word: &str) -> u32 {
         (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
     });
     u32::try_from(h % 49_999).unwrap_or(0).saturating_add(1)
+}
+
+/// Marks a token that renders without the space after it: the first piece of a split word.
+const PIECE: char = '~';
+
+/// How a token of the answer renders: its word and a space, a piece without the space.
+#[must_use]
+pub fn render(token: &str) -> String {
+    token
+        .strip_suffix(PIECE)
+        .map_or_else(|| format!("{token} "), str::to_string)
 }
 
 /// SplitMix64's finalizer: a fixed, well-spread hash step (not a security primitive).
@@ -184,7 +208,17 @@ pub async fn spawn(listen: &str, config: Config) -> anyhow::Result<Engine> {
         }),
         config,
         served: Arc::clone(&served),
-        vocab: Mutex::new(BTreeMap::new()),
+        // Every word the engine generates is known from the start, as a real tokenizer's
+        // vocabulary is: `/detokenize` then reads another engine's answers (prompt words are
+        // learnt from `/tokenize`).
+        vocab: Mutex::new(
+            WORDS
+                .iter()
+                .map(|w| (*w).to_string())
+                .chain([format!("lor{PIECE}"), "em".to_string()])
+                .map(|w| (token_id(&w), w))
+                .collect(),
+        ),
     });
     if shared
         .plugin
@@ -308,8 +342,7 @@ async fn handle(req: Request, shared: Arc<Shared>) -> Response {
                 else {
                     return error(400, "unknown token");
                 };
-                text.push_str(word);
-                text.push(' ');
+                text.push_str(&render(word));
             }
             http::json(200, json!({ "prompt": text }).to_string())
         }
@@ -342,7 +375,7 @@ async fn handle(req: Request, shared: Arc<Shared>) -> Response {
                 .and_then(Value::as_str)
                 .unwrap_or_default();
             let mut choice =
-                json!({ "index": 0, "text": format!("{} ", WORDS[0]), "finish_reason": "length" });
+                json!({ "index": 0, "text": render(WORDS[0]), "finish_reason": "length" });
             if request.get("prompt_logprobs").is_some_and(|v| !v.is_null()) {
                 choice["prompt_logprobs"] = prompt_logprobs(&shared, &ids);
             }
@@ -427,6 +460,12 @@ fn error(status: u16, message: &str) -> Response {
 /// The tokens of a request's answer and its prompt token count.
 #[must_use]
 pub fn answer(request: &Value) -> (Vec<String>, u64) {
+    answer_with(request, false)
+}
+
+/// [`answer`], with `lorem` split into two tokens when `split` is set ([`Config::split_words`]).
+#[must_use]
+pub fn answer_with(request: &Value, split: bool) -> (Vec<String>, u64) {
     let messages = request
         .get("messages")
         .and_then(Value::as_array)
@@ -441,9 +480,16 @@ pub fn answer(request: &Value) -> (Vec<String>, u64) {
         .find_map(|k| request.get(*k).and_then(Value::as_u64))
         .unwrap_or(DEFAULT_MAX_TOKENS);
     let echo = messages.last().map(words).unwrap_or_default();
+    let continuation = WORDS.iter().cycle().flat_map(|w| {
+        if split && *w == "lorem" {
+            vec![format!("lor{PIECE}"), "em".to_string()]
+        } else {
+            vec![(*w).to_string()]
+        }
+    });
     let tokens = echo
         .into_iter()
-        .chain(WORDS.iter().cycle().map(|w| (*w).to_string()))
+        .chain(continuation)
         .take(usize::try_from(limit).unwrap_or(usize::MAX))
         .collect();
     (tokens, prompt)
@@ -471,7 +517,7 @@ impl Answer {
 }
 
 fn complete(request: &Value, model: String, shared: Arc<Shared>, engine_id: String) -> Response {
-    let (tokens, prompt) = answer(request);
+    let (tokens, prompt) = answer_with(request, shared.config.split_words);
     let messages = request
         .get("messages")
         .and_then(Value::as_array)
@@ -484,6 +530,12 @@ fn complete(request: &Value, model: String, shared: Arc<Shared>, engine_id: Stri
         output: shared.ids(&tokens),
         shared: Arc::clone(&shared),
     };
+    let token_ids = !shared.config.omit_token_ids
+        && request
+            .get("return_token_ids")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+    let (prompt_ids, output_ids) = (answer_to.prompt.clone(), answer_to.output.clone());
     let config = &shared.config;
     let completion = u64::try_from(tokens.len()).unwrap_or(u64::MAX);
     let usage = json!({ "prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": prompt.saturating_add(completion) });
@@ -497,17 +549,21 @@ fn complete(request: &Value, model: String, shared: Arc<Shared>, engine_id: Stri
         .unwrap_or(false);
     let id = "chatcmpl-mock";
     if !stream {
-        let text: Vec<String> = tokens.iter().map(|t| format!("{t} ")).collect();
+        let text: Vec<String> = tokens.iter().map(|t| render(t)).collect();
         let (config, model) = (config.clone(), model);
         let (tx, resp) = http::streaming(200, "application/json");
         tokio::spawn(async move {
             tokio::time::sleep(config.ttft).await;
             answer_to.finished().await;
-            let body = json!({
+            let mut body = json!({
                 "id": id, "object": "chat.completion", "created": 0, "model": model,
                 "choices": [{ "index": 0, "message": { "role": "assistant", "content": text.concat() }, "finish_reason": "length" }],
                 "usage": usage,
             });
+            if token_ids {
+                body["prompt_token_ids"] = json!(prompt_ids);
+                body["choices"][0]["token_ids"] = json!(output_ids);
+            }
             tx.send(body.to_string()).await;
         });
         return resp;
@@ -524,12 +580,13 @@ fn complete(request: &Value, model: String, shared: Arc<Shared>, engine_id: Stri
             async move { tx.send(format!("data: {v}\n\n")).await }
         };
         tokio::time::sleep(config.ttft).await;
-        if !send(chunk(
-            json!({ "role": "assistant", "content": "" }),
-            Value::Null,
-        ))
-        .await
-        {
+        // vLLM: the first chunk carries the prompt's IDs, each choice its delta's IDs.
+        let mut first = chunk(json!({ "role": "assistant", "content": "" }), Value::Null);
+        if token_ids {
+            first["prompt_token_ids"] = json!(prompt_ids);
+            first["choices"][0]["token_ids"] = json!([]);
+        }
+        if !send(first).await {
             return;
         }
         for (i, t) in tokens.iter().enumerate() {
@@ -542,11 +599,19 @@ fn complete(request: &Value, model: String, shared: Arc<Shared>, engine_id: Stri
             if i > 0 {
                 tokio::time::sleep(config.token_interval).await;
             }
-            if !send(chunk(json!({ "content": format!("{t} ") }), Value::Null)).await {
+            let mut c = chunk(json!({ "content": render(t) }), Value::Null);
+            if token_ids {
+                c["choices"][0]["token_ids"] = json!([output_ids.get(i)]);
+            }
+            if !send(c).await {
                 return;
             }
         }
-        send(chunk(json!({}), json!("length"))).await;
+        let mut last = chunk(json!({}), json!("length"));
+        if token_ids {
+            last["choices"][0]["token_ids"] = json!([]);
+        }
+        send(last).await;
         answer_to.finished().await;
         if include_usage {
             send(json!({ "id": id, "object": "chat.completion.chunk", "created": 0, "model": model, "choices": [], "usage": usage })).await;

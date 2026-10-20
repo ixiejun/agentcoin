@@ -126,6 +126,7 @@ mod benchmarks {
             out_tokens: 4_000,
             fee: fee_for(&PRICE, 4_000, 4_000).unwrap(),
             toploc_commit: [9; 32],
+            content_commit: [8; 32],
             ttft_ms: 100,
             total_ms: 9_000,
         };

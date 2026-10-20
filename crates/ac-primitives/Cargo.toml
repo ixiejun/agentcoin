@@ -18,6 +18,8 @@ std = [
     "parity-scale-codec/std",
     "scale-info/std",
     "serde/std",
+    "dep:serde_json",
+    "serde_json/std",
     "sp-api/std",
     "sp-inherents/std",
     "sp-consensus-slots/std",
@@ -34,6 +36,8 @@ hash256-std-hasher = { workspace = true }
 parity-scale-codec = { workspace = true, features = ["derive"] }
 scale-info = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive", "alloc"] }
+# Canonical JSON of request messages for the receipt content commitment (std only).
+serde_json = { workspace = true, optional = true }
 sp-api = { workspace = true }
 sp-inherents = { workspace = true }
 sp-consensus-slots = { workspace = true }

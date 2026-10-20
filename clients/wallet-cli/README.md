@@ -129,7 +129,7 @@ ac-wallet market work --epoch 12                                          # an e
 
 | Command | What it does |
 |---|---|
-| `market receipt new` | builds a receipt (fee = the provider's price for the model, rounded up to a micro-dollar; `--toploc`, `--request-id`, `--ttft-ms`, `--total-ms` optional) and signs it as its provider or gateway |
+| `market receipt new` | builds a receipt v2 (fee = the provider's price for the model, rounded up to a micro-dollar; `--toploc`, `--content-commit`, `--request-id`, `--ttft-ms`, `--total-ms` optional; the two commitments default to zero and must be both zero or both set) and signs it as its provider or gateway |
 | `market receipt cosign --file` | adds the wallet's signature as the other party |
 | `market receipt check --file` | checks both signatures, the genesis and the fee against the chain's keys and prices |
 | `market report submit` | builds the Merkle root and the per-(provider, model) totals, checks every receipt and that the totals equal the vouchers' increments, then submits; an inconsistency is reported with the file or voucher at fault and nothing is submitted |
@@ -166,7 +166,7 @@ ac-wallet audit pot && ac-wallet audit params
 |---|---|
 | `audit register [--stake]`, `bond`, `unbond`, `exit`, `withdraw` | auditor stake, as for providers |
 | `audit assignments` | the current round and the providers the account is assigned to (submitted or pending) |
-| `audit verdict --report --case` | submits the verdict of an `ac-auditor recheck` line on a case: outcome and thresholds version from the line, receipt from the case and, for a failure or a verdict judged by the thresholds, the evidence commitment (printed); a judged verdict also carries the line's statistics (OpenSpec change `m6-audit-sprt`); refuses before signing if the account is not assigned, the model has no audit profile or the versions are not the profile's |
+| `audit verdict --report --case` | submits the verdict of an `ac-auditor recheck` line on a case: outcome and thresholds version from the line, receipt from the case and, for a failure or a verdict judged by the thresholds, the evidence commitment (printed; evidence v2 includes the case's `tokens`, m6-token-binding); a judged verdict also carries the line's statistics (OpenSpec change `m6-audit-sprt`); refuses before signing if the account is not assigned, the model has no audit profile or the versions are not the profile's |
 | `audit verdicts --provider [--round]` | a provider's verdicts in a round (default: the current one), each with its statistics and whether it is drawn for a spot check (recomputed from the next round's seed and the current rate; pending until that seed exists) |
 | `audit disputes --provider` | a provider's verdict counts, statistical state against the bound, open dispute with its kind (failing verdicts or statistical), accusers and reviewers' votes |
 | `audit vote --provider --id --vote confirm\|reject [--unavailable 0,2]`, `audit close` | votes as a reviewer, naming the positions (from 0) of the cited verdicts whose evidence was not obtained; closes an undecided dispute after its deadline |
@@ -231,8 +231,11 @@ for chunk in client.chat.completions.create(
   chain, gateway, model, token counts against the returned usage, fee at the provider's on-chain
   price, the gateway's billed total) and its TOPLOC proofs (an all-zero commitment comes
   without proofs; otherwise the market parameters, one proof per chunk of the output and a
-  recomputed commitment equal to the receipt's), and only then pays that total. A receipt that
-  fails any check stops all further payments and requests. The proofs are not stored.
+  recomputed commitment equal to the receipt's). It also checks the receipt's content
+  commitment (receipt v2, m6-token-binding): the messages it sent, with the salt and token IDs
+  the gateway returns, must open it, with one ID per billed token. Only then does it pay that
+  total. A receipt that fails any check stops all further payments and requests. Neither the
+  proofs nor the token IDs are stored or logged.
 - `--max-usd` caps the channel's paid total; the paid total is kept in
   `serve-<gateway>.json` next to the wallet (`--state`) so restarts never pay twice.
 - A request with the header `X-AgentCoin-Provider: atc1…` is pinned to that provider: the

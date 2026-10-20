@@ -3,6 +3,7 @@
 
 pub mod announce;
 pub mod audit;
+pub mod content;
 pub mod engine;
 pub mod frame;
 pub mod msg;
@@ -14,6 +15,7 @@ use core::fmt;
 
 pub use announce::GatewayKey;
 pub use audit::{AuditEvidence, EvidenceError, EvidenceRequest, EvidenceResponse, EvidenceUsage};
+pub use content::{ContentError, ReceiptTokens, check_content};
 pub use msg::{
     ErrorCode, GatewayMsg, PROTOCOL_VERSION, Payment, ProviderMsg, ProviderReq, Usage, UserMsg,
 };

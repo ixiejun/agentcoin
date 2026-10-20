@@ -52,6 +52,12 @@ struct Args {
     /// serve 8-bit weights; m6-audit-sprt).
     #[arg(long)]
     deviate_file: Option<std::path::PathBuf>,
+    /// Generate `lorem` as two tokens, so the answer re-tokenizes to other IDs (I-023).
+    #[arg(long)]
+    split_words: bool,
+    /// Ignore `return_token_ids` (an engine that cannot return token IDs).
+    #[arg(long)]
+    omit_token_ids: bool,
 }
 
 #[tokio::main]
@@ -78,6 +84,8 @@ async fn main() -> anyhow::Result<()> {
             model_seed: a.model_seed,
             switch: a.switch_seed.zip(a.switch_file),
             deviate: a.deviate_file,
+            split_words: a.split_words,
+            omit_token_ids: a.omit_token_ids,
         },
     )
     .await?;

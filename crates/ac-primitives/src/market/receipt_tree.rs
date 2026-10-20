@@ -1,7 +1,8 @@
 //! Merkle tree over the receipts of a work report (m5-work-settlement design D3; spec
 //! `market/work-settlement`, "收据承诺").
 //!
-//! - leaf = `derive("agentcoin 2026-09 receipt-leaf v1", SCALE(SignedReceipt))`;
+//! - leaf = `derive("agentcoin 2026-10 receipt-leaf v2", SCALE(SignedReceipt))` (v2 since receipts
+//!   carry a content commitment, m6-token-binding design D3);
 //! - node = `derive("agentcoin 2026-09 receipt-node v1", left ‖ right)`;
 //! - the last node of a level with an odd count moves up unchanged (it is not paired with a copy
 //!   of itself, so two different leaf lists never share a root that way);
@@ -15,8 +16,8 @@ use scale_info::TypeInfo;
 
 use super::receipt::SignedReceipt;
 
-/// Hashing context of receipt leaves.
-pub const RECEIPT_LEAF_CONTEXT: &str = "agentcoin 2026-09 receipt-leaf v1";
+/// Hashing context of receipt leaves (receipts v2).
+pub const RECEIPT_LEAF_CONTEXT: &str = "agentcoin 2026-10 receipt-leaf v2";
 
 /// Hashing context of inner nodes.
 pub const RECEIPT_NODE_CONTEXT: &str = "agentcoin 2026-09 receipt-node v1";

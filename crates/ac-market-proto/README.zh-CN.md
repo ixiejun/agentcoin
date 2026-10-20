@@ -11,7 +11,7 @@ AgentCoin 推理市场的线协议：钱包本地代理、网关（`ac-gateway`�
 
 ## 消息
 
-每条消息都是版本字节（`PROTOCOL_VERSION` = 2；版本 1 不带 TOPLOC 证明，已不再接受）加 SCALE 编码。枚举序号即线格式，永不改变。
+每条消息都是版本字节（`PROTOCOL_VERSION` = 3；版本 1 不带 TOPLOC 证明，版本 2 的收据为不带 token ID 的 v1，均已不再接受）加 SCALE 编码。枚举序号即线格式，永不改变。
 
 | 方向 | 消息 | 序号 | 含义 |
 |---|---|---|---|
@@ -19,13 +19,13 @@ AgentCoin 推理市场的线协议：钱包本地代理、网关（`ac-gateway`�
 | | `UserMsg::Pay` | 1 | 单独的凭证，在收到账单后发送 |
 | 网关 → 用户 | `GatewayMsg::Delta` | 0 | 一个流式块（JSON） |
 | | `GatewayMsg::Completion` | 1 | 完整的非流式响应（JSON） |
-| | `GatewayMsg::Billing` | 2 | 双签收据、本次费用、新的已计费总额，以及 TOPLOC 证明（若有） |
+| | `GatewayMsg::Billing` | 2 | 双签收据、本次费用、新的已计费总额，以及 TOPLOC 证明与收据的 token（若有） |
 | | `GatewayMsg::Error` | 3 | 错误码与说明（从不包含请求内容） |
 | | `GatewayMsg::Paid` | 4 | 付款已被接受 |
 | 网关 → 提供者 | `ProviderReq::Infer` | 0 | 请求 ID、任务类型、模型 ID、请求（JSON） |
 | | `ProviderReq::Cosigned` | 1 | 网关追加签名后的收据，供提供者留存 |
 | 提供者 → 网关 | `ProviderMsg::Delta` | 0 | 一个流式块（JSON） |
-| | `ProviderMsg::Receipt` | 1 | 收据、提供者公钥与签名、引擎报告的用量，以及 TOPLOC 证明（若有） |
+| | `ProviderMsg::Receipt` | 1 | 收据、提供者公钥与签名、引擎报告的用量，以及 TOPLOC 证明与收据的 token（若有） |
 | | `ProviderMsg::Error` | 2 | 错误码与说明 |
 | | `ProviderMsg::Ack` | 3 | 确认收到 `Cosigned` |
 
@@ -45,9 +45,17 @@ AgentCoin 推理市场的线协议：钱包本地代理、网关（`ac-gateway`�
 
 `toploc::judge` 是审计对 `ac_toploc::compare` 逐块结果的通过 / 不通过规则（规格 `market/toploc`“复核判定规则与阈值”）。`Thresholds` 包含一个审计长度区间（`PromptBand`，prompt token 数从 `min` 到 `max`，含两端）与三组 `ChunkBounds`：prompt 落在区间内时预填充块用一组（prompt 由审计员确切知道，并以与提供者相同的方式复算），落在区间外时用另一组（在 GPU 上，预填充随 prompt 长度与批次形状变化），解码块用最宽的一组。`judge` 按 prompt 的 token 数选择预填充的一组；审计员只发区间内的 prompt。单次审计只区分明显的偏离（换模型、低于 8 位的量化、篡改 prompt）：版本 4 的预填充上限在区间内外都是 20 / 6.00 / 5，解码为 28 / 12.00 / 12，高于 GPU 校准中诚实样本的最大值；8 位量化交给按提供者的统计判定。一块通过，当且仅当指数不一致次数、尾数误差均值（以百分之一为单位，按“和 × 100 ≤ 上限 × 项数”计算）与尾数误差中位数都不超过所属一组的界限，且至少有一项指数相同；一次推理只有每块都通过才通过，否则在第一个超限的块上判不通过。`AUDIT_THRESHOLDS` 带版本号，取值来自 `scripts/calibrate-toploc.py` 的校准。
 
+## 收据的内容
+
+收据 v2 承诺请求的消息列表，以及引擎实际计算的 prompt 与输出 token ID（m6-token-binding；`ac_primitives::market::content`）。`content::ReceiptTokens` 包含盐与两组 token ID：提供者经 `ProviderMsg::Receipt` 交出，网关经 `GatewayMsg::Billing` 转交用户，与 TOPLOC 证明同在同不在。它们属于内容，`Debug` 只显示个数。
+
+`content::check_content` 是网关、钱包代理与审计员共用的核对：两个承诺同为零或同非零，token 恰在内容承诺非零时出现，ID 个数等于收据的 token 数，消息、盐与 ID 能打开承诺。
+
+示例代码见英文版 [README.md](README.md)（作为 doctest 运行）：键顺序不同的同一条消息打开同一个承诺，另一条消息则不能；`ReceiptTokens` 的 JSON 形式可往返。
+
 ## 审计证据
 
-`audit::AuditEvidence` 是不通过的审计裁决所承诺的内容（m6-audit-chain）：请求的 messages（紧凑 JSON）、回答、结束原因与用量、双签收据和 TOPLOC 证明。证据文件即其 SCALE 编码；承诺为 `derive("agentcoin 2026-10 audit-evidence v1", 字节)`，上链的只有承诺，证据留在审计员处（红线 6）。`AuditEvidence::open` 先按承诺检查字节再解码。`audit::evidence_from_case` 由 `ac-auditor` 的案例构造证据，使钱包与审计员算出相同的承诺。回归向量在 `tests/vectors/audit_evidence.json`。
+`audit::AuditEvidence` 是不通过的审计裁决所承诺的内容（m6-audit-chain）：请求的 messages（紧凑 JSON 数组）、回答、结束原因与用量、双签收据、TOPLOC 证明，以及自证据 v2（m6-token-binding）起收据的 `ReceiptTokens`。证据文件即其 SCALE 编码；承诺为 `derive("agentcoin 2026-10 audit-evidence v2", 字节)`，上链的只有承诺，证据留在审计员处（红线 6）。`AuditEvidence::open` 先按承诺检查字节再解码。`AuditEvidence::check_content` 核对证据能打开收据的内容承诺，因此提出者能改动的只有回答文本。`audit::evidence_from_case` 由 `ac-auditor` 的案例（含可选的 `tokens`）构造证据，使钱包与审计员算出相同的承诺。回归向量在 `tests/vectors/audit_evidence.json`；已停用的证据 v1 保留在 `tests/vectors/audit_evidence_v1.json`，以表明它被拒绝。
 
 ## OpenAI 子集
 

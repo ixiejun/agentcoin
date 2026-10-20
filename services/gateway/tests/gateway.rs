@@ -777,12 +777,17 @@ async fn no_request_content_is_logged_or_stored() {
 }
 
 /// How a lying provider's receipt disagrees with its proofs.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Lie {
     /// Proofs that do not hash to the receipt's commitment.
     Mismatch,
     /// Proofs with an all-zero commitment.
     ProofsWithoutCommitment,
+    /// Correct proofs, but a content commitment to other messages (a hidden system prompt;
+    /// m6-token-binding).
+    Content,
+    /// Correct proofs and content, but fewer output IDs than billed tokens.
+    TokenCount,
 }
 
 /// A provider endpoint (same keys as `provider(seed, ..)`) that answers every request with one
@@ -830,7 +835,10 @@ async fn lying_provider(seed: u8, gateway: &Party, lie: Lie) -> ProviderNode {
             let (mut writer, response, gateway, message) = request.respond();
             tokio::spawn(async move {
                 let Ok(ProviderReq::Infer {
-                    request_id, model, ..
+                    request_id,
+                    model,
+                    request,
+                    ..
                 }) = msg::decode::<ProviderReq>(&message)
                 else {
                     return;
@@ -866,7 +874,32 @@ async fn lying_provider(seed: u8, gateway: &Party, lie: Lie) -> ProviderNode {
                         c
                     }
                     Lie::ProofsWithoutCommitment => [0; 32],
+                    Lie::Content | Lie::TokenCount => proofs.commitment().unwrap(),
                 };
+                let mut messages =
+                    serde_json::from_slice::<serde_json::Value>(&request).unwrap()["messages"]
+                        .as_array()
+                        .cloned()
+                        .unwrap();
+                if lie == Lie::Content {
+                    messages.insert(
+                        0,
+                        serde_json::json!({"role": "system", "content": "hidden"}),
+                    );
+                }
+                let mut tokens = ac_market_proto::ReceiptTokens {
+                    salt: [7; 32],
+                    prompt_ids: vec![11],
+                    output_ids: vec![12, 13],
+                };
+                let content = if commit == [0; 32] {
+                    [0; 32]
+                } else {
+                    tokens.commit(&messages).unwrap()
+                };
+                if lie == Lie::TokenCount {
+                    tokens.output_ids.pop();
+                }
                 let body = ReceiptBody {
                     genesis: GENESIS,
                     gateway,
@@ -878,6 +911,7 @@ async fn lying_provider(seed: u8, gateway: &Party, lie: Lie) -> ProviderNode {
                     out_tokens: 2,
                     fee: fee_for(&CHEAP, 1, 2).unwrap(),
                     toploc_commit: commit,
+                    content_commit: content,
                     ttft_ms: 1,
                     total_ms: 2,
                 };
@@ -894,6 +928,7 @@ async fn lying_provider(seed: u8, gateway: &Party, lie: Lie) -> ProviderNode {
                     signature,
                     usage,
                     toploc: Some(proofs),
+                    tokens: Some(tokens),
                 };
                 writer.send(&msg::encode(&receipt), true).await;
             });
@@ -907,7 +942,14 @@ async fn lying_provider(seed: u8, gateway: &Party, lie: Lie) -> ProviderNode {
 // gateway does not co-sign or bill, and pauses the provider.
 #[tokio::test]
 async fn providers_with_proofs_that_do_not_fit_are_not_billed_and_are_paused() {
-    for (seed, lie) in [(18u8, Lie::Mismatch), (19, Lie::ProofsWithoutCommitment)] {
+    // m6-token-binding 4.3, scenario "内容承诺不符": a commitment to other messages, or other
+    // token counts, is treated the same way.
+    for (seed, lie) in [
+        (18u8, Lie::Mismatch),
+        (19, Lie::ProofsWithoutCommitment),
+        (23, Lie::Content),
+        (24, Lie::TokenCount),
+    ] {
         let gw = party(1);
         let liar = lying_provider(seed, &gw, lie).await;
         let n = net(&format!("liar-{seed}"), ATC, &[(&liar, CHEAP)]).await;
@@ -953,7 +995,10 @@ async fn users_get_the_proofs_the_gateway_keeps() {
     for stream in [true, false] {
         let reply = n.chat("Qwen-test", "one two three", stream, paid).await;
         let Some(GatewayMsg::Billing {
-            receipt, toploc, ..
+            receipt,
+            toploc,
+            tokens,
+            ..
         }) = reply.last().cloned()
         else {
             panic!("no billing: {:?}", reply.last());
@@ -961,6 +1006,11 @@ async fn users_get_the_proofs_the_gateway_keeps() {
         let proofs = toploc.expect("proofs with the bill");
         assert_ne!(receipt.body.toploc_commit, [0; 32]);
         ac_market_proto::toploc::check(&receipt.body, Some(&proofs)).unwrap();
+        // m6-token-binding 4.3, scenario "用户拿到 token ID": the bill carries the salt and IDs
+        // that open the content commitment over the messages the user sent.
+        let messages = vec![serde_json::json!({"role": "user", "content": "one two three"})];
+        ac_market_proto::check_content(&receipt.body, tokens.as_ref(), &messages).unwrap();
+        assert!(tokens.is_some());
         let state = n.gateway.book().get(&n.user.account).unwrap();
         let kept = state
             .unreported
