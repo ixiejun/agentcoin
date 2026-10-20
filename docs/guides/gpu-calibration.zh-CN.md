@@ -55,7 +55,9 @@ scripts/gpu-calibration.sh pack       # 打包并打印 SHA-256，在 /root/auto
 
 （案例包名取自 GPU 型号，例如 `bundle-h800-pcie-seed12` 或 `bundle-h800-sxm-seed12`；A100 同样用种子 12。）`check` 停止时，这台 GPU 上不会生成任何东西：把它指出的日志发给我。
 
-prompt 按审计长度区间（150–300 个 token，取自 `ac-auditor thresholds`）补到目标长度：约 80% 在区间内，10% 更短，10% 更长。因此 4,000 个诚实样本中约 3,200 个在区间内、800 个在区间外，满足每格区间内 ≥ 3,000、区间外 ≥ 500 的要求；作弊也按同样比例分布。`check` 的快速回归按当前阈值判定（版本 4：单次审计抓换模型、int4 与篡改 prompt）；int8 的通过，以及输出文本重新分词后 token ID 不同的诚实回答（问题 I-023，逐案例记录在 `token_ids.json`）都不算失败。
+prompt 按审计长度区间（150–300 个 token，取自 `ac-auditor thresholds`）补到目标长度：约 80% 在区间内，10% 更短，10% 更长。因此 4,000 个诚实样本中约 3,200 个在区间内、800 个在区间外，满足每格区间内 ≥ 3,000、区间外 ≥ 500 的要求；作弊也按同样比例分布。`check` 的快速回归按当前阈值判定（版本 4：单次审计抓换模型、int4 与篡改 prompt）；int8 的通过不算失败。
+
+自 OpenSpec 变更 `m6-token-binding` 起，每个案例还带有 `tokens`：vLLM 生成时的 prompt 与输出 token ID 以及随机盐，案例的收据承诺它们。复核按这些 token 进行，不再对回答重新分词；“改 prompt”作弊因 prompt 与请求不符而不通过。此前生成的案例包没有 `tokens`，当前的 `ac-auditor` 无法复核（内容打不开收据），需重新生成。回答文本重新分词后是否得到生成时的 ID（问题 I-023）仍逐案例记录在 `token_ids.json`；合并报告在 `token_mismatch` 中单列这些诚实回答并标出 `committed_tokens: true`，它们与其他样本一样计入结论：在 GPU 上复验时，请确认它们全部通过（此前按重新分词复核时，380 个中有 6 个不通过）。
 
 然后把各自的案例包交给另一台机器复核：
 

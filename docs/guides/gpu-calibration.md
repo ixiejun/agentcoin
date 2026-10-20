@@ -92,8 +92,18 @@ Prompts are fitted to target lengths around the audit length band
 4,000 honest samples about 3,200 are inside the band and 800 outside, as each cell needs (at
 least 3,000 and 500); the cheats are spread the same way. The quick regression of `check` judges
 by the current thresholds (version 4: a single audit catches another model, int4 and a changed
-prompt); int8 passes and honest answers whose text re-tokenizes to other token IDs (issue I-023,
-recorded per case in `token_ids.json`) never count as failures.
+prompt); int8 passes never count as failures.
+
+Since OpenSpec change `m6-token-binding` each case also carries `tokens`: the prompt and output
+token IDs vLLM generated and a random salt, which the case's receipt commits to. The re-check takes
+those tokens and never re-tokenizes the answer, and the "prompt" cheat fails because its prompt
+does not match the request. Bundles made before that change have no `tokens` and cannot be
+re-checked by the current `ac-auditor` (their content does not open the receipt): generate them
+anew. Whether an answer's text re-tokenizes to its generated IDs (issue I-023) is still recorded
+per case in `token_ids.json`. In the merged report such honest answers are listed under
+`token_mismatch` with `committed_tokens: true` and are judged like any other: when re-checking on
+GPUs, confirm that all of them pass (re-checked on re-created tokens, before the change, 6 of 380
+failed).
 
 Then give each machine the other's bundle and re-check it:
 

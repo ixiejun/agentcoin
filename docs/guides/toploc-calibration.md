@@ -80,9 +80,13 @@ int4 or changed prompt passes, in 47,620 honest re-checks judged by the threshol
 cell is short of samples (see [Cross-hardware result](#cross-hardware-result-2026-10-15)).
 
 Honest answers whose text re-tokenizes to other token IDs than the generated ones (issue I-023)
-fail a decode chunk under any bounds; the generation records it per case (`token_ids.json`) and
-the merge lists them apart (`token_mismatch`), out of the cells and the conclusion. Their root
-cause (the provider returning the output token IDs) is a separate change.
+failed a decode chunk under any bounds while the auditor re-created the tokens from the text. The
+generation records it per case (`token_ids.json`) and the merge lists them (`token_mismatch`).
+Reports re-checked that way keep them out of the cells and the conclusion. OpenSpec change
+`m6-token-binding` removed the cause: the receipt commits to the token IDs the engine computed,
+each case carries them (`tokens`, with the salt), and the re-check takes them. Such cases are
+marked `committed_tokens: true`, stay listed, and count in the cells and the conclusion like any
+other.
 
 ## Statistical judgment parameters
 
@@ -229,8 +233,11 @@ python scripts/calibrate-toploc.py --merge recheck-*/calibration.json --summary-
   and 500 outside. The conclusion is `keep` (the current values hold), `widen` (every bound
   widened to the honest maximum, the band kept, still satisfies the rules), `no thresholds` (with
   the cells and sides that break the rules, for the user to decide), or `too few samples` (with
-  what it would be). The CI quick regression never counts int8 passes as failures, nor honest
-  answers listed under I-023.
+  what it would be). The CI quick regression never counts int8 passes as failures. Nor does it
+  count honest answers listed under I-023 in old reports re-checked on re-created tokens; on
+  committed tokens they count like any other. A "prompt" sample must fail because its prompt
+  does not match the request, and a case whose content does not open its receipt (`mismatch`)
+  fails the regression.
 - **Statistics.** The merge also gives, per cell, side of the band and variant (honest and int8),
   histograms of the statistics a verdict carries (the prefill chunk's mean and the decode
   chunks' means averaged, in hundredths) and their joint counts (`pairs`): the input of the
