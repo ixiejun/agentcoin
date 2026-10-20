@@ -435,6 +435,12 @@ async fn inference_through_the_market() {
                 ac_market_proto::toploc::ToplocProofs::decode(&mut &b[..]).unwrap()
             });
             ac_market_proto::toploc::check(&receipt.body, kept.as_ref()).unwrap();
+            // m6-token-binding: receipts v2 commit to their content exactly when to proofs.
+            assert_eq!(
+                kept.is_some(),
+                receipt.body.content_commit != [0; 32],
+                "content commitment with proofs"
+            );
             if kept.is_some() {
                 proven += 1;
             }

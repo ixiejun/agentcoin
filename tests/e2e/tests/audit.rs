@@ -14,6 +14,13 @@
 //!   10% and made to exit; the one whose evidence was unavailable takes only the 1% light
 //!   penalty and stays. While the dispute is open, its unbonding stake cannot be withdrawn even
 //!   though it is due.
+//! - Receipts are v2 (m6-token-binding): they commit to the messages and the token IDs the
+//!   engine returned. The honest provider's engine spells some words as two tokens, so its
+//!   answers re-tokenize to other IDs (I-023); re-checked on the committed tokens they all pass.
+//! - Two auditors frame the honest provider (m6-token-binding 8.2): they change a message in
+//!   their evidence and commit to the changed evidence. The reviewers' re-check from the evidence
+//!   finds that it does not open the receipt ("mismatch") and they reject; both accusers take the
+//!   full penalty, since the evidence was obtained.
 //!
 //! Enabled with `AC_E2E=1`; needs `cargo build -p ac-node -p ac-wallet -p ac-auditor -p
 //! ac-mock-engine`.
@@ -34,6 +41,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use ac_e2e::{TestNode, Testnet, TestnetConfig, free_port};
+use ac_market_proto::ReceiptTokens;
 use ac_market_proto::engine::{
     ENGINE_PROTOCOL_VERSION, EngineMsg, EngineReader, request_id_header,
 };
@@ -115,7 +123,7 @@ struct Prover {
     rx: tokio::sync::mpsc::UnboundedReceiver<Vec<Segment>>,
 }
 
-async fn prover(base: &Path, name: &str, seed: u64) -> Prover {
+async fn prover(base: &Path, name: &str, seed: u64, split_words: bool) -> Prover {
     let socket = base.join(format!("{name}-prove.sock"));
     let rx = prove_receiver(&socket).await;
     let mut c = Command::new(bin("ac-mock-engine"));
@@ -123,6 +131,9 @@ async fn prover(base: &Path, name: &str, seed: u64) -> Prover {
         .args(["--model-seed", &seed.to_string()])
         .arg("--toploc-socket")
         .arg(&socket);
+    if split_words {
+        c.arg("--split-words");
+    }
     let (engine, addr) = Proc::start(c, base.join(format!("engine-{name}.log")));
     Prover {
         _engine: engine,
@@ -154,7 +165,9 @@ async fn served(
             &join(&engine.url, "/v1/chat/completions"),
             "application/json",
             &[("x-request-id", &request_id_header(&[id; 32]))],
-            json!({"model": "mock-model", "messages": messages, "max_tokens": 40}).to_string(),
+            json!({"model": "mock-model", "messages": messages, "max_tokens": 40,
+                   "return_token_ids": true})
+            .to_string(),
         )
         .await
         .unwrap();
@@ -166,6 +179,20 @@ async fn served(
         &build_proofs_from_candidates(&segments, &MARKET_PARAMS).unwrap(),
     );
     let commitment = proofs.commitment().unwrap();
+    // The provider commits to the messages and the IDs its engine returned (receipt v2).
+    let ids = |v: &Value| -> Vec<u32> {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|x| u32::try_from(x.as_u64().unwrap()).unwrap())
+            .collect()
+    };
+    let tokens = ReceiptTokens {
+        salt: [id; 32],
+        prompt_ids: ids(&reply["prompt_token_ids"]),
+        output_ids: ids(&reply["choices"][0]["token_ids"]),
+    };
+    let content = tokens.commit(messages.as_array().unwrap()).unwrap();
     let (pt, ct) = (
         reply["usage"]["prompt_tokens"].as_u64().unwrap(),
         reply["usage"]["completion_tokens"].as_u64().unwrap(),
@@ -187,6 +214,8 @@ async fn served(
         &ct.to_string(),
         "--toploc",
         &hex::encode(commitment),
+        "--content-commit",
+        &hex::encode(content),
         "--request-id",
         &hex::encode([id; 32]),
         "--out",
@@ -212,6 +241,7 @@ async fn served(
         "usage": {"prompt_tokens": pt, "completion_tokens": ct},
         "receipt": hex::encode(signed.encode()),
         "toploc": hex::encode(proofs.encode()),
+        "tokens": tokens.to_json(),
     });
     let file = base.join(format!("{label}-case.json"));
     std::fs::write(&file, case.to_string()).unwrap();
@@ -403,9 +433,10 @@ async fn audits_confirm_and_reject() {
     }
     let (cheater, honest) = (&providers[0], &providers[1]);
 
-    // Seven auditors (stake: the current $1,000 threshold) and a funded pot.
+    // Nine auditors (stake: the current $1,000 threshold) and a funded pot: enough for two
+    // accusers and five reviewers once two refuted accusers exit.
     // Each also bonds 100 ATC more and starts unbonding them, so they are due by the rejection.
-    let auditors: Vec<W> = (0..7)
+    let auditors: Vec<W> = (0..9)
         .map(|i| {
             let a = funded_wallet(&base, &format!("auditor{i}"), &user, "2000");
             run(&mut a.cmd(&["audit", "register"]));
@@ -432,8 +463,9 @@ async fn audits_confirm_and_reject() {
 
     // Two served requests per provider, re-checked ahead of the round (re-checks do not depend
     // on who is assigned).
-    let mut cheat_engine = prover(&base, "cheater", OTHER_SEED).await;
-    let mut honest_engine = prover(&base, "honest", HONEST_SEED).await;
+    let mut cheat_engine = prover(&base, "cheater", OTHER_SEED, false).await;
+    // m6-token-binding 8.2: answers that re-tokenize to other IDs than generated (I-023).
+    let mut honest_engine = prover(&base, "honest", HONEST_SEED, true).await;
     let mut cheat_cases = Vec::new();
     let mut receipts = Vec::new();
     for i in 0..2u8 {
@@ -627,6 +659,7 @@ async fn audits_confirm_and_reject() {
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
     let r = fresh_round(node).await;
+    let rejected_round = r;
     let assigned = assignment(node, r, honest).await;
     for (who, (case, report)) in assigned.iter().zip(&honest_cases) {
         run(&mut auditor_of(&auditors, who).cmd(&[
@@ -708,6 +741,134 @@ async fn audits_confirm_and_reject() {
     // and exit for the refuted accuser; 1% and no exit for the one whose evidence was lost.
     assert_eq!(bonded(&user, &refuted), (990 * ATC, "Exiting".to_string()));
     assert_eq!(bonded(&user, &gone), (1_089 * ATC, "Active".to_string()));
+    let shown =
+        run(&mut user.query(&["market", "provider", "show", "--address", &honest.address()]));
+    assert_eq!(field(&shown, "status"), "Active");
+
+    // ---- Framing with altered evidence (m6-token-binding 8.2) ----
+    // Two new honest answers; each accuser changes a word of the messages in its case, turns the
+    // pass into a failure and commits to the changed evidence.
+    let mut framed = Vec::new();
+    for i in 0..2u8 {
+        let (case, _) = served(
+            &m,
+            honest,
+            &mut honest_engine,
+            &format!("framed{i}"),
+            30 + i,
+        )
+        .await;
+        let report = recheck(
+            &base,
+            &format!("framed{i}"),
+            &["--case", case.to_str().unwrap()],
+        );
+        assert_eq!(report["outcome"], "pass", "{report}");
+        let mut altered: Value =
+            serde_json::from_str(&std::fs::read_to_string(&case).unwrap()).unwrap();
+        altered["messages"][0]["content"] = json!(format!(
+            "{} {MARKER} {}",
+            WORDS.replace("dog", "cat"),
+            30 + i
+        ));
+        let altered_file = base.join(format!("framed{i}-altered-case.json"));
+        std::fs::write(&altered_file, altered.to_string()).unwrap();
+        let mut lie = report.clone();
+        lie["onchain"] = json!(hex::encode(
+            VerdictOutcome::Fail(FailReason::Threshold {
+                chunk: 0,
+                metric: AuditMetric::ExpMismatches,
+            })
+            .encode()
+        ));
+        let report_file = base.join(format!("framed{i}-report.json"));
+        std::fs::write(&report_file, lie.to_string()).unwrap();
+        framed.push((altered_file, report_file));
+    }
+    // A dispute also cites the previous round's failures, including ones a closed dispute has
+    // already judged (I-030): frame the provider two rounds after the rejection.
+    let mut r = fresh_round(node).await;
+    while r < rejected_round + 2 {
+        while round(node).await.0 == r {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        r = fresh_round(node).await;
+    }
+    let assigned = assignment(node, r, honest).await;
+    assert_eq!(assigned.len(), 2);
+    for (who, (case, report)) in assigned.iter().zip(&framed) {
+        run(&mut auditor_of(&auditors, who).cmd(&[
+            "audit",
+            "verdict",
+            "--report",
+            report.to_str().unwrap(),
+            "--case",
+            case.to_str().unwrap(),
+        ]));
+    }
+    let id: u64 = api::<Option<u64>>(
+        node,
+        "AuditApi_open_dispute",
+        &account(&honest.address()).encode(),
+    )
+    .await
+    .expect("two failures open a dispute");
+    let dispute: DisputeRecord<AccountId, u32> =
+        api::<Option<_>>(node, "AuditApi_dispute", &id.encode())
+            .await
+            .unwrap();
+    let verdicts: Vec<VerdictRecord<AccountId>> = api(
+        node,
+        "AuditApi_verdicts",
+        &(r, account(&honest.address())).encode(),
+    )
+    .await;
+    let before: Vec<(Balance, String)> = assigned.iter().map(|a| bonded(&user, a)).collect();
+    for (k, (reviewer, _)) in dispute.reviewers.iter().take(2).enumerate() {
+        // Each reviewer gets both accusers' evidence: it opens its commitment but not its receipt.
+        for (j, who) in assigned.iter().enumerate() {
+            let v = verdicts.iter().find(|v| v.auditor == *who).unwrap();
+            let evidence = base.join(format!("framed{j}-evidence.bin"));
+            run(Command::new(bin("ac-auditor"))
+                .args(["evidence", "--case", framed[j].0.to_str().unwrap(), "--out"])
+                .arg(&evidence));
+            let report = recheck(
+                &base,
+                &format!("review-framed{k}-{j}"),
+                &[
+                    "--evidence",
+                    evidence.to_str().unwrap(),
+                    "--commitment",
+                    &hex::encode(v.evidence.unwrap()),
+                ],
+            );
+            assert_eq!(report["outcome"], "mismatch", "{report}");
+            assert_eq!(report["reason"], "content does not match the receipt");
+        }
+        // The evidence was obtained: nothing is marked unavailable.
+        run(&mut auditor_of(&auditors, reviewer).cmd(&[
+            "audit",
+            "vote",
+            "--provider",
+            &honest.address(),
+            "--id",
+            &id.to_string(),
+            "--vote",
+            "reject",
+        ]));
+    }
+    let accusers: Vec<AccountId> = dispute.accusers.iter().map(|a| a.auditor.clone()).collect();
+    assert_eq!(
+        accusers, assigned,
+        "the dispute cites exactly the two framers"
+    );
+    // Both accusers take the full penalty (10%) and exit; the provider stays active.
+    for (who, (stake, _)) in assigned.iter().zip(before) {
+        assert_eq!(
+            bonded(&user, who),
+            (stake - stake / 10, "Exiting".to_string())
+        );
+    }
     let shown =
         run(&mut user.query(&["market", "provider", "show", "--address", &honest.address()]));
     assert_eq!(field(&shown, "status"), "Active");

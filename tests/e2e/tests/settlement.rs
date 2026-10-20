@@ -343,9 +343,12 @@ async fn work_settlement_flow() {
             "--total-ms",
             "900",
             // A non-zero TOPLOC commitment: receipts without proofs earn no market work
-            // (m6-public-jobs, I-008); the chain only tells zero from non-zero.
+            // (m6-public-jobs, I-008); the chain only tells zero from non-zero. A receipt v2
+            // with proofs also commits to its content (m6-token-binding).
             "--toploc",
             &format!("0x{}", "ab".repeat(32)),
+            "--content-commit",
+            &format!("0x{}", "cd".repeat(32)),
             "--out",
             file.to_str().unwrap(),
         ]));
@@ -447,6 +450,8 @@ fn receipt(provider: &W, gateway: &W, model: &str, in_tokens: &str, file: &Path)
         "900",
         "--toploc",
         &format!("0x{}", "ab".repeat(32)),
+        "--content-commit",
+        &format!("0x{}", "cd".repeat(32)),
         "--out",
         file.to_str().unwrap(),
     ]));

@@ -29,6 +29,10 @@
 //! made to exit, while the provider is untouched and every spot check of the honest auditors'
 //! verdicts is upheld.
 //!
+//! Every provider's engine spells a word of its answers as two tokens, so the answers' text
+//! re-tokenizes to other IDs than generated (I-023, m6-token-binding 8.3): receipts commit to the
+//! generated IDs and the agents re-check those, so honest answers pass.
+//!
 //! Enabled with `AC_E2E=1`; needs `cargo build -p ac-node -p ac-wallet -p ac-provider -p
 //! ac-gateway -p ac-auditor -p ac-mock-engine`, and for the third scenario a copy of
 //! `ac-auditor` built with `--features lenient` at `target/debug/ac-auditor-lenient`.
@@ -240,7 +244,10 @@ async fn world(label: &str, setup: Setup) -> World {
         c.args(["--listen", "127.0.0.1:0", "--toploc-mode", "prove"])
             .args(["--model-seed", &HONEST_SEED.to_string()])
             .arg("--toploc-socket")
-            .arg(&toploc);
+            .arg(&toploc)
+            // m6-token-binding 8.3: answers re-tokenize to other IDs than generated (I-023); the
+            // agents re-check the committed tokens, so the honest provider is never disputed.
+            .arg("--split-words");
         if name == "cheater" {
             match cheat {
                 Cheat::Model => {

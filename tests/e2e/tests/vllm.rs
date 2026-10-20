@@ -259,6 +259,19 @@ async fn inference_through_vllm_with_toploc_proofs() {
         },
     )
     .await;
+    // m6-token-binding 7.2: every receipt also commits to its content (the messages and the
+    // token IDs vLLM returned), which the gateway and the proxy checked before signing and paying.
+    for e in std::fs::read_dir(data("provider").join("receipts")).unwrap() {
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(e.unwrap().path()).unwrap()).unwrap();
+        let raw = hex::decode(v["receipt"].as_str().unwrap().trim_start_matches("0x")).unwrap();
+        let receipt = <ac_primitives::market::SignedReceipt as parity_scale_codec::Decode>::decode(
+            &mut &raw[..],
+        )
+        .unwrap();
+        assert_ne!(receipt.body.toploc_commit, [0; 32]);
+        assert_ne!(receipt.body.content_commit, [0; 32]);
+    }
     let paid: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(base.join("serve-state.json")).unwrap())
             .unwrap();
