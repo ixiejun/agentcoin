@@ -6,11 +6,13 @@
 ## Requirements
 
 ### Requirement: 收据
-每完成一次推理请求，提供者与网关 SHALL 就一条收据达成一致。收据内容：链的创世哈希、网关账户、提供者账户、任务类型（本阶段只能是推理，其他类型为后续阶段预留，MUST 被拒绝）、模型 ID、请求 ID（32 字节，由网关生成、在该网关的收据中唯一）、输入 token 数、输出 token 数、费用（微美元）、TOPLOC 承诺（32 字节，见 `market/toploc`）、首 token 时间与完成时间（毫秒）。收据 MUST NOT 包含 prompt、输出或用户账户。
+每完成一次推理请求，提供者与网关 SHALL 就一条收据达成一致。收据内容：链的创世哈希、网关账户、提供者账户、任务类型（本阶段只能是推理，其他类型为后续阶段预留，MUST 被拒绝）、模型 ID、请求 ID（32 字节，由网关生成、在该网关的收据中唯一）、输入 token 数、输出 token 数、费用（微美元）、TOPLOC 承诺（32 字节，见 `market/toploc`）、内容承诺（32 字节，见下）、首 token 时间与完成时间（毫秒）。收据 MUST NOT 包含 prompt、输出或用户账户。
+
+内容承诺 SHALL 为以下内容的域分离哈希（上下文 `agentcoin 2026-10 receipt-content v1`）：提供者为本请求随机生成的 32 字节盐、请求的消息列表（`messages`，每条消息的全部字段按规范 JSON 文本、按顺序）、prompt 的 token ID 序列、输出的 token ID 序列。prompt 的 token 个数 MUST 等于输入 token 数，输出的 token 个数 MUST 等于输出 token 数。TOPLOC 承诺为全零（没有证明）时内容承诺 SHALL 也为全零，且不交回盐与 token ID；TOPLOC 承诺非零时内容承诺 MUST 非零。盐与 token ID 只经密封通道交给网关与用户，MUST NOT 上链；只凭收据中的内容承诺无法推出消息内容。
 
 费用 SHALL 按提供者登记的该模型价格计算：`(输入 token 数 × 输入单价 + 输出 token 数 × 输出单价) ÷ 1,000,000`（单价为每百万 token 的微美元），结果向上取整到微美元。
 
-收据 SHALL 由提供者与网关各自用 ML-DSA 签名，签名上下文为 `agentcoin/receipt/v1`，签名对象为收据规范编码的域分离哈希（上下文 `agentcoin 2026-09 receipt-payload v1`）。任何人 SHALL 能用两者链上登记的公钥校验一条收据：签名、创世哈希、费用公式任一不符即为无效收据。收据只在链下保存，不上链。
+收据 SHALL 由提供者与网关各自用 ML-DSA 签名，签名上下文为 `agentcoin/receipt/v2`，签名对象为收据规范编码的域分离哈希（上下文 `agentcoin 2026-10 receipt-payload v2`）。任何人 SHALL 能用两者链上登记的公钥校验一条收据：签名、创世哈希、费用公式任一不符即为无效收据。旧格式（签名上下文 `agentcoin/receipt/v1`、不含内容承诺）的收据 MUST 被视为无效。收据只在链下保存，不上链。
 
 #### Scenario: 双签收据有效
 - **WHEN** 提供者与网关对同一收据各自签名，校验方用两者的链上公钥校验
@@ -28,8 +30,20 @@
 - **WHEN** 校验一条创世哈希与本链不同的收据
 - **THEN** 收据无效
 
+#### Scenario: 内容承诺可打开
+- **WHEN** 持有一次请求的消息列表、提供者交回的盐与两组 token ID，按规定重算内容承诺
+- **THEN** 结果等于收据中的内容承诺；改动任一条消息的一个字符、任一个 token ID 或盐的一个字节后结果不同
+
+#### Scenario: 没有证明时内容承诺为零
+- **WHEN** 提供者没有交出 TOPLOC 证明（TOPLOC 承诺为全零）
+- **THEN** 收据的内容承诺也为全零，提供者不交回盐与 token ID
+
+#### Scenario: 旧格式收据
+- **WHEN** 校验一条按 `agentcoin/receipt/v1` 签名、不含内容承诺的收据
+- **THEN** 收据无效
+
 ### Requirement: 收据承诺
-网关 SHALL 把一批收据按提交顺序组织成二叉 Merkle 树：叶子为收据（含两个签名）编码的域分离哈希（上下文 `agentcoin 2026-09 receipt-leaf v1`），内部节点为左右子节点拼接的域分离哈希（上下文 `agentcoin 2026-09 receipt-node v1`），某层节点数为奇数时最后一个节点直接升到上一层。任何持有收据的一方 SHALL 能对某条收据生成包含证明，任何人 SHALL 能据根校验。树的构造规则在设计中固定并有测试向量。
+网关 SHALL 把一批收据按提交顺序组织成二叉 Merkle 树：叶子为收据（含两个签名）编码的域分离哈希（上下文 `agentcoin 2026-10 receipt-leaf v2`），内部节点为左右子节点拼接的域分离哈希（上下文 `agentcoin 2026-09 receipt-node v1`），某层节点数为奇数时最后一个节点直接升到上一层。任何持有收据的一方 SHALL 能对某条收据生成包含证明，任何人 SHALL 能据根校验。树的构造规则在设计中固定并有测试向量。
 
 #### Scenario: 包含证明
 - **WHEN** 对 5 条收据构造的树中第 5 条收据生成包含证明
