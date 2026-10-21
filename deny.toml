@@ -17,6 +17,7 @@ ignore = [
     { id = "RUSTSEC-2022-0061", reason = "Deprecation notice only (no vulnerability); used by the SDK to read the runtime version section from WASM blobs we build ourselves. (see audit-exceptions.toml)" },
     { id = "RUSTSEC-2024-0436", reason = "Unmaintained notice only (no vulnerability); compile-time proc macro used by FRAME. (see audit-exceptions.toml)" },
     { id = "RUSTSEC-2024-0370", reason = "Unmaintained notice only (no vulnerability); compile-time documentation macro used by FRAME. (see audit-exceptions.toml)" },
+    { id = "RUSTSEC-2026-0381", reason = "The bundled roots still trust distrusted emSign intermediates (see audit-exceptions.toml)" },
 ]
 # END generated
 

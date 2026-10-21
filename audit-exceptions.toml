@@ -120,3 +120,20 @@ reason = "Not compiled into any AgentCoin binary: libp2p's TLS transport is not 
 added = "2026-09-26"
 review_by = "2026-12-20"
 scope = "audit"
+
+[[exception]]
+id = "RUSTSEC-2026-0381"
+crate = "webpki-roots 0.25.4"
+path = "sc-network → libp2p 0.54 → libp2p-websocket → webpki-roots 0.25"
+reason = "The bundled roots still trust distrusted emSign intermediates. They are used only for TLS on /wss dials; peers are authenticated by libp2p's Noise handshake against their peer ID, not by the certificate, so a certificate under these roots cannot impersonate a node. Fixed only in 1.0.10, which libp2p-websocket 0.44 (pinned by the Polkadot SDK) cannot use."
+added = "2026-10-21"
+review_by = "2027-01-19"
+
+[[exception]]
+id = "RUSTSEC-2026-0382"
+crate = "rustls-webpki 0.101.7"
+path = "Cargo.lock only: libp2p-tls (optional, not enabled) → rustls-webpki 0.101"
+reason = "Not compiled into any AgentCoin binary: libp2p's TLS transport is not enabled. The compiled rustls-webpki is 0.103.16, which has the fix."
+added = "2026-10-21"
+review_by = "2027-01-19"
+scope = "audit"
