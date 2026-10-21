@@ -141,7 +141,7 @@ ac-wallet audit pot && ac-wallet audit params
 | `audit register [--stake]`、`bond`、`unbond`、`exit`、`withdraw` | 审计员质押，与提供者相同 |
 | `audit assignments` | 当前轮次与本账户被分配的提供者（已提交或待提交） |
 | `audit verdict --report --case` | 提交一行 `ac-auditor recheck` 结果对某案例的裁决：结果与阈值版本取自该行，收据取自案例，不通过或由阈值判定时附证据承诺（并打印；证据 v2 包含案例的 `tokens`，m6-token-binding）；由阈值判定的裁决还附该行的统计量（OpenSpec 变更 `m6-audit-sprt`）；本账户未被分配、模型没有审计档案或版本与档案不一致时在签名前拒绝 |
-| `audit verdicts --provider [--round]` | 提供者在某轮（默认当前轮）的裁决、各自的统计量及是否被抽中复查（由下一轮的种子与当前抽查比例重算；种子产生前显示待定） |
+| `audit verdicts --provider [--round]` | 提供者在某轮（默认当前轮）的裁决、各自的统计量及裁定情况：被第 N 号争议引用（不会被抽中）、被第 N 号抽查复查，或未裁定并显示是否被抽中复查（由下一轮的种子与当前抽查比例重算；种子产生前显示待定）。每条裁决至多被裁定一次 |
 | `audit disputes --provider` | 提供者的裁决计数、相对判定界的累计状态、未关闭的争议及其种类（不通过争议或统计争议）、提出者与复核人的投票 |
 | `audit vote --provider --id --vote confirm\|reject [--unavailable 0,2]`、`audit close` | 以复核人身份投票，列出未取得证据的被引用裁决的位置（从 0 起）；期满后关闭未决的争议 |
 | `audit spot-checks [--id]`、`audit spot-vote --id --vote uphold\|overturn [--not-obtained]`、`audit close-spot-check --id` | 未关闭的抽查（或某一个，无论是否关闭）及被抽查的裁决、各票与结果；以抽查复核人身份投票并标明是否取得证据；期满后关闭未决的抽查 |

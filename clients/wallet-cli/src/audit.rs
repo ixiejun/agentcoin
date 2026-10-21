@@ -5,9 +5,9 @@
 use ac_market_proto::audit::evidence_from_case;
 use ac_primitives::market::audit::{
     AdjustableParams, AuditParams, AuditProfile, AuditorRecord, AuditorStats, DisputeKind,
-    DisputeRecord, ProfileSource, ProviderAuditStats, ReviewOutcome, ReviewRecord, ReviewStats,
-    ReviewVote, RoundIndex, SprtState, StatsParams, VerdictOutcome, VerdictRecord, VerdictStats,
-    spot_checked,
+    DisputeRecord, Judgment, ProfileSource, ProviderAuditStats, ReviewOutcome, ReviewRecord,
+    ReviewStats, ReviewVote, RoundIndex, SprtState, StatsParams, VerdictOutcome, VerdictRecord,
+    VerdictStats, spot_checked,
 };
 use ac_primitives::market::{MicroUsd, ModelId, PriceError};
 use anyhow::{Context, Result, bail};
@@ -85,6 +85,19 @@ impl NodeClient {
         provider: &AccountId32,
     ) -> Result<Vec<VerdictRecord<AccountId32>>> {
         self.audit_api("verdicts", &(round, provider)).await
+    }
+
+    /// The judged verdicts on `provider` in `round`, by auditor (`AuditApi` version 5).
+    ///
+    /// # Errors
+    ///
+    /// RPC failures.
+    pub async fn audit_judged(
+        &self,
+        round: RoundIndex,
+        provider: &AccountId32,
+    ) -> Result<Vec<(AccountId32, Judgment)>> {
+        self.audit_api("judged", &(round, provider)).await
     }
 
     /// `provider`'s open dispute.
@@ -423,18 +436,44 @@ pub fn check_verdict(
 }
 
 /// Whether a verdict is drawn for a spot check, recomputed from public data (spec "裁决抽查"):
-/// only verdicts with statistics are drawn, with the seed of the round after the verdict's
-/// (`next_seed`, `None` until it exists) and the receipt's request ID, at `rate_bps`.
+/// only verdicts with statistics that no failing dispute cited (`judgment`) are drawn, with the
+/// seed of the round after the verdict's (`next_seed`, `None` until it exists) and the
+/// receipt's request ID, at `rate_bps`.
 #[must_use]
 pub fn spot_drawn(
     verdict: &VerdictRecord<AccountId32>,
+    judgment: Option<Judgment>,
     next_seed: Option<&H256>,
     rate_bps: u16,
 ) -> Option<bool> {
-    if verdict.stats.is_none() {
+    if verdict.stats.is_none() || matches!(judgment, Some(Judgment::Dispute(_))) {
         return Some(false);
     }
     next_seed.map(|seed| spot_checked(seed, &verdict.request_id, rate_bps))
+}
+
+/// What judged a verdict, or its spot-check draw while nothing has (spec `clients/wallet-cli`
+/// "审计子命令"): `judged` is the round's judgments on the provider (`audit_judged`).
+#[must_use]
+pub fn verdict_status(
+    verdict: &VerdictRecord<AccountId32>,
+    judged: &[(AccountId32, Judgment)],
+    next_seed: Option<&H256>,
+    rate_bps: u16,
+) -> String {
+    let judgment = judged
+        .iter()
+        .find(|(a, _)| *a == verdict.auditor)
+        .map(|(_, j)| *j);
+    match judgment {
+        Some(Judgment::Dispute(id)) => format!("cited by dispute {id}, not drawn"),
+        Some(Judgment::SpotCheck(id)) => format!("reviewed by spot check {id}"),
+        None => match spot_drawn(verdict, None, next_seed, rate_bps) {
+            Some(true) => "not judged; drawn for a spot check".to_string(),
+            Some(false) => "not judged; not drawn".to_string(),
+            None => "not judged; spot check draw pending".to_string(),
+        },
+    }
 }
 
 /// Parses `uphold` or `overturn`.
@@ -700,15 +739,63 @@ mod tests {
         };
         let judged = record(pass_verdict(4).stats);
         let seed = H256([7; 32]);
-        assert_eq!(spot_drawn(&judged, None, 500), None);
-        assert_eq!(spot_drawn(&judged, Some(&seed), 10_000), Some(true));
-        assert_eq!(spot_drawn(&judged, Some(&seed), 0), Some(false));
+        assert_eq!(spot_drawn(&judged, None, None, 500), None);
+        assert_eq!(spot_drawn(&judged, None, Some(&seed), 10_000), Some(true));
+        assert_eq!(spot_drawn(&judged, None, Some(&seed), 0), Some(false));
         assert_eq!(
-            spot_drawn(&judged, Some(&seed), 500),
+            spot_drawn(&judged, None, Some(&seed), 500),
             Some(spot_checked(&seed, &[5; 32], 500))
         );
         // Verdicts without statistics are never drawn.
-        assert_eq!(spot_drawn(&record(None), Some(&seed), 10_000), Some(false));
+        assert_eq!(
+            spot_drawn(&record(None), None, Some(&seed), 10_000),
+            Some(false)
+        );
+        // m6-dispute-judged-verdicts: a verdict a failing dispute cited is never drawn.
+        assert_eq!(
+            spot_drawn(&judged, Some(Judgment::Dispute(3)), Some(&seed), 10_000),
+            Some(false)
+        );
+    }
+
+    // Spec clients/wallet-cli "审计子命令" / "显示裁定情况".
+    #[test]
+    fn judgments_are_shown() {
+        let record = |auditor: u8, request: u8| VerdictRecord {
+            auditor: AccountId32::new([auditor; 32]),
+            outcome: VerdictOutcome::Pass,
+            thresholds_version: 4,
+            evidence: Some([2; 32]),
+            receipt_hash: H256([3; 32]),
+            request_id: [request; 32],
+            gateway: AccountId32::new([2; 32]),
+            stats: pass_verdict(4).stats,
+        };
+        let judged = [
+            (AccountId32::new([1; 32]), Judgment::Dispute(3)),
+            (AccountId32::new([2; 32]), Judgment::SpotCheck(7)),
+        ];
+        let seed = H256([7; 32]);
+        assert_eq!(
+            verdict_status(&record(1, 5), &judged, Some(&seed), 10_000),
+            "cited by dispute 3, not drawn"
+        );
+        assert_eq!(
+            verdict_status(&record(2, 5), &judged, Some(&seed), 10_000),
+            "reviewed by spot check 7"
+        );
+        assert_eq!(
+            verdict_status(&record(4, 5), &judged, Some(&seed), 10_000),
+            "not judged; drawn for a spot check"
+        );
+        assert_eq!(
+            verdict_status(&record(4, 5), &judged, Some(&seed), 0),
+            "not judged; not drawn"
+        );
+        assert_eq!(
+            verdict_status(&record(4, 5), &[], None, 500),
+            "not judged; spot check draw pending"
+        );
     }
 
     #[test]

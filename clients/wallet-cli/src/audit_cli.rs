@@ -85,7 +85,7 @@ pub enum AuditCommand {
         case: PathBuf,
     },
     /// Show a provider's verdicts in a round (default: the current one) with their statistics
-    /// and whether each is drawn for a spot check.
+    /// and what judged each (a dispute or a spot check), or whether it is drawn for a spot check.
     Verdicts {
         #[command(flatten)]
         node: NodeArgs,
@@ -524,14 +524,11 @@ pub async fn run(command: AuditCommand) -> Result<()> {
                 .audit_params()
                 .await?
                 .map_or(0, |(_, a)| a.spot_check_bps);
+            let judged = client.audit_judged(round, &provider).await?;
             for v in client.audit_verdicts(round, &provider).await? {
-                let drawn = match audit::spot_drawn(&v, next_seed.as_ref(), rate) {
-                    Some(true) => "drawn for a spot check",
-                    Some(false) => "not drawn",
-                    None => "spot check draw pending",
-                };
+                let status = audit::verdict_status(&v, &judged, next_seed.as_ref(), rate);
                 println!(
-                    "verdict: {} {:?} (thresholds v{}; {drawn})",
+                    "verdict: {} {:?} (thresholds v{}; {status})",
                     encode_address(v.auditor.as_ref()),
                     v.outcome,
                     v.thresholds_version
