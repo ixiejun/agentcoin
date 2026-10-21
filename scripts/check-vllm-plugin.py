@@ -185,6 +185,9 @@ def stop_answers(llm, provider, hidden: int) -> None:
             "usage": {"prompt_tokens": len(o.prompt_token_ids), "completion_tokens": n},
             "segments": [{"phase": "prefill" if x[1] == 0 else "decode", "len": x[2], "candidates": x[3]}
                          for x in segs],
+            # Receipt v2 (m6-token-binding): proofs come with the committed token IDs.
+            "tokens": {"salt": os.urandom(32).hex(), "prompt_ids": list(o.prompt_token_ids),
+                       "output_ids": list(c.token_ids)},
         }
         made = subprocess.run([*auditor(), "calibration-case"], input=json.dumps(sample).encode(),
                               capture_output=True, cwd=REPO)
