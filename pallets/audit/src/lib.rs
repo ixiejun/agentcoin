@@ -71,6 +71,8 @@ mod tests;
 #[cfg(test)]
 mod tests_hardening;
 #[cfg(test)]
+mod tests_judged;
+#[cfg(test)]
 mod tests_stats;
 pub mod weights;
 
@@ -290,10 +292,10 @@ pub mod pallet {
     use ac_crypto::KemAlg;
     use ac_primitives::market::audit::{
         Accuser, AdjustableParams, AuditParams, AuditProfile, AuditorRecord, AuditorStats,
-        AuditorStatus, DisputeKind, DisputeOutcome, DisputeRecord, Draw, MAX_ASSIGN, MAX_AUDITORS,
-        MAX_DISPUTE_ACCUSERS, MAX_MARKED, MAX_REVIEWERS, MAX_UNAVAILABLE_LIMIT, PenaltyParams,
-        Pool, ProfileError, ProfileSource, ProviderAuditStats, ROUND_SEED_SUBJECT, ReviewOutcome,
-        ReviewRecord, ReviewStats, ReviewVote, RoundIndex, SprtEntry, SprtState,
+        AuditorStatus, DisputeKind, DisputeOutcome, DisputeRecord, Draw, Judgment, MAX_ASSIGN,
+        MAX_AUDITORS, MAX_DISPUTE_ACCUSERS, MAX_MARKED, MAX_REVIEWERS, MAX_UNAVAILABLE_LIMIT,
+        PenaltyParams, Pool, ProfileError, ProfileSource, ProviderAuditStats, ROUND_SEED_SUBJECT,
+        ReviewOutcome, ReviewRecord, ReviewStats, ReviewVote, RoundIndex, SprtEntry, SprtState,
         UnavailablePenalty, VerdictOutcome, VerdictRecord, VerdictStats, Vote, WindowParams,
         check_windows, recent_findings, resolve, round_of, round_start, sample, spot_checked,
         stats_params, unavailable, unavailable_penalty,
@@ -345,6 +347,9 @@ pub mod pallet {
     pub type ClearCursor = BoundedVec<u8, ConstU32<128>>;
     /// The verdicts on one provider in one round.
     pub type VerdictList = BoundedVec<VerdictRecord<AccountId32>, ConstU32<{ MAX_ASSIGN as u32 }>>;
+    /// What judged each judged verdict on one provider in one round, by auditor; at most one
+    /// entry per verdict, so it fits whenever the verdict list does.
+    pub type JudgedList = BoundedVec<(AccountId32, Judgment), ConstU32<{ MAX_ASSIGN as u32 }>>;
 
     /// The audit pot's identifier: its account is derived from it.
     pub const POT_ID: PalletId = PalletId(*b"ac/audit");
@@ -576,6 +581,20 @@ pub mod pallet {
         AccountId32,
         VerdictList,
         OptionQuery,
+    >;
+
+    /// The judged verdicts by round and provider: a failing dispute that cited them or a spot
+    /// check that reviewed them (m6-dispute-judged-verdicts design D1). Kept and removed with
+    /// the verdict lists they belong to.
+    #[pallet::storage]
+    pub type Judged<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        RoundIndex,
+        Identity,
+        AccountId32,
+        JudgedList,
+        ValueQuery,
     >;
 
     /// While set, states of another parameter version than their model's profile are being
@@ -1618,6 +1637,8 @@ pub mod pallet {
                 handled = handled.saturating_add(1);
                 if Self::referenced(next, &provider) {
                     RetainedVerdicts::<T>::insert(next, &provider, list);
+                } else {
+                    Judged::<T>::remove(next, &provider);
                 }
             }
             if Verdicts::<T>::iter_key_prefix(next).next().is_none() {
@@ -1655,6 +1676,7 @@ pub mod pallet {
                     && !Self::referenced(r, provider)
                 {
                     RetainedVerdicts::<T>::remove(r, provider);
+                    Judged::<T>::remove(r, provider);
                 }
             }
         }
@@ -1807,8 +1829,12 @@ pub mod pallet {
             let mut gateways: Vec<AccountId32> = Vec::new();
             let rounds = [round.checked_sub(1), Some(round)];
             for r in rounds.into_iter().flatten() {
+                // Spec "每条裁决至多被裁定一次": a verdict a dispute cited or a spot check
+                // reviewed is not cited again.
+                let judged = Judged::<T>::get(r, provider);
                 for v in Verdicts::<T>::get(r, provider) {
                     if matches!(v.outcome, VerdictOutcome::Fail(_))
+                        && !judged.iter().any(|(a, _)| *a == v.auditor)
                         && !accusers.iter().any(|a| a.auditor == v.auditor)
                     {
                         accusers.push(Accuser {
@@ -1878,6 +1904,13 @@ pub mod pallet {
             let deadline = frame_system::Pallet::<T>::block_number()
                 .saturating_add(params.vote_blocks.saturated_into());
             let cited = Self::distinct_auditors(&accusers);
+            // A failing dispute judges the verdicts it cites, whatever its outcome; a
+            // statistical one judges none (design D2).
+            if kind == DisputeKind::Fail {
+                for a in &accusers {
+                    Self::mark_judged(a.round, provider, &a.auditor, Judgment::Dispute(id));
+                }
+            }
             Disputes::<T>::insert(
                 id,
                 DisputeOf::<T> {
@@ -1982,6 +2015,20 @@ pub mod pallet {
                 id,
                 provider,
                 outcome,
+            });
+        }
+
+        /// Records that `judgment` judged `auditor`'s verdict on `provider` in `round`.
+        fn mark_judged(
+            round: RoundIndex,
+            provider: &AccountId32,
+            auditor: &AccountId32,
+            judgment: Judgment,
+        ) {
+            Judged::<T>::mutate(round, provider, |list| {
+                // Never full: one entry per verdict of a list bounded alike, and a judged
+                // verdict is never judged again.
+                let _ = list.try_push((auditor.clone(), judgment));
             });
         }
 
@@ -2103,7 +2150,12 @@ pub mod pallet {
             let last = iter.last_raw_key().to_vec();
             let mut opened = 0u32;
             for (provider, list) in &lists {
-                for v in list.iter().filter(|v| v.stats.is_some()) {
+                // A verdict a failing dispute already cited is not drawn (spec "裁决抽查").
+                let judged = Judged::<T>::get(verdict_round, provider);
+                for v in list
+                    .iter()
+                    .filter(|v| v.stats.is_some() && !judged.iter().any(|(a, _)| *a == v.auditor))
+                {
                     if spot_checked(&seed, &v.request_id, rate)
                         && Self::open_review(params, (round, verdict_round), provider, v)
                     {
@@ -2175,6 +2227,12 @@ pub mod pallet {
             );
             OpenReviews::<T>::insert(id, ());
             NextReview::<T>::put(id.saturating_add(1));
+            Self::mark_judged(
+                verdict_round,
+                provider,
+                &verdict.auditor,
+                Judgment::SpotCheck(id),
+            );
             ReviewRefs::<T>::mutate(verdict_round, provider, |n| {
                 *n = Some(n.unwrap_or(0).saturating_add(1));
             });
@@ -2332,6 +2390,12 @@ pub mod pallet {
             all.sort_unstable();
             all.truncate(limit);
             all
+        }
+
+        /// The judged verdicts on `provider` in `round`: each one's auditor and what judged it.
+        #[must_use]
+        pub fn judged(round: RoundIndex, provider: &AccountId32) -> Vec<(AccountId32, Judgment)> {
+            Judged::<T>::get(round, provider).into_inner()
         }
 
         /// A spot check, open or closed.

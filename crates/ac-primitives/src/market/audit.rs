@@ -553,6 +553,32 @@ pub enum DisputeKind {
     },
 }
 
+/// What judged a verdict: a failing dispute that cited it, or a spot check that reviewed it,
+/// from the moment it opened, whatever its outcome (m6-dispute-judged-verdicts; spec
+/// `market/audit` "每条裁决至多被裁定一次"). A judged verdict is not judged again.
+///
+/// Wire-format enum: variant indices are explicit and never reused.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Encode,
+    Decode,
+    DecodeWithMemTracking,
+    MaxEncodedLen,
+    TypeInfo,
+)]
+pub enum Judgment {
+    /// Cited by this failing dispute.
+    #[codec(index = 0)]
+    Dispute(u64),
+    /// Reviewed by this spot check.
+    #[codec(index = 1)]
+    SpotCheck(u64),
+}
+
 impl DisputeKind {
     /// The parameter version of a statistical dispute; `None` for a failure dispute.
     #[must_use]
@@ -1072,6 +1098,20 @@ mod tests {
             DisputeKind::Statistical { stats_version: 2 }.encode(),
             [1, 2, 0]
         );
+    }
+
+    // m6-dispute-judged-verdicts: the judgment of a verdict, as stored and queried.
+    #[test]
+    fn judgment_encoding_is_stable() {
+        assert_eq!(Judgment::Dispute(3).encode(), [0, 3, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(
+            Judgment::SpotCheck(258).encode(),
+            [1, 2, 1, 0, 0, 0, 0, 0, 0]
+        );
+        for j in [Judgment::Dispute(u64::MAX), Judgment::SpotCheck(0)] {
+            assert_eq!(Judgment::decode(&mut &j.encode()[..]).unwrap(), j);
+        }
+        assert_eq!(Judgment::max_encoded_len(), 9);
     }
 
     // m6-audit-sprt design D1: passes and chunks out of bounds carry statistics, nothing else.

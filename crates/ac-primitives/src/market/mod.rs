@@ -83,7 +83,9 @@ sp_api::decl_runtime_apis! {
     /// open dispute list of m6-auditor-agent; version 3 the statistical judgment of
     /// m6-audit-sprt; version 4 the audit profiles, spot checks, locks and required provider
     /// stakes of m6-audit-hardening, with statistical states per model and the switch alone in
-    /// place of the global statistical configuration).
+    /// place of the global statistical configuration; version 5 the judgments of verdicts of
+    /// m6-dispute-judged-verdicts, a staged method the runtime implements with
+    /// `#[api_version(5)]`).
     #[api_version(4)]
     pub trait AuditApi<AccountId, BlockNumber>
     where
@@ -156,6 +158,10 @@ sp_api::decl_runtime_apis! {
         /// `None` if it is not registered (since version 4).
         #[api_version(4)]
         fn required_stake(provider: AccountId) -> Option<(MicroUsd, MicroUsd, MicroUsd)>;
+        /// The judged verdicts on `provider` in `round`: each one's auditor and what judged it
+        /// (since version 5).
+        #[api_version(5)]
+        fn judged(round: audit::RoundIndex, provider: AccountId) -> Vec<(AccountId, audit::Judgment)>;
     }
 
     /// Read access to work settlement (m5-work-settlement).

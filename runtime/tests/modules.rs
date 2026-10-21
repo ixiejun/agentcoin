@@ -64,7 +64,8 @@ fn pallet_indices_are_fixed() {
     // m6-audit-sprt: verdicts carry statistics, a new audit call.
     assert_eq!(VERSION.transaction_version, 10);
     // m6-token-binding: verdicts carry receipts v2.
-    assert_eq!(VERSION.spec_version, 12);
+    // m6-dispute-judged-verdicts: each verdict is judged at most once.
+    assert_eq!(VERSION.spec_version, 13);
 }
 
 // The M2 runtime APIs are declared by the runtime.
@@ -88,10 +89,20 @@ fn runtime_apis_are_declared() {
             ac_runtime::AccountId,
             ac_runtime::Balance,
         >>::ID));
-    // m6-audit-chain.
+    // m6-audit-chain; version 5 adds the judgments of verdicts (m6-dispute-judged-verdicts).
     assert!(has(
         <dyn ac_primitives::market::AuditApi<ac_runtime::Block, ac_runtime::AccountId, u32>>::ID
     ));
+    let audit_api =
+        <dyn ac_primitives::market::AuditApi<ac_runtime::Block, ac_runtime::AccountId, u32>>::ID;
+    assert_eq!(
+        VERSION
+            .apis
+            .iter()
+            .find(|(api, _)| *api == audit_api)
+            .map(|(_, v)| *v),
+        Some(5)
+    );
     // m6-public-jobs (design D9).
     assert!(has(
         <dyn ac_primitives::market::public::PublicJobsApi<

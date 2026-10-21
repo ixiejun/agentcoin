@@ -62,6 +62,12 @@ commitment to its evidence and, when judged by the thresholds, a few integer sta
    dispute on a provider is open, they cannot withdraw unbonding stake (`Locks`;
    `DisputeLock` for `pallet-providers`). Genesis checks `check_windows`: both unbonding
    periods and the retention cover the `2R + V` blocks a verdict can be cited.
+9. **Each verdict is judged once** (m6-dispute-judged-verdicts, I-030). A failing dispute judges
+   the verdicts it cites when it opens, and a spot check the verdict it reviews, whatever the
+   outcome (`Judged`, by round and provider). A failing dispute skips judged verdicts when it
+   picks its accusers, and the spot-check draw skips verdicts a dispute cited, so no auditor is
+   punished twice for one verdict. A statistical dispute judges nothing. Judgments are kept and
+   removed with their verdict lists.
 9. **Payments.** Each accepted verdict and each vote on the winning side is paid a fixed dollar
    amount (rounded down) from the audit pot (`PalletId(*b"ac/audit")`), which the treasury floor
    funds with "audit" spends. An empty pot skips the payment; nothing is ever minted.
@@ -100,7 +106,8 @@ X-Wing key, which reviewers reach; m6-auditor-agent), `vote_review`, `close_spot
 `ac-wallet audit …`. `AuditApi` version 2 adds the endpoint query and a paged list of open
 disputes; version 3 returns verdicts with their statistics and disputes with their kind;
 version 4 adds the profiles, the statistical states by model, the switch, spot checks, locks,
-spot-check counts, findings of unavailable evidence and providers' required stakes.
+spot-check counts, findings of unavailable evidence and providers' required stakes; version 5
+adds the judgments of a round's verdicts on a provider (`judged`).
 
 ## Storage version
 

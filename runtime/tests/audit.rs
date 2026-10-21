@@ -14,13 +14,13 @@ mod common;
 
 use ac_crypto::{KemAlg, KemPublicKey, SigAlg};
 use ac_primitives::market::audit::{
-    AuditMetric, AuditStats, CURRENT_STATS, DisputeKind, FailReason, VerdictOutcome, VerdictStats,
-    Vote,
+    AuditMetric, AuditStats, CURRENT_STATS, DisputeKind, FailReason, Judgment, VerdictOutcome,
+    VerdictStats, Vote,
 };
 use ac_primitives::market::model::QuantType;
 use ac_primitives::market::receipt::{RECEIPT_CONTEXT, fee_for};
 use ac_primitives::market::records::{ModelPrice, ProviderStatus, Tier};
-use ac_primitives::market::runtime_decl_for_audit_api::AuditApiV4;
+use ac_primitives::market::runtime_decl_for_audit_api::AuditApiV5;
 use ac_primitives::market::voucher::VOUCHER_CONTEXT;
 use ac_primitives::market::work::JobKind;
 use ac_primitives::market::{
@@ -195,7 +195,7 @@ fn the_floor_funds_the_audit_pot() {
         assert!(call.dispatch(RuntimeOrigin::root()).is_ok());
         assert_eq!(free(&pot), 10 * ATC);
         assert_eq!(ac_runtime::Balances::total_issuance(), issuance);
-        assert_eq!(<Runtime as AuditApiV4<_, _, _>>::pot(), (pot, 10 * ATC));
+        assert_eq!(<Runtime as AuditApiV5<_, _, _>>::pot(), (pot, 10 * ATC));
     });
 }
 
@@ -268,10 +268,10 @@ fn a_confirmed_dispute_jails_and_voids_unsettled_work() {
         while System::block_number() < 21 {
             next_block();
         }
-        let (round, start, _) = <Runtime as AuditApiV4<_, _, _>>::round().unwrap();
+        let (round, start, _) = <Runtime as AuditApiV5<_, _, _>>::round().unwrap();
         assert_eq!((round, start), (1, 21));
-        assert_eq!(<Runtime as AuditApiV4<_, _, _>>::roster(1).len(), 7);
-        let assigned = <Runtime as AuditApiV4<_, _, _>>::assignment(1, bob.account.clone());
+        assert_eq!(<Runtime as AuditApiV5<_, _, _>>::roster(1).len(), 7);
+        let assigned = <Runtime as AuditApiV5<_, _, _>>::assignment(1, bob.account.clone());
         assert_eq!(assigned.len(), 2);
         let signer = |who: &AccountId| auditors.iter().find(|a| a.account == *who).unwrap();
         let fail = VerdictOutcome::Fail(FailReason::Threshold {
@@ -280,9 +280,9 @@ fn a_confirmed_dispute_jails_and_voids_unsettled_work() {
         });
         // m6-audit-sprt 4.1, m6-audit-hardening 6.2: the dev preset enables the statistical
         // judgment and audits bf16 models under a default profile of the current versions.
-        assert!(<Runtime as AuditApiV4<_, _, _>>::stats_enabled());
+        assert!(<Runtime as AuditApiV5<_, _, _>>::stats_enabled());
         assert_eq!(
-            <Runtime as AuditApiV4<_, _, _>>::profile(model).map(|(p, _)| p.stats_version),
+            <Runtime as AuditApiV5<_, _, _>>::profile(model).map(|(p, _)| p.stats_version),
             Some(CURRENT_STATS.version)
         );
         // int8-looking statistics: +3.0 nats each under version 1.
@@ -312,27 +312,34 @@ fn a_confirmed_dispute_jails_and_voids_unsettled_work() {
                 }),
             );
         }
-        let assigned_to = <Runtime as AuditApiV4<_, _, _>>::assigned_to(1, assigned[0].clone());
+        let assigned_to = <Runtime as AuditApiV5<_, _, _>>::assigned_to(1, assigned[0].clone());
         assert_eq!(assigned_to, vec![(bob.account.clone(), true)]);
-        let id = <Runtime as AuditApiV4<_, _, _>>::open_dispute(bob.account.clone()).unwrap();
-        let dispute = <Runtime as AuditApiV4<_, _, _>>::dispute(id).unwrap();
+        let id = <Runtime as AuditApiV5<_, _, _>>::open_dispute(bob.account.clone()).unwrap();
+        let dispute = <Runtime as AuditApiV5<_, _, _>>::dispute(id).unwrap();
         assert_eq!(dispute.reviewers.len(), 3);
         assert_eq!(dispute.kind, DisputeKind::Fail);
+        // m6-dispute-judged-verdicts 3.1 (spec "每条裁决至多被裁定一次" / "查询裁定情况"):
+        // the dispute judged both accusers' verdicts.
+        let judged = <Runtime as AuditApiV5<_, _, _>>::judged(1, bob.account.clone());
+        assert_eq!(judged.len(), 2);
+        for a in &assigned {
+            assert!(judged.contains(&(a.clone(), Judgment::Dispute(id))));
+        }
         // The verdicts carry their statistics and add to bob's state.
-        let verdicts = <Runtime as AuditApiV4<_, _, _>>::verdicts(1, bob.account.clone());
+        let verdicts = <Runtime as AuditApiV5<_, _, _>>::verdicts(1, bob.account.clone());
         assert!(
             verdicts
                 .iter()
                 .all(|v| v.stats.map(|s| s.stats) == Some(int8))
         );
-        let states = <Runtime as AuditApiV4<_, _, _>>::sprt_states(bob.account.clone());
+        let states = <Runtime as AuditApiV5<_, _, _>>::sprt_states(bob.account.clone());
         assert_eq!(states.len(), 1);
         let state = &states[0].1;
         assert_eq!((state.cumulative, state.entries.len()), (6_000, 2));
 
         // m6-auditor-agent 4.2 (spec market/audit "未关闭争议列表" / "列出未关闭争议").
         assert_eq!(
-            <Runtime as AuditApiV4<_, _, _>>::open_disputes(None, 10),
+            <Runtime as AuditApiV5<_, _, _>>::open_disputes(None, 10),
             vec![(bob.account.clone(), id)]
         );
 
@@ -362,10 +369,10 @@ fn a_confirmed_dispute_jails_and_voids_unsettled_work() {
         // The report has not matured: bob's work leaves epoch 2.
         assert_eq!(Work::epoch_work(2).verified, 0);
         assert_eq!(
-            <Runtime as AuditApiV4<_, _, _>>::provider_stats(bob.account.clone()).confirmed,
+            <Runtime as AuditApiV5<_, _, _>>::provider_stats(bob.account.clone()).confirmed,
             1
         );
-        assert!(<Runtime as AuditApiV4<_, _, _>>::open_disputes(None, 10).is_empty());
+        assert!(<Runtime as AuditApiV5<_, _, _>>::open_disputes(None, 10).is_empty());
     });
 }
 
@@ -390,7 +397,7 @@ fn auditors_publish_their_evidence_endpoint() {
             }),
         );
         assert_eq!(
-            <Runtime as AuditApiV4<_, _, _>>::endpoint(a.account.clone()),
+            <Runtime as AuditApiV5<_, _, _>>::endpoint(a.account.clone()),
             Some((url, kem))
         );
     });

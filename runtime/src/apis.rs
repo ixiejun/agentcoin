@@ -690,6 +690,8 @@ impl_runtime_apis! {
         }
     }
 
+    // Version 5: the judgments of verdicts (m6-dispute-judged-verdicts).
+    #[api_version(5)]
     impl ac_primitives::market::AuditApi<Block, AccountId, BlockNumber> for Runtime {
         fn round() -> Option<(ac_primitives::market::audit::RoundIndex, u32, u32)> {
             Audit::round_bounds()
@@ -825,6 +827,13 @@ impl_runtime_apis! {
             let record = pallet_providers::Providers::<Runtime>::get(&provider)?;
             let (deterrent, required) = Providers::required_usd(&provider, record.tier);
             Some((deterrent, required, <crate::Work as SettlementHistory<AccountId>>::avg_per_epoch(&provider)))
+        }
+
+        fn judged(
+            round: ac_primitives::market::audit::RoundIndex,
+            provider: AccountId,
+        ) -> Vec<(AccountId, ac_primitives::market::audit::Judgment)> {
+            Audit::judged(round, &provider)
         }
     }
 

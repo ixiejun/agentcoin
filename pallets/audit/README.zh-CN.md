@@ -17,6 +17,7 @@
 6. **抽查。** 新一轮开始时，链按抽查比例从上一轮由阈值判定的裁决中抽出要复查的裁决：用新一轮的种子与收据请求 ID 抽签（`spot_checked`），每块处理若干个列表；审计员提交时无法预知是否会被抽中。复核人从新一轮名单中抽出（排除该审计员、提供者与网关），只复核结果、不比对统计量（不同硬件上统计量差异过大），投“维持”或“推翻”（`vote_review`）。推翻时该审计员受审计员罚没并退出；抽查从不处罚提供者。
 7. **证据可得性。** 复核人在投票时标出没有取得证据的被引用裁决（`vote_dispute` 的位图；`vote_review` 的布尔值）。被 `Q` 张票标出的裁决为“证据不可用”：在任何已决定的争议或抽查中，其审计员只受**轻罚**（活链 1%，不强制退出），而不是完整处罚；在保留期内第 3 次起按完整处罚。
 8. **罚没锁与时间窗口。** 当未关闭的争议或抽查引用了某审计员的裁决，或某提供者有未关闭的争议时，它们不能取回解绑中的质押（`Locks`；`pallet-providers` 经 `DisputeLock` 查询）。创世时执行 `check_windows`：两种解绑期与记录保留期都必须覆盖一条裁决可能被引用的 `2R + V` 个区块。
+9. **每条裁决至多被裁定一次**（m6-dispute-judged-verdicts，I-030）。不通过争议在开启时裁定它引用的裁决，抽查在开启时裁定它复查的裁决，与结果无关（`Judged`，按轮次与提供者）。不通过争议挑选提出者时跳过已被裁定的裁决，抽查抽签时跳过已被争议引用的裁决，因此审计员不会因同一条裁决受两次处罚。统计争议不裁定任何裁决。裁定记录与其裁决列表一同保留与删除。
 9. **支付。** 每条被接受的裁决、每张获胜一方的票，从审计资金池（`PalletId(*b"ac/audit")`）支付固定的美元金额（向下取整）；资金池由国库保底池以“审计”用途注资。资金池不足时跳过支付，从不铸币。
 
 ## 参数
@@ -43,7 +44,7 @@
 
 ## 调用
 
-`register`、`bond_extra`、`unbond`、`exit`、`withdraw_unbonded`、`submit_verdict`、`vote_dispute`（附没有取得证据的被引用裁决的位图）、`close_dispute`、`set_params`（管理权限）、`set_endpoint`（审计员的证据地址与 X-Wing 公钥，复核人据此取证据；m6-auditor-agent）、`vote_review`、`close_spot_check`、`set_audit_profile` 与 `set_stats_enabled`（管理权限）。调用编号 6（`vote`）与 10（`set_stats_config`）已停用，且不再复用。钱包以 `ac-wallet audit …` 封装这些调用。`AuditApi` 版本 2 增加了证据地址查询与未关闭争议的分页列表；版本 3 返回带统计量的裁决与带种类的争议；版本 4 增加档案、按模型的统计状态、统计判定开关、抽查、罚没锁、抽查计数、证据不可用记录与提供者的所需质押。
+`register`、`bond_extra`、`unbond`、`exit`、`withdraw_unbonded`、`submit_verdict`、`vote_dispute`（附没有取得证据的被引用裁决的位图）、`close_dispute`、`set_params`（管理权限）、`set_endpoint`（审计员的证据地址与 X-Wing 公钥，复核人据此取证据；m6-auditor-agent）、`vote_review`、`close_spot_check`、`set_audit_profile` 与 `set_stats_enabled`（管理权限）。调用编号 6（`vote`）与 10（`set_stats_config`）已停用，且不再复用。钱包以 `ac-wallet audit …` 封装这些调用。`AuditApi` 版本 2 增加了证据地址查询与未关闭争议的分页列表；版本 3 返回带统计量的裁决与带种类的争议；版本 4 增加档案、按模型的统计状态、统计判定开关、抽查、罚没锁、抽查计数、证据不可用记录与提供者的所需质押；版本 5 增加某提供者某轮各条裁决的裁定情况（`judged`）。
 
 ## 存储版本
 

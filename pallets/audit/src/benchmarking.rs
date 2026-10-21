@@ -279,7 +279,7 @@ mod benchmarks {
     }
 
     /// The worst verdict: a lone failure judged by the thresholds (looks for a failure
-    /// dispute in two rounds), with the largest receipt, a full roster and a payment, whose
+    /// dispute in two rounds, reading their verdicts and judgments), with the largest receipt, a full roster and a payment, whose
     /// statistics fill a full state (the oldest entry dropped, the rest replayed) past the
     /// bound and open a statistical dispute on all its verdicts (drawing the reviewers).
     #[benchmark]

@@ -16,8 +16,8 @@ use sp_runtime::AccountId32;
 use ac_primitives::market::MicroUsd;
 use ac_primitives::market::audit::{
     AdjustableParams, AuditMetric, AuditProfile, AuditorStatus, CURRENT_STATS, FailReason,
-    PenaltyParams, ProfileSource, ReviewOutcome, ReviewVote, SprtEntry, SprtState, StatsConfig,
-    VerdictOutcome, Vote, spot_checked,
+    Judgment, PenaltyParams, ProfileSource, ReviewOutcome, ReviewVote, SprtEntry, SprtState,
+    StatsConfig, VerdictOutcome, Vote, spot_checked,
 };
 use ac_primitives::market::traits::{DisputeLock, ModelCalibration};
 
@@ -96,11 +96,17 @@ fn open_spot_check(ids: &mut Ids) -> u64 {
         }
         let before = crate::NextReview::<Test>::get();
         next_round();
-        // Spec "裁决抽查", scenario "抽中与否可复算": the next round's seed and the request ID.
+        // Spec "裁决抽查", scenario "抽中与否可复算": the next round's seed, the request ID and
+        // the verdict's judgment (a verdict a dispute cited is not drawn).
         let seed = Seeds::<Test>::get(current_round()).unwrap();
+        let cited = |a: &AccountId32| {
+            Audit::judged(round, &acc(PROVIDER))
+                .iter()
+                .any(|(x, j)| x == a && matches!(j, Judgment::Dispute(_)))
+        };
         let drawn: Vec<_> = submitted
             .iter()
-            .filter(|(_, rid)| spot_checked(&seed, rid, 5_000))
+            .filter(|(a, rid)| spot_checked(&seed, rid, 5_000) && !cited(a))
             .collect();
         let opened = crate::NextReview::<Test>::get() - before;
         assert_eq!(opened as usize, drawn.len());
