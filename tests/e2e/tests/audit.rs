@@ -20,7 +20,9 @@
 //! - Two auditors frame the honest provider (m6-token-binding 8.2): they change a message in
 //!   their evidence and commit to the changed evidence. The reviewers' re-check from the evidence
 //!   finds that it does not open the receipt ("mismatch") and they reject; both accusers take the
-//!   full penalty, since the evidence was obtained.
+//!   full penalty, since the evidence was obtained. This happens in the round right after the
+//!   rejection: the rejected dispute judged its verdicts, so the new dispute cites exactly the two
+//!   framers and the earlier accusers are not punished again (m6-dispute-judged-verdicts, I-030).
 //!
 //! Enabled with `AC_E2E=1`; needs `cargo build -p ac-node -p ac-wallet -p ac-auditor -p
 //! ac-mock-engine`.
@@ -654,6 +656,46 @@ async fn audits_confirm_and_reject() {
         "the jailed provider's unsettled work is voided"
     );
 
+    // Framing with altered evidence (m6-token-binding 8.2), prepared ahead so that it can happen
+    // in the round right after the rejection: two new honest answers; each accuser changes a word of the messages in its case, turns the
+    // pass into a failure and commits to the changed evidence.
+    let mut framed = Vec::new();
+    for i in 0..2u8 {
+        let (case, _) = served(
+            &m,
+            honest,
+            &mut honest_engine,
+            &format!("framed{i}"),
+            30 + i,
+        )
+        .await;
+        let report = recheck(
+            &base,
+            &format!("framed{i}"),
+            &["--case", case.to_str().unwrap()],
+        );
+        assert_eq!(report["outcome"], "pass", "{report}");
+        let mut altered: Value =
+            serde_json::from_str(&std::fs::read_to_string(&case).unwrap()).unwrap();
+        altered["messages"][0]["content"] = json!(format!(
+            "{} {MARKER} {}",
+            WORDS.replace("dog", "cat"),
+            30 + i
+        ));
+        let altered_file = base.join(format!("framed{i}-altered-case.json"));
+        std::fs::write(&altered_file, altered.to_string()).unwrap();
+        let mut lie = report.clone();
+        lie["onchain"] = json!(hex::encode(
+            VerdictOutcome::Fail(FailReason::Threshold {
+                chunk: 0,
+                metric: AuditMetric::ExpMismatches,
+            })
+            .encode()
+        ));
+        let report_file = base.join(format!("framed{i}-report.json"));
+        std::fs::write(&report_file, lie.to_string()).unwrap();
+        framed.push((altered_file, report_file));
+    }
     // ---- Rejection (7.2; m6-audit-hardening 9.2) ----
     while node.height().await.unwrap() < due {
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -745,55 +787,22 @@ async fn audits_confirm_and_reject() {
         run(&mut user.query(&["market", "provider", "show", "--address", &honest.address()]));
     assert_eq!(field(&shown, "status"), "Active");
 
-    // ---- Framing with altered evidence (m6-token-binding 8.2) ----
-    // Two new honest answers; each accuser changes a word of the messages in its case, turns the
-    // pass into a failure and commits to the changed evidence.
-    let mut framed = Vec::new();
-    for i in 0..2u8 {
-        let (case, _) = served(
-            &m,
-            honest,
-            &mut honest_engine,
-            &format!("framed{i}"),
-            30 + i,
-        )
-        .await;
-        let report = recheck(
-            &base,
-            &format!("framed{i}"),
-            &["--case", case.to_str().unwrap()],
-        );
-        assert_eq!(report["outcome"], "pass", "{report}");
-        let mut altered: Value =
-            serde_json::from_str(&std::fs::read_to_string(&case).unwrap()).unwrap();
-        altered["messages"][0]["content"] = json!(format!(
-            "{} {MARKER} {}",
-            WORDS.replace("dog", "cat"),
-            30 + i
-        ));
-        let altered_file = base.join(format!("framed{i}-altered-case.json"));
-        std::fs::write(&altered_file, altered.to_string()).unwrap();
-        let mut lie = report.clone();
-        lie["onchain"] = json!(hex::encode(
-            VerdictOutcome::Fail(FailReason::Threshold {
-                chunk: 0,
-                metric: AuditMetric::ExpMismatches,
-            })
-            .encode()
-        ));
-        let report_file = base.join(format!("framed{i}-report.json"));
-        std::fs::write(&report_file, lie.to_string()).unwrap();
-        framed.push((altered_file, report_file));
+    // ---- Framing (m6-token-binding 8.2; m6-dispute-judged-verdicts 5.1) ----
+    // In the round right after the rejection, whose failures are still in the dispute window:
+    // they were judged by the rejected dispute and are not cited again (I-030).
+    while round(node).await.0 == rejected_round {
+        tokio::time::sleep(Duration::from_millis(500)).await;
     }
-    // A dispute also cites the previous round's failures, including ones a closed dispute has
-    // already judged (I-030): frame the provider two rounds after the rejection.
-    let mut r = fresh_round(node).await;
-    while r < rejected_round + 2 {
-        while round(node).await.0 == r {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-        }
-        r = fresh_round(node).await;
-    }
+    let r = fresh_round(node).await;
+    assert_eq!(
+        r,
+        rejected_round + 1,
+        "framed in the round after the rejection"
+    );
+    let earlier = [
+        (refuted.clone(), bonded(&user, &refuted)),
+        (gone.clone(), bonded(&user, &gone)),
+    ];
     let assigned = assignment(node, r, honest).await;
     assert_eq!(assigned.len(), 2);
     for (who, (case, report)) in assigned.iter().zip(&framed) {
@@ -868,6 +877,10 @@ async fn audits_confirm_and_reject() {
             bonded(&user, who),
             (stake - stake / 10, "Exiting".to_string())
         );
+    }
+    // The earlier accusers are not punished again for their judged verdicts.
+    for (who, then) in &earlier {
+        assert_eq!(&bonded(&user, who), then);
     }
     let shown =
         run(&mut user.query(&["market", "provider", "show", "--address", &honest.address()]));
