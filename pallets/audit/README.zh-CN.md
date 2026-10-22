@@ -46,6 +46,8 @@
 
 `register`、`bond_extra`、`unbond`、`exit`、`withdraw_unbonded`、`submit_verdict`、`vote_dispute`（附没有取得证据的被引用裁决的位图）、`close_dispute`、`set_params`（管理权限）、`set_endpoint`（审计员的证据地址与 X-Wing 公钥，复核人据此取证据；m6-auditor-agent）、`vote_review`、`close_spot_check`、`set_audit_profile` 与 `set_stats_enabled`（管理权限）。调用编号 6（`vote`）与 10（`set_stats_config`）已停用，且不再复用。钱包以 `ac-wallet audit …` 封装这些调用。`AuditApi` 版本 2 增加了证据地址查询与未关闭争议的分页列表；版本 3 返回带统计量的裁决与带种类的争议；版本 4 增加档案、按模型的统计状态、统计判定开关、抽查、罚没锁、抽查计数、证据不可用记录与提供者的所需质押；版本 5 增加某提供者某轮各条裁决的裁定情况（`judged`）。
 
+`vote_dispute` 与 `close_dispute` 先按最坏情形预留权重（对引用 128 条裁决的争议投决定票或关闭），因此任何一笔都放得进区块；执行后按实际工作计费（m6-audit-vote-weights，I-027）：不决定结果的投票只为自己付费（`vote_dispute_open`），决定结果的投票与关闭按争议引用的裁决数计费（`vote_dispute_close(n)`、`close_dispute(n)`）。差额退还手续费并从区块权重中扣回，所以一个区块能容纳多张争议票。
+
 ## 存储版本
 
 版本 1（`migrations::v1::MigrateToV1`，由运行时的 `Migrations` 执行）：已存的裁决增加 `stats: None`，争议增加 `kind: Fail`，统计判定以内置的最新版本、关闭状态开始。版本 2（`migrations::v2::MigrateToV2`）：全局的阈值版本与统计参数版本转为默认档案，开关移到 `StatsEnabled`，可调参数加入 5% 的抽查比例，轻罚取活链值，按提供者的统计状态被清空（之后按模型重新累计）。

@@ -72,7 +72,8 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // 10: the statistical judgment of audits; audit storage version 1 (m6-audit-sprt).
     // 12: receipts v2 with the content commitment, new verdict reasons (m6-token-binding).
     // 13: each verdict is judged at most once; `AuditApi` version 5 (m6-dispute-judged-verdicts).
-    spec_version: 13,
+    // 14: dispute votes and closings charged for the work done (m6-audit-vote-weights).
+    spec_version: 14,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     // 2: `AuthorizeCall` joined the extension pipeline (m2-finality); encodings are unchanged.
@@ -97,7 +98,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     impl_name: alloc::borrow::Cow::Borrowed("agentcoin"),
     authoring_version: 1,
-    spec_version: 14,
+    spec_version: 15,
     impl_version: 1,
     apis: apis::RUNTIME_API_VERSIONS,
     transaction_version: 10,

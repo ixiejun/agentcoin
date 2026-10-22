@@ -109,6 +109,13 @@ version 4 adds the profiles, the statistical states by model, the switch, spot c
 spot-check counts, findings of unavailable evidence and providers' required stakes; version 5
 adds the judgments of a round's verdicts on a provider (`judged`).
 
+`vote_dispute` and `close_dispute` reserve their worst case up front (a deciding vote, or a
+closing, on a dispute citing 128 verdicts), so any one of them fits a block, and are then
+charged for the work done (m6-audit-vote-weights, I-027): a vote that decides nothing pays for
+itself only (`vote_dispute_open`), a deciding vote or a closing by the number of verdicts the
+dispute cites (`vote_dispute_close(n)`, `close_dispute(n)`). The difference is refunded and
+taken off the block's weight, so a block holds many dispute votes.
+
 ## Storage version
 
 Version 1 (`migrations::v1::MigrateToV1`, run by the runtime's `Migrations`): stored verdicts get

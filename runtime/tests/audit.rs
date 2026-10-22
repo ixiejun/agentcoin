@@ -345,12 +345,9 @@ fn a_confirmed_dispute_jails_and_voids_unsettled_work() {
 
         let stake = Providers::provider(&bob.account).unwrap().stake;
         let burned = ac_runtime::Emission::total_burned();
-        for (i, (reviewer, _)) in dispute.reviewers.iter().take(2).enumerate() {
-            // A vote is charged as the closing one of a dispute citing the most verdicts (over
-            // a third of a block's normal share), so reviewers' votes land in separate blocks.
-            if i > 0 {
-                next_block();
-            }
+        // Both votes in one block: the first decides nothing and is charged for itself only
+        // (m6-audit-vote-weights), leaving room for the deciding one.
+        for (reviewer, _) in dispute.reviewers.iter().take(2) {
             ok(
                 signer(reviewer),
                 RuntimeCall::Audit(pallet_audit::Call::vote_dispute {
@@ -411,4 +408,119 @@ fn retention_covers_seven_days_of_live_rounds() {
     let rounds = <ac_runtime::AuditRetentionRounds as Get<u32>>::get();
     let live = ac_primitives::market::audit::AuditParams::LIVE.round_blocks;
     assert!(u64::from(rounds) * u64::from(live) >= 7 * 86_400);
+}
+
+// m6-audit-vote-weights 3.2 (spec market/audit "争议投票与关闭按实际工作计费" / "同一区块容纳多张
+// 争议票"): five votes deciding nothing, on five disputes, in one block. Each reserves the worst
+// deciding vote, more than a fifth of the block's normal share, and is charged for itself only.
+#[test]
+fn five_dispute_votes_fit_one_block() {
+    use ac_primitives::market::audit::{Accuser, DisputeRecord};
+    use frame_support::dispatch::{DispatchClass, GetDispatchInfo, PostDispatchInfo};
+    use pallet_audit::weights::{SubstrateWeight, WeightInfo};
+    use parity_scale_codec::Encode;
+
+    dev_ext().execute_with(|| {
+        next_block();
+        let deadline = System::block_number() + 100;
+        let reviewers: Vec<Signer> = (0..5u8)
+            .map(|k| Signer::fresh(40 + k, SigAlg::MlDsa44))
+            .collect();
+        let mut calls = Vec::new();
+        for (k, reviewer) in reviewers.iter().enumerate() {
+            ac_runtime::Balances::set_balance(&reviewer.account, 100 * ATC);
+            let provider = AccountId::new([0xd0 + k as u8; 32]);
+            let id = k as u64;
+            let accuser = |n: u8| Accuser {
+                auditor: AccountId::new([0xa0 + n; 32]),
+                round: 0,
+            };
+            pallet_audit::Disputes::<Runtime>::insert(
+                id,
+                DisputeRecord {
+                    provider: provider.clone(),
+                    round: 0,
+                    accusers: BoundedVec::truncate_from(vec![accuser(1), accuser(2)]),
+                    reviewers: BoundedVec::truncate_from(vec![
+                        (reviewer.account.clone(), None),
+                        (AccountId::new([0xb1; 32]), None),
+                        (AccountId::new([0xb2; 32]), None),
+                    ]),
+                    deadline,
+                    outcome: None,
+                    closed_at: None,
+                    kind: DisputeKind::Fail,
+                },
+            );
+            pallet_audit::OpenDispute::<Runtime>::insert(&provider, id);
+            calls.push(RuntimeCall::Audit(pallet_audit::Call::vote_dispute {
+                provider,
+                id,
+                vote: Vote::Reject,
+                unavailable: 0,
+            }));
+        }
+
+        let limits = <Runtime as frame_system::Config>::BlockWeights::get();
+        let normal_max = limits.get(DispatchClass::Normal).max_total.unwrap();
+        let reserved = calls[0].get_dispatch_info().call_weight;
+        assert!(reserved.all_gte(SubstrateWeight::<Runtime>::vote_dispute_close(128)));
+        // Without the refund at most four would fit: five reserve more than the normal share.
+        assert!(reserved.ref_time() * 5 > normal_max.ref_time());
+
+        let before = *frame_system::Pallet::<Runtime>::block_weight().get(DispatchClass::Normal);
+        let base = limits.get(DispatchClass::Normal).base_extrinsic;
+        let mut bound = frame_support::weights::Weight::zero();
+        for (reviewer, call) in reviewers.iter().zip(calls) {
+            let balance = free(&reviewer.account);
+            let xt = signed(reviewer, call.clone());
+            let len = xt.encoded_size() as u32;
+            let info = xt.get_dispatch_info();
+            // The block also counts the extrinsic's length in its proof size.
+            bound += info.extension_weight
+                + SubstrateWeight::<Runtime>::vote_dispute_open()
+                + base
+                + frame_support::weights::Weight::from_parts(0, u64::from(len));
+            let result = apply(xt).expect("valid transaction");
+            assert!(result.is_ok(), "{result:?}");
+            // Charged for the vote itself plus its extensions (the signature check), below the fee
+            // of the reservation.
+            let post = PostDispatchInfo {
+                actual_weight: Some(
+                    SubstrateWeight::<Runtime>::vote_dispute_open() + info.extension_weight,
+                ),
+                pays_fee: frame_support::dispatch::Pays::Yes,
+            };
+            let paid = balance - free(&reviewer.account);
+            let charged = pallet_transaction_payment::Pallet::<Runtime>::compute_actual_fee(
+                len, &info, &post, 0,
+            );
+            let reserved_fee =
+                pallet_transaction_payment::Pallet::<Runtime>::compute_fee(len, &info, 0);
+            assert!(
+                paid <= charged && charged < reserved_fee,
+                "{paid} {charged} {reserved_fee}"
+            );
+        }
+        for k in 0..5u64 {
+            assert!(
+                pallet_audit::Disputes::<Runtime>::get(k).unwrap().reviewers[0]
+                    .1
+                    .is_some()
+            );
+        }
+        let used = frame_system::Pallet::<Runtime>::block_weight()
+            .get(DispatchClass::Normal)
+            .saturating_sub(before);
+        // The block counts each vote's actual weight, its extensions, the base and its length,
+        // not the reservation.
+        assert_eq!(used, bound);
+        assert!(used.ref_time() < reserved.ref_time());
+        assert!(
+            frame_system::Pallet::<Runtime>::block_weight()
+                .total()
+                .ref_time()
+                <= normal_max.ref_time()
+        );
+    });
 }

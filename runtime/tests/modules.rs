@@ -65,7 +65,8 @@ fn pallet_indices_are_fixed() {
     assert_eq!(VERSION.transaction_version, 10);
     // m6-token-binding: verdicts carry receipts v2.
     // m6-dispute-judged-verdicts: each verdict is judged at most once.
-    assert_eq!(VERSION.spec_version, 13);
+    // m6-audit-vote-weights: dispute votes and closings charged for the work done.
+    assert_eq!(VERSION.spec_version, 14);
 }
 
 // The M2 runtime APIs are declared by the runtime.

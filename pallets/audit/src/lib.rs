@@ -74,6 +74,8 @@ mod tests_hardening;
 mod tests_judged;
 #[cfg(test)]
 mod tests_stats;
+#[cfg(test)]
+mod tests_weights;
 pub mod weights;
 
 pub use weights::WeightInfo;
@@ -312,6 +314,7 @@ pub mod pallet {
     use ac_primitives::market::{PriceError, ReceiptError};
     use alloc::vec::Vec;
     use frame_support::PalletId;
+    use frame_support::dispatch::DispatchResultWithPostInfo;
     use frame_support::pallet_prelude::{
         BuildGenesisConfig, ConstU32, DispatchResult, Hooks, IsType, OptionQuery, StorageDoubleMap,
         StorageMap, StorageValue, StorageVersion, ValueQuery, Weight, ensure,
@@ -1245,15 +1248,22 @@ pub mod pallet {
         /// Votes in `provider`'s open dispute `id`, marking in `unavailable` the cited verdicts
         /// whose evidence the caller did not obtain (bit `i`: the dispute's accuser `i`); `Q`
         /// votes on one side decide it at once (spec "争议与升级复核").
+        ///
+        /// Charged up front for a deciding vote on the largest dispute, then for the work done
+        /// (m6-audit-vote-weights): a vote that decides nothing pays for itself only, a deciding
+        /// vote by the number of verdicts the dispute cites.
         #[pallet::call_index(11)]
-        #[pallet::weight(T::WeightInfo::vote_dispute())]
+        #[pallet::weight(
+            T::WeightInfo::vote_dispute_open()
+                .max(T::WeightInfo::vote_dispute_close(MAX_DISPUTE_ACCUSERS))
+        )]
         pub fn vote_dispute(
             origin: OriginFor<T>,
             provider: AccountId32,
             id: u64,
             vote: Vote,
             unavailable: u128,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
             let who = frame_system::ensure_signed(origin)?;
             let params = Params::<T>::get().ok_or(Error::<T>::NotConfigured)?;
             ensure!(
@@ -1296,20 +1306,29 @@ pub mod pallet {
                 None
             };
             match decided {
-                Some(outcome) => Self::close(&params, id, d, outcome),
-                None => Disputes::<T>::insert(id, d),
+                Some(outcome) => {
+                    let cited = Self::cited_count(&d);
+                    Self::close(&params, id, d, outcome);
+                    Ok(Some(T::WeightInfo::vote_dispute_close(cited)).into())
+                }
+                None => {
+                    Disputes::<T>::insert(id, d);
+                    Ok(Some(T::WeightInfo::vote_dispute_open()).into())
+                }
             }
-            Ok(())
         }
 
         /// Closes `provider`'s dispute `id` as undecided once its deadline has passed.
+        ///
+        /// Charged up front for the largest dispute, then by the number of verdicts it cites
+        /// (m6-audit-vote-weights).
         #[pallet::call_index(7)]
-        #[pallet::weight(T::WeightInfo::close_dispute())]
+        #[pallet::weight(T::WeightInfo::close_dispute(MAX_DISPUTE_ACCUSERS))]
         pub fn close_dispute(
             origin: OriginFor<T>,
             provider: AccountId32,
             id: u64,
-        ) -> DispatchResult {
+        ) -> DispatchResultWithPostInfo {
             frame_system::ensure_signed(origin)?;
             let params = Params::<T>::get().ok_or(Error::<T>::NotConfigured)?;
             ensure!(
@@ -1321,8 +1340,9 @@ pub mod pallet {
                 frame_system::Pallet::<T>::block_number() > d.deadline,
                 Error::<T>::DeadlineNotPassed
             );
+            let cited = Self::cited_count(&d);
             Self::close(&params, id, d, DisputeOutcome::Undecided);
-            Ok(())
+            Ok(Some(T::WeightInfo::close_dispute(cited)).into())
         }
 
         /// Adjusts the stake threshold, the payment and the spot-check rate within their
@@ -2016,6 +2036,12 @@ pub mod pallet {
                 provider,
                 outcome,
             });
+        }
+
+        /// The number of verdicts dispute `d` cites, which its closing work grows with.
+        fn cited_count(d: &DisputeOf<T>) -> u32 {
+            // At most MAX_DISPUTE_ACCUSERS by the bound of the accuser list.
+            u32::try_from(d.accusers.len()).unwrap_or(MAX_DISPUTE_ACCUSERS)
         }
 
         /// Records that `judgment` judged `auditor`'s verdict on `provider` in `round`.
