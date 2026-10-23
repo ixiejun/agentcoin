@@ -8,6 +8,11 @@
 //! still in their challenge period. The loss is at least the gain when
 //! `S ≥ r × (g × H − C) / f = κ × r`, so a provider's required stake is the larger of the tier
 //! threshold and `κ` times its recent revenue per epoch.
+//!
+//! Audits of a provider are spread over its calibrated models, auditors picking one at random
+//! for each audit, so a provider of `n` such models is found about `n` times later on each:
+//! its horizon is `n × H` and `κₙ = (g × n × H − C) / f` (OpenSpec change
+//! m6-multi-model-deterrence design D1).
 
 use sp_runtime::Perbill;
 
@@ -27,13 +32,29 @@ const BPS: u128 = 10_000;
 const PPB: u128 = 1_000_000_000;
 
 /// `κ = (g × H − C) / f` epochs, in basis points of an epoch, rounded up; zero when `g × H ≤ C`
-/// or `f` is zero (no deterrence is computable then: callers keep the tier threshold).
+/// or `f` is zero (no deterrence is computable then: callers keep the tier threshold). The
+/// value for a provider of one calibrated model: [`kappa_bps_for`] with `models` = 1.
 #[must_use]
 pub fn kappa_bps(gain: Perbill, horizon: u32, challenge: u32, slash: Perbill) -> u128 {
+    kappa_bps_for(gain, horizon, 1, challenge, slash)
+}
+
+/// `κₙ = (g × n × H − C) / f` epochs for a provider of `models` calibrated models (`n`; 0
+/// counts as 1), in basis points of an epoch, rounded up; zero as in [`kappa_bps`].
+#[must_use]
+pub fn kappa_bps_for(
+    gain: Perbill,
+    horizon: u32,
+    models: u32,
+    challenge: u32,
+    slash: Perbill,
+) -> u128 {
     let slash = u128::from(slash.deconstruct());
-    // In parts per billion of an epoch: `g × H − C`.
+    // In parts per billion of an epoch: `g × n × H − C`. Saturating: at most 10⁹ × 16 × 720
+    // under the guardrails, far below the bound; beyond it the stake requirement only grows.
     let exposed = u128::from(gain.deconstruct())
         .saturating_mul(u128::from(horizon))
+        .saturating_mul(u128::from(models.max(1)))
         .saturating_sub(u128::from(challenge).saturating_mul(PPB));
     if slash == 0 || exposed == 0 {
         return 0;
@@ -107,6 +128,47 @@ mod tests {
     #[test]
     fn small_providers_need_the_threshold() {
         assert_eq!(required_stake(T1, live_kappa(), usd(10)), T1);
+    }
+
+    // m6-multi-model-deterrence 2.1; spec `market/providers` "质押门槛", scenarios
+    // "多个已校准模型放大威慑额" and "模型获得审计档案后所需质押上升".
+    #[test]
+    fn calibrated_models_scale_the_horizon() {
+        let k = |n| {
+            kappa_bps_for(
+                Perbill::from_percent(50),
+                11,
+                n,
+                2,
+                Perbill::from_percent(10),
+            )
+        };
+        assert_eq!(k(1), live_kappa());
+        assert_eq!(k(0), live_kappa());
+        assert_eq!([k(2), k(3), k(16)], [900_000, 1_450_000, 8_600_000]);
+        assert_eq!(required_stake(T1, k(2), usd(100)), usd(9_000));
+        assert_eq!(required_stake(T1, k(3), usd(100)), usd(14_500));
+        // No deterrence while the challenge period covers it: g × n × H = 1 < C = 2…
+        assert_eq!(
+            kappa_bps_for(
+                Perbill::from_percent(50),
+                1,
+                2,
+                2,
+                Perbill::from_percent(10)
+            ),
+            0
+        );
+        // …and saturating, never overflowing.
+        assert!(
+            kappa_bps_for(
+                Perbill::one(),
+                u32::MAX,
+                u32::MAX,
+                0,
+                Perbill::from_parts(1)
+            ) > 0
+        );
     }
 
     #[test]

@@ -86,7 +86,10 @@ version 4, band 150–300) and is the published `STATS_V1` in `ac-primitives` (a
 a CUSUM crosses after 9 / 19 / 41 / 102 audits (median; p95 9 / 32 / 87 / 326) when 100 / 50 / 30
 / 20% of the requests use int8. The largest share × p95 detection time is at 20%: 326 audits
 are 163 rounds of 20 minutes, × 0.2 = 10.9 hours, so the exposure horizon H is 11 epochs
-(`exposure` in the report; OpenSpec change `m6-audit-hardening` design D3).
+(`exposure` in the report; OpenSpec change `m6-audit-hardening` design D3). For a provider of n
+calibrated models, auditors picking one at random for each audit, the horizon is 11 / 22 / 44 /
+175 epochs for n = 1 / 2 / 4 / 16 (`horizon_epochs_by_models`; OpenSpec change
+`m6-multi-model-deterrence` design D3): at most n × H, which the chain charges.
 
 ## Files
 

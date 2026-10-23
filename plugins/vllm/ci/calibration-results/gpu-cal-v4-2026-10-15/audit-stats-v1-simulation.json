@@ -146,7 +146,13 @@
     "30%": 15840,
     "20%": 39120
    },
-   "horizon_epochs": 11
+   "horizon_epochs": 11,
+   "horizon_epochs_by_models": {
+    "1": 11,
+    "2": 22,
+    "4": 44,
+    "16": 175
+   }
   }
  }
 }

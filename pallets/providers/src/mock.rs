@@ -72,6 +72,9 @@ std::thread_local! {
     pub static BURNED: RefCell<u128> = const { RefCell::new(0) };
     /// Accounts the jail hook was called for, in order.
     pub static JAILED: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+    /// Models without an audit profile (m6-multi-model-deterrence).
+    pub static UNCALIBRATED: RefCell<std::collections::BTreeSet<ModelId>> =
+        const { RefCell::new(std::collections::BTreeSet::new()) };
     /// Recent revenue per epoch of each account, in micro-dollars.
     pub static REVENUE: RefCell<std::collections::BTreeMap<u64, u128>> =
         const { RefCell::new(std::collections::BTreeMap::new()) };
@@ -89,6 +92,26 @@ impl ac_primitives::market::traits::SettlementHistory<u64> for TestRevenue {
 }
 
 /// Sets `who`'s recent revenue per epoch, in dollars.
+/// Models without an audit profile (every other model is calibrated).
+pub struct TestCalibration;
+impl ac_primitives::market::traits::ModelCalibration for TestCalibration {
+    fn is_calibrated(model: &ModelId) -> bool {
+        !UNCALIBRATED.with(|u| u.borrow().contains(model))
+    }
+}
+
+/// Makes `model` uncalibrated (`false`) or calibrated again (`true`).
+pub fn set_calibrated(model: ModelId, calibrated: bool) {
+    UNCALIBRATED.with(|u| {
+        let mut u = u.borrow_mut();
+        if calibrated {
+            u.remove(&model);
+        } else {
+            u.insert(model);
+        }
+    });
+}
+
 pub fn set_revenue(who: u64, usd: u128) {
     REVENUE.with(|r| r.borrow_mut().insert(who, usd * 1_000_000));
 }
@@ -168,6 +191,7 @@ impl pallet_providers::Config for Test {
     type ChallengeEpochs = ChallengeEpochs;
     type ConfirmedSlash = ConfirmedSlash;
     type DisputeLock = TestLock;
+    type Calibration = TestCalibration;
     type WeightInfo = ();
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = ();
@@ -236,6 +260,7 @@ pub fn ext() -> sp_io::TestExternalities {
     set_rate(Some(1_000));
     BURNED.with(|b| *b.borrow_mut() = 0);
     REVENUE.with(|r| r.borrow_mut().clear());
+    UNCALIBRATED.with(|u| u.borrow_mut().clear());
     LOCKED.with(|l| l.borrow_mut().clear());
     let storage = RuntimeGenesisConfig {
         system: Default::default(),

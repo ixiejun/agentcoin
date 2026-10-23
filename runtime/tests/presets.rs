@@ -338,4 +338,14 @@ fn provider_deterrence_parameters() {
         .as_u64()
         .unwrap();
     assert!(u64::from(live.horizon_epochs) >= horizon, "{horizon}");
+
+    // m6-multi-model-deterrence, scenario "n × H 覆盖多模型的检出用时": the chain charges a
+    // provider of n calibrated models for n × H, which covers the simulated horizon at n.
+    let by_models = report["simulation"]["exposure"]["horizon_epochs_by_models"]
+        .as_object()
+        .unwrap();
+    for n in [1u64, 2, 4, 16] {
+        let h_n = by_models[&n.to_string()].as_u64().unwrap();
+        assert!(n * u64::from(live.horizon_epochs) >= h_n, "n = {n}: {h_n}");
+    }
 }

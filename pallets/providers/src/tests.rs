@@ -16,7 +16,8 @@ use parity_scale_codec::{Decode, Encode};
 use crate::mock::{
     ALICE, BOB, Balances, FUNDS, HEARTBEAT, MODEL_A, MODEL_B, Providers, RuntimeCall,
     RuntimeHoldReason, RuntimeOrigin, System, T1_MIN, T2_MIN, Test, UNBOND, UNKNOWN, burned, ext,
-    issuance_and_burned, kem, price, register, registration, set_locked, set_rate, set_revenue,
+    issuance_and_burned, kem, price, register, registration, set_calibrated, set_locked, set_rate,
+    set_revenue,
 };
 use crate::{Error, Event, HoldReason, ModelProviders};
 
@@ -230,10 +231,13 @@ fn revenue_raises_the_required_stake() {
         set_revenue(ALICE, 100);
         let usd = |n: u128| ac_primitives::market::MicroUsd(n * 1_000_000);
         assert_eq!(
-            Providers::required_usd(&ALICE, Tier::T1),
+            Providers::required_usd(&ALICE, Tier::T1, &[price(MODEL_A, 1, 1)]),
             (usd(3_500), usd(3_500))
         );
-        assert_eq!(Providers::required_stake(&ALICE, Tier::T1), Ok(3_500_000));
+        assert_eq!(
+            Providers::required_stake(&ALICE, Tier::T1, &[price(MODEL_A, 1, 1)]),
+            Ok(3_500_000)
+        );
         assert!(!Providers::is_serviceable(&ALICE));
         assert!(serviceable_of(MODEL_A).is_empty());
         assert_ok!(Providers::bond_extra(
@@ -252,14 +256,17 @@ fn small_providers_need_the_threshold() {
         set_revenue(ALICE, 10);
         let usd = |n: u128| ac_primitives::market::MicroUsd(n * 1_000_000);
         assert_eq!(
-            Providers::required_usd(&ALICE, Tier::T1),
+            Providers::required_usd(&ALICE, Tier::T1, &[price(MODEL_A, 1, 1)]),
             (usd(350), usd(1_000))
         );
         assert!(Providers::is_serviceable(&ALICE));
         // A T2 provider's floor is its own threshold.
         assert_ok!(register(BOB, &[price(MODEL_A, 1, 1)], T2_MIN));
         set_revenue(BOB, 1);
-        assert_eq!(Providers::required_usd(&BOB, Tier::T2).1, usd(100));
+        assert_eq!(
+            Providers::required_usd(&BOB, Tier::T2, &[price(MODEL_A, 1, 1)]).1,
+            usd(100)
+        );
         assert!(Providers::is_serviceable(&BOB));
     });
 }
@@ -280,6 +287,138 @@ fn stake_cannot_drop_below_the_required_stake() {
         // revenue history.
         set_revenue(BOB, 100);
         assert_noop!(register_t1(BOB, T1_MIN), Error::<Test>::BelowThreshold);
+    });
+}
+
+// ---- m6-multi-model-deterrence 3.1, 3.2: calibrated models scale the exposure horizon ----
+
+/// A third registered model.
+const MODEL_C: ac_primitives::market::ModelId = ac_primitives::market::ModelId([3; 32]);
+
+fn models(list: &[ac_primitives::market::ModelId]) -> crate::ModelList {
+    BoundedVec::truncate_from(list.iter().map(|m| price(*m, 1, 1)).collect())
+}
+
+fn set_models(who: u64, list: &[ac_primitives::market::ModelId]) -> sp_runtime::DispatchResult {
+    Providers::update(RuntimeOrigin::signed(who), None, None, Some(models(list)))
+}
+
+fn required(who: u64) -> u128 {
+    let p = Providers::provider(&who).unwrap();
+    Providers::required_stake(&who, p.tier, &p.models).unwrap()
+}
+
+// Requirement "质押门槛", Scenario "多个已校准模型放大威慑额": n = 2 of 3 models, κ = 90.
+#[test]
+fn calibrated_models_scale_the_deterrent() {
+    ext().execute_with(|| {
+        set_calibrated(MODEL_C, false);
+        assert_ok!(Providers::register(
+            RuntimeOrigin::signed(ALICE),
+            registration(Tier::T1, &models(&[MODEL_A, MODEL_B, MODEL_C]), T1_MIN)
+        ));
+        set_revenue(ALICE, 100);
+        let p = Providers::provider(&ALICE).unwrap();
+        assert_eq!(Providers::calibrated_count(&p.models), 2);
+        assert_eq!(Providers::kappa_bps_for(2), 900_000);
+        let usd = |n: u128| ac_primitives::market::MicroUsd(n * 1_000_000);
+        assert_eq!(
+            Providers::required_usd(&ALICE, Tier::T1, &p.models),
+            (usd(9_000), usd(9_000))
+        );
+        assert_eq!(required(ALICE), 9_000_000);
+    });
+}
+
+// Scenario "模型获得审计档案后所需质押上升": n becomes 3, κ = 145, read when asked.
+#[test]
+fn a_model_gaining_a_profile_raises_the_required_stake() {
+    ext().execute_with(|| {
+        set_calibrated(MODEL_C, false);
+        assert_ok!(Providers::register(
+            RuntimeOrigin::signed(ALICE),
+            registration(Tier::T1, &models(&[MODEL_A, MODEL_B, MODEL_C]), 9_000_000)
+        ));
+        set_revenue(ALICE, 100);
+        assert!(Providers::is_serviceable(&ALICE));
+        // The mock funds accounts with 10,000,000: enough for 9,000,000, not for 14,500,000.
+        <Balances as frame_support::traits::fungible::Mutate<u64>>::mint_into(&ALICE, 5_500_000)
+            .unwrap();
+        set_calibrated(MODEL_C, true);
+        assert_eq!(required(ALICE), 14_500_000);
+        assert!(!Providers::is_serviceable(&ALICE));
+        assert_noop!(
+            Providers::unbond(RuntimeOrigin::signed(ALICE), 1),
+            Error::<Test>::BelowThreshold
+        );
+        assert_ok!(Providers::bond_extra(
+            RuntimeOrigin::signed(ALICE),
+            5_500_000
+        ));
+        assert!(Providers::is_serviceable(&ALICE));
+    });
+}
+
+// Requirement "修改登记信息", Scenario "增加已校准模型而质押不足".
+#[test]
+fn adding_a_calibrated_model_needs_the_stake() {
+    ext().execute_with(|| {
+        assert_ok!(register_t1(ALICE, 3_500_000));
+        set_revenue(ALICE, 100);
+        assert_eq!(required(ALICE), 3_500_000);
+        assert_noop!(
+            set_models(ALICE, &[MODEL_A, MODEL_B]),
+            Error::<Test>::BelowThreshold
+        );
+        assert_eq!(Providers::provider(&ALICE).unwrap().models.len(), 1);
+        assert_ok!(Providers::bond_extra(
+            RuntimeOrigin::signed(ALICE),
+            5_500_000
+        ));
+        assert_ok!(set_models(ALICE, &[MODEL_A, MODEL_B]));
+        assert_eq!(required(ALICE), 9_000_000);
+        assert!(Providers::is_serviceable(&ALICE));
+    });
+}
+
+// Scenario "增加未校准模型不受影响".
+#[test]
+fn adding_an_uncalibrated_model_changes_nothing() {
+    ext().execute_with(|| {
+        set_calibrated(MODEL_C, false);
+        assert_ok!(register_t1(ALICE, 3_500_000));
+        set_revenue(ALICE, 100);
+        assert_ok!(set_models(ALICE, &[MODEL_A, MODEL_C]));
+        assert_eq!(required(ALICE), 3_500_000);
+        assert!(Providers::is_serviceable(&ALICE));
+    });
+}
+
+// Scenario "质押不足时仍可减少模型": a list that does not raise the required stake passes even
+// below it.
+#[test]
+fn models_can_be_dropped_below_the_required_stake() {
+    ext().execute_with(|| {
+        assert_ok!(Providers::register(
+            RuntimeOrigin::signed(ALICE),
+            registration(Tier::T1, &models(&[MODEL_A, MODEL_B]), 5_000_000)
+        ));
+        set_revenue(ALICE, 100);
+        assert_eq!(required(ALICE), 9_000_000);
+        assert!(!Providers::is_serviceable(&ALICE));
+        // Changing nothing that matters (prices) is fine below it too.
+        assert_ok!(Providers::update(
+            RuntimeOrigin::signed(ALICE),
+            None,
+            None,
+            Some(BoundedVec::truncate_from(vec![
+                price(MODEL_A, 2, 2),
+                price(MODEL_B, 2, 2)
+            ]))
+        ));
+        assert_ok!(set_models(ALICE, &[MODEL_A]));
+        assert_eq!(required(ALICE), 3_500_000);
+        assert!(Providers::is_serviceable(&ALICE));
     });
 }
 

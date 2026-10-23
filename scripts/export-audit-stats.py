@@ -29,7 +29,12 @@ It writes them as JSON (--json) and as a Rust constant for `ac-primitives` (--ru
   runs cross (at least 95% of them), the largest share × p95 detection time, with `--assign`
   audits per provider and round of `--round-blocks` blocks, in emission epochs of
   `--epoch-blocks` blocks, rounded up. A provider cheating on a share p of its requests gains
-  for p × T(p); H bounds that over the detectable shares.
+  for p × T(p); H bounds that over the detectable shares;
+- the same horizon for a provider of n calibrated models, n = 1, 2, 4, 16 (OpenSpec change
+  m6-multi-model-deterrence design D3): auditors pick one of the n models at random for each
+  audit, so a round's audits land on the cheated model with probability 1/n each, and a run
+  takes as many whole rounds as it needs to collect its audits on that model. The chain charges
+  n × H; the report shows that it covers these.
 
 It fails when the worst cell's `E[e^λ]` is above 0.8, the gate for enabling the judgment
 (design D4).
@@ -59,6 +64,7 @@ TARGET = 1e-6  # false alarms per provider and year
 MAX_ENTRIES = 128
 GATE = 0.8  # the worst cell's E[e^λ] at which the parameters cover a hardware class
 FRACTIONS = (1.0, 0.5, 0.3, 0.2)
+MODEL_COUNTS = (1, 2, 4, 16)
 
 
 def load(paths: list[pathlib.Path]) -> dict:
@@ -210,10 +216,11 @@ def draw(rng: random.Random, dist: list[tuple[int, int]]) -> int:
     return rng.choices([l for l, _ in dist], weights=[c for _, c in dist])[0]
 
 
-def detection(p: dict, honest: list, int8: list, share: float, seed: int, runs: int,
-              auditors: int = 20, limit: int = 5_000) -> dict:
-    """Audits to cross the bound when `share` of the requests use int8, auditors drawn at random
-    from `auditors`; runs that do not cross within `limit` audits count at the limit."""
+def detection_runs(p: dict, honest: list, int8: list, share: float, seed: int, runs: int,
+                   auditors: int = 20, limit: int = 5_000) -> list[int]:
+    """Audits to cross the bound in each run, sorted, when `share` of the requests use int8,
+    auditors drawn at random from `auditors`; runs that do not cross within `limit` audits count
+    at the limit."""
     rng = random.Random(seed)
     need = []
     for _ in range(runs):
@@ -223,8 +230,23 @@ def detection(p: dict, honest: list, int8: list, share: float, seed: int, runs: 
             s.record(rng.randrange(auditors), draw(rng, int8 if rng.random() < share else honest))
         need.append(n)
     need.sort()
-    return {"median": need[len(need) // 2], "p95": need[min(len(need) - 1, len(need) * 95 // 100)],
-            "crossed": sum(1 for n in need if n < limit) / runs}
+    return need
+
+
+def p95(xs: list[int]) -> int:
+    """The 95th percentile of sorted `xs`, by index."""
+    return xs[min(len(xs) - 1, len(xs) * 95 // 100)]
+
+
+def summary(need: list[int], limit: int = 5_000) -> dict:
+    return {"median": need[len(need) // 2], "p95": p95(need),
+            "crossed": sum(1 for n in need if n < limit) / len(need)}
+
+
+def detection(p: dict, honest: list, int8: list, share: float, seed: int, runs: int,
+              auditors: int = 20, limit: int = 5_000) -> dict:
+    """The median and p95 of [`detection_runs`] and the share of runs that cross."""
+    return summary(detection_runs(p, honest, int8, share, seed, runs, auditors, limit), limit)
 
 
 def exposure(detection_by_share: dict, assign: int, round_blocks: int, epoch_blocks: int) -> dict:
@@ -243,7 +265,40 @@ def exposure(detection_by_share: dict, assign: int, round_blocks: int, epoch_blo
             "blocks_by_share": by_share, "horizon_epochs": -(-worst // epoch_blocks)}
 
 
-def simulate(cells: dict, p: dict, seed: int, runs: int) -> dict:
+def rounds_for(rng: random.Random, audits: int, assign: int, models: int) -> int:
+    """Whole rounds until `audits` audits land on one of `models` models, each of a round's
+    `assign` audits picking a model at random (exactly ⌈audits / assign⌉ for one model)."""
+    if models == 1:
+        return -(-audits // assign)
+    rounds = got = 0
+    while got < audits:
+        rounds += 1
+        got += sum(1 for _ in range(assign) if rng.randrange(models) == 0)
+    return rounds
+
+
+def exposure_by_models(runs_by_share: dict, detection_by_share: dict, assign: int,
+                       round_blocks: int, epoch_blocks: int, seed: int,
+                       counts: tuple[int, ...] = MODEL_COUNTS) -> dict:
+    """The exposure horizon in epochs of a provider of n calibrated models, for each n in
+    `counts` (m6-multi-model-deterrence design D3): over the detectable shares, share × p95 of the
+    whole rounds each run needs on the cheated model; n = 1 is [`exposure`]'s horizon."""
+    out = {}
+    for n in counts:
+        rng = random.Random(seed * 1_000 + n)
+        worst = 0
+        for key, need in runs_by_share.items():
+            if detection_by_share[key]["crossed"] < 0.95:
+                continue
+            percent = int(key.rstrip("%"))
+            rounds = sorted(rounds_for(rng, k, assign, n) for k in need)
+            worst = max(worst, p95(rounds) * round_blocks * percent // 100)
+        out[str(n)] = -(-worst // epoch_blocks)
+    return out
+
+
+def simulate_runs(cells: dict, p: dict, seed: int, runs: int) -> tuple[dict, dict]:
+    """[`simulate`] and the per-run audits behind its detection, by share."""
     honest = {cell: lambdas(p, g) for cell, g in inside(cells, "honest").items()}
     int8: list = []
     for g in inside(cells, "int8").values():
@@ -252,18 +307,24 @@ def simulate(cells: dict, p: dict, seed: int, runs: int) -> dict:
                 for cell, d in honest.items()}
     worst = max(per_cell, key=lambda c: per_cell[c]["e_lambda"])
     e = per_cell[worst]["e_lambda"]
-    return {
+    need = {f"{share:.0%}": detection_runs(p, honest[worst], int8, share, seed, runs)
+            for share in FRACTIONS}
+    sim = {
         "cells": per_cell,
         "worst_cell": worst,
         "worst_e_lambda": e,
         "gate": GATE,
         "audits_per_year": AUDITS_PER_YEAR,
         "false_alarms_per_year": AUDITS_PER_YEAR * math.exp(-p["bound"] / 1000),
-        "detection": {f"{share:.0%}": detection(p, honest[worst], int8, share, seed, runs)
-                      for share in FRACTIONS},
+        "detection": {key: summary(n) for key, n in need.items()},
         "seed": seed,
         "ok": e <= GATE,
     }
+    return sim, need
+
+
+def simulate(cells: dict, p: dict, seed: int, runs: int) -> dict:
+    return simulate_runs(cells, p, seed, runs)[0]
 
 
 def rust(p: dict) -> str:
@@ -309,14 +370,19 @@ def main(argv: list[str] | None = None) -> int:
         a.rust.write_text(rust(p))
     print(json.dumps(p))
     if a.simulate:
-        sim = simulate(cells, p, a.seed, a.runs)
+        sim, need = simulate_runs(cells, p, a.seed, a.runs)
         sim["exposure"] = exposure(sim["detection"], a.assign, a.round_blocks, a.epoch_blocks)
+        sim["exposure"]["horizon_epochs_by_models"] = exposure_by_models(
+            need, sim["detection"], a.assign, a.round_blocks, a.epoch_blocks, a.seed)
         a.simulate.write_text(json.dumps({"params": p, "simulation": sim}, indent=1) + "\n")
         print(f"worst E[e^λ] {sim['worst_e_lambda']} ({sim['worst_cell']}), gate {GATE}; "
               f"false alarms per provider and year ≤ {sim['false_alarms_per_year']:.2e}")
         for share, d in sim["detection"].items():
             print(f"int8 on {share} of requests: {d['median']} audits (median), {d['p95']} (p95)")
         print(f"exposure horizon H: {sim['exposure']['horizon_epochs']} epochs")
+        for n, h in sim["exposure"]["horizon_epochs_by_models"].items():
+            print(f"  with {n} calibrated models: {h} epochs (n × H = "
+                  f"{int(n) * sim['exposure']['horizon_epochs']})")
         if not sim["ok"]:
             print(f"FAIL: E[e^λ] {sim['worst_e_lambda']} above the gate {GATE}", file=sys.stderr)
             return 1

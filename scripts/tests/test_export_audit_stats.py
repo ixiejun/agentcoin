@@ -178,6 +178,40 @@ class ExposureTests(unittest.TestCase):
         self.assertEqual(ex.exposure({"10%": d["10%"]}, 2, 1_200, 3_600)["horizon_epochs"], 0)
 
 
+class ModelCountTests(unittest.TestCase):
+    """m6-multi-model-deterrence 1.1 (design D3): the horizon of a provider of n calibrated
+    models, auditors picking one of them at random for each audit."""
+
+    def test_one_model_is_whole_rounds(self):
+        rng = ex.random.Random(1)
+        self.assertEqual([ex.rounds_for(rng, k, 2, 1) for k in (1, 2, 9, 326)], [1, 1, 5, 163])
+
+    def test_more_models_take_longer(self):
+        rng = ex.random.Random(1)
+        mean = sum(ex.rounds_for(rng, 100, 2, 4) for _ in range(400)) / 400
+        # 100 audits at 2 / 4 = 0.5 a round: about 200 rounds.
+        self.assertTrue(190 <= mean <= 210, mean)
+
+    def test_one_model_matches_the_horizon(self):
+        need = {"100%": [9] * 20, "20%": [326] * 20}
+        det = {k: ex.summary(v) for k, v in need.items()}
+        by = ex.exposure_by_models(need, det, 2, 1_200, 3_600, seed=1)
+        self.assertEqual(by["1"], ex.exposure(det, 2, 1_200, 3_600)["horizon_epochs"])
+        self.assertEqual(set(by), {"1", "2", "4", "16"})
+        self.assertTrue(by["1"] <= by["2"] <= by["4"] <= by["16"])
+
+    def test_undetectable_shares_are_left_out(self):
+        need = {"10%": [5_000] * 20}
+        det = {"10%": {"median": 5_000, "p95": 5_000, "crossed": 0.4}}
+        self.assertEqual(ex.exposure_by_models(need, det, 2, 1_200, 3_600, seed=1)["16"], 0)
+
+    def test_deterministic(self):
+        need = {"50%": list(range(10, 60))}
+        det = {k: ex.summary(v) for k, v in need.items()}
+        self.assertEqual(ex.exposure_by_models(need, det, 2, 1_200, 3_600, seed=1),
+                         ex.exposure_by_models(need, det, 2, 1_200, 3_600, seed=1))
+
+
 class PublishedVersionTests(unittest.TestCase):
     """m6-audit-sprt 2.3: the published version 1 is what the committed calibration exports."""
 
@@ -218,6 +252,11 @@ class PublishedVersionTests(unittest.TestCase):
         self.assertLessEqual(sim["false_alarms_per_year"], 1e-6)
         # m6-audit-hardening 1.2: the live chain's H (11 epochs) covers the committed simulation.
         self.assertEqual(sim["exposure"]["horizon_epochs"], 11)
+        # m6-multi-model-deterrence 1.1 (spec node/chain-spec "n × H 覆盖多模型的检出用时").
+        by = sim["exposure"]["horizon_epochs_by_models"]
+        self.assertEqual(by["1"], 11)
+        for n in (1, 2, 4, 16):
+            self.assertLessEqual(by[str(n)], n * 11, n)
 
 
 if __name__ == "__main__":

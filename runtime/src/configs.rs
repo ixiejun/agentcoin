@@ -409,6 +409,7 @@ impl pallet_providers::Config for Runtime {
     type ConfirmedSlash = AuditProviderSlash;
     /// A provider with an open audit dispute keeps its unbonding stake (m6-audit-hardening).
     type DisputeLock = crate::Audit;
+    type Calibration = crate::Audit;
     type WeightInfo = pallet_providers::weights::SubstrateWeight<Runtime>;
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = MarketBenchmarkHelper;
@@ -629,6 +630,15 @@ impl pallet_providers::BenchmarkHelper for MarketBenchmarkHelper {
                 royalty: None,
                 deposit: 0,
                 registered_at: 0,
+            },
+        );
+    }
+    fn calibrate_model(id: ac_primitives::market::ModelId) {
+        pallet_audit::AuditProfiles::<Runtime>::insert(
+            id,
+            ac_primitives::market::audit::AuditProfile {
+                thresholds_version: 4,
+                stats_version: ac_primitives::market::audit::CURRENT_STATS.version,
             },
         );
     }

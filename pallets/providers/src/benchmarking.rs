@@ -36,6 +36,7 @@ mod benchmarks {
                 id[1..5].copy_from_slice(&i.to_le_bytes());
                 let model = ModelId(id);
                 T::BenchmarkHelper::register_model(model);
+                T::BenchmarkHelper::calibrate_model(model);
                 ModelPrice {
                     model,
                     price: PricePerMTok {
@@ -90,9 +91,12 @@ mod benchmarks {
         assert!(Providers::<T>::contains_key(&who));
     }
 
+    /// Both model lists' required stakes are read (m6-multi-model-deterrence design D2), with the
+    /// longest revenue history.
     #[benchmark]
     fn update(m: Linear<1, MAX_PROVIDER_MODELS>) {
         let who = registered::<T>(MAX_PROVIDER_MODELS);
+        T::BenchmarkHelper::fill_revenue(&who);
         let list = models::<T>(m, 2);
         #[extrinsic_call]
         _(
@@ -119,10 +123,11 @@ mod benchmarks {
         assert_eq!(Providers::<T>::get(&who).unwrap().stake, STAKE * 2);
     }
 
-    /// A full unbonding list: the new chunk merges into the last one.
+    /// A full unbonding list: the new chunk merges into the last one; the required stake counts
+    /// the most calibrated models (m6-multi-model-deterrence design D4).
     #[benchmark]
     fn unbond() {
-        let who = registered::<T>(1);
+        let who = registered::<T>(MAX_PROVIDER_MODELS);
         T::BenchmarkHelper::fill_revenue(&who);
         for _ in 0..MAX_UNLOCKING {
             Pallet::<T>::unbond(RawOrigin::Signed(who.clone()).into(), 1).unwrap();

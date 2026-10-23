@@ -524,3 +524,90 @@ fn five_dispute_votes_fit_one_block() {
         );
     });
 }
+
+// m6-multi-model-deterrence 4.1 (spec market/providers "质押门槛" / "多个已校准模型放大威慑额",
+// "模型获得审计档案后所需质押上升"): the runtime counts a provider's calibrated models through the
+// audit module's profiles. Live deterrence parameters and $1 per ATC on the dev chain: κ is 35
+// epochs for one calibrated model, 90 for two, 145 for three.
+#[test]
+fn calibrated_models_scale_the_required_stake() {
+    dev_ext().execute_with(|| {
+        let (alice, bob) = (Signer::dev("alice"), Signer::dev("bob"));
+        let model = |name: &[u8], quant: QuantType| {
+            let m = ModelManifest::new(name, b"qwen2", quant, vec![[1; 32]]).unwrap();
+            ok(
+                &alice,
+                RuntimeCall::ModelRegistry(pallet_model_registry::Call::register {
+                    manifest: m.clone(),
+                    lineage: None,
+                    license_tag: BoundedVec::truncate_from(b"apache-2.0".to_vec()),
+                    royalty: None,
+                }),
+            );
+            m.id().unwrap()
+        };
+        // Two bf16 models under the default profile and an int8 one without a profile.
+        let models = [
+            model(b"model-a", QuantType::Bf16),
+            model(b"model-b", QuantType::Bf16),
+            model(b"model-c", QuantType::Int8),
+        ];
+        ok(
+            &bob,
+            RuntimeCall::Providers(pallet_providers::Call::register {
+                registration: pallet_providers::Registration {
+                    tier: Tier::T2,
+                    endpoint: BoundedVec::truncate_from(b"https://provider.example".to_vec()),
+                    kem_pk: KemPublicKey::new(KemAlg::XWing, &[7; 1216]).unwrap(),
+                    models: BoundedVec::truncate_from(
+                        models
+                            .iter()
+                            .map(|&model| ModelPrice {
+                                model,
+                                price: PRICE,
+                            })
+                            .collect(),
+                    ),
+                    stake: 100 * ATC,
+                    attestation: None,
+                },
+            }),
+        );
+        // $100 per epoch over the revenue window.
+        let window = pallet_work::RevenueWindow::<Runtime>::get();
+        pallet_work::RecentSettled::<Runtime>::insert(
+            &bob.account,
+            BoundedVec::truncate_from(vec![(0, MicroUsd(100_000_000 * u128::from(window)))]),
+        );
+        assert_eq!(Work::recent_revenue(&bob.account), MicroUsd(100_000_000));
+        let dollars = |m: MicroUsd| m.0 / 1_000_000;
+        let required = || {
+            let (deterrent, required, avg) =
+                <Runtime as AuditApiV5<_, _, _>>::required_stake(bob.account.clone()).unwrap();
+            (dollars(deterrent), dollars(required), dollars(avg))
+        };
+        assert_eq!(Providers::kappa_bps(), 350_000);
+        assert_eq!(required(), (9_000, 9_000, 100));
+        assert!(!Providers::is_serviceable(&bob.account));
+        ok(
+            &bob,
+            RuntimeCall::Providers(pallet_providers::Call::bond_extra {
+                amount: 8_900 * ATC,
+            }),
+        );
+        assert!(Providers::is_serviceable(&bob.account));
+
+        // The int8 model gets its own profile: three calibrated models.
+        assert!(Audit::profile(&models[2]).is_none());
+        pallet_audit::AuditProfiles::<Runtime>::insert(
+            models[2],
+            ac_primitives::market::audit::AuditProfile {
+                thresholds_version: 4,
+                stats_version: CURRENT_STATS.version,
+            },
+        );
+        assert!(Audit::profile(&models[2]).is_some());
+        assert_eq!(required(), (14_500, 14_500, 100));
+        assert!(!Providers::is_serviceable(&bob.account));
+    });
+}

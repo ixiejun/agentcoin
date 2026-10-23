@@ -9,6 +9,9 @@
 //!   reference rate rounding up. A provider's *required stake* is the larger of its tier's
 //!   threshold and its deterrent, `κ` times its recent revenue per epoch, so that a confirmed
 //!   cheat loses at least what it gained before being found (m6-audit-hardening design D3).
+//!   Audits are spread over a provider's calibrated models, so `κ` uses `n × H` for a provider
+//!   of `n` of them (m6-multi-model-deterrence); a model list that raises the required stake
+//!   above the stake is refused.
 //!   After a rate or revenue change a provider below its required stake stays registered but is
 //!   not *serviceable* until it bonds more.
 //! - Heartbeats keep a provider serviceable: at most two intervals may pass (600 blocks each on
@@ -169,6 +172,9 @@ pub struct Registration {
 pub trait BenchmarkHelper {
     /// Makes `id` a registered model.
     fn register_model(id: ac_primitives::market::ModelId);
+    /// Gives `id` an audit profile where the runtime has audits, so that the required stake
+    /// counts it (m6-multi-model-deterrence design D4).
+    fn calibrate_model(_id: ac_primitives::market::ModelId) {}
     /// Sets the reference rate to `rate` smallest units per dollar.
     fn set_rate(rate: u128);
     /// Gives `who` the longest recent revenue history, with a negligible amount, so that reading
@@ -191,14 +197,14 @@ pub mod pallet {
     use super::{DeterrenceParams, ProviderParams, Registration, WeightInfo};
     use ac_crypto::{KemAlg, KemPublicKey};
     use ac_primitives::market::deterrence::{
-        kappa_bps as deterrence_kappa, required_stake as with_deterrent,
+        kappa_bps_for as deterrence_kappa, required_stake as with_deterrent,
     };
     use ac_primitives::market::records::{
         Endpoint, MAX_PROVIDER_MODELS, ModelPrice, ProviderStatus, SlaMetrics, Tier, UnlockingList,
         schedule_unlock, take_due, take_for_slash, unlocking_total,
     };
     use ac_primitives::market::traits::{
-        DisputeLock, ModelLookup, OnJail, PriceSource, SettlementHistory,
+        DisputeLock, ModelCalibration, ModelLookup, OnJail, PriceSource, SettlementHistory,
     };
     use ac_primitives::market::usd::Rounding;
     use ac_primitives::market::{MicroUsd, ModelId, PriceError, ProviderRecord};
@@ -259,6 +265,9 @@ pub mod pallet {
         type ConfirmedSlash: Get<Perbill>;
         /// Whether an audit dispute on a provider is open (its unbonding stake stays).
         type DisputeLock: DisputeLock<Self::AccountId>;
+        /// Whether a model has an audit profile: a provider's calibrated models scale its
+        /// exposure horizon (m6-multi-model-deterrence).
+        type Calibration: ModelCalibration;
         /// Weights.
         type WeightInfo: WeightInfo;
         /// Registers models and sets a rate for the benchmarks.
@@ -484,7 +493,7 @@ pub mod pallet {
             Self::check_kem(&kem_pk)?;
             Self::check_models(&models)?;
             ensure!(
-                stake >= Self::required_stake(&who, tier).map_err(Error::<T>::from)?,
+                stake >= Self::required_stake(&who, tier, &models).map_err(Error::<T>::from)?,
                 Error::<T>::BelowThreshold
             );
             T::Currency::hold(&HoldReason::Stake.into(), &who, stake)
@@ -535,6 +544,15 @@ pub mod pallet {
             }
             if let Some(list) = models {
                 Self::check_models(&list)?;
+                // A list that raises the required stake above the stake is refused; one that
+                // does not raise it is fine even below it (m6-multi-model-deterrence design D2).
+                let before =
+                    Self::required_stake(&who, p.tier, &p.models).map_err(Error::<T>::from)?;
+                let after = Self::required_stake(&who, p.tier, &list).map_err(Error::<T>::from)?;
+                ensure!(
+                    after <= before || after <= p.stake,
+                    Error::<T>::BelowThreshold
+                );
                 for m in &p.models {
                     ModelProviders::<T>::remove(m.model, &who);
                 }
@@ -595,7 +613,7 @@ pub mod pallet {
             ensure!(amount <= p.stake, Error::<T>::AmountTooLarge);
             let rest = p.stake.saturating_sub(amount);
             ensure!(
-                rest >= Self::required_stake(&who, p.tier).map_err(Error::<T>::from)?,
+                rest >= Self::required_stake(&who, p.tier, &p.models).map_err(Error::<T>::from)?,
                 Error::<T>::BelowThreshold
             );
             p.stake = rest;
@@ -722,24 +740,49 @@ pub mod pallet {
             }
         }
 
-        /// `κ`, in basis points of an epoch: the epochs of revenue a provider's stake must cover.
+        /// `κ`, in basis points of an epoch: the epochs of revenue the stake of a provider of one
+        /// calibrated model must cover.
         #[must_use]
         pub fn kappa_bps() -> u128 {
+            Self::kappa_bps_for(1)
+        }
+
+        /// `κₙ`, in basis points of an epoch, for a provider of `models` calibrated models (0
+        /// counts as 1): its exposure horizon is `n × H` (m6-multi-model-deterrence design D1).
+        #[must_use]
+        pub fn kappa_bps_for(models: u32) -> u128 {
             let d = Deterrence::<T>::get();
             deterrence_kappa(
                 d.gain,
                 d.horizon_epochs,
+                models,
                 T::ChallengeEpochs::get(),
                 T::ConfirmedSlash::get(),
             )
         }
 
-        /// `who`'s deterrent and required stake in dollars as a provider of `tier`: `κ` times its
-        /// recent revenue per epoch, and the larger of that and the tier's threshold.
+        /// How many of `models` have an audit profile.
         #[must_use]
-        pub fn required_usd(who: &T::AccountId, tier: Tier) -> (MicroUsd, MicroUsd) {
+        pub fn calibrated_count(models: &[ModelPrice]) -> u32 {
+            let n = models
+                .iter()
+                .filter(|m| T::Calibration::is_calibrated(&m.model))
+                .count();
+            // At most MAX_PROVIDER_MODELS.
+            u32::try_from(n).unwrap_or(MAX_PROVIDER_MODELS)
+        }
+
+        /// `who`'s deterrent and required stake in dollars as a provider of `tier` serving
+        /// `models`: `κₙ` times its recent revenue per epoch, `n` the calibrated models, and the
+        /// larger of that and the tier's threshold.
+        #[must_use]
+        pub fn required_usd(
+            who: &T::AccountId,
+            tier: Tier,
+            models: &[ModelPrice],
+        ) -> (MicroUsd, MicroUsd) {
             let revenue = T::Revenue::avg_per_epoch(who);
-            let kappa = Self::kappa_bps();
+            let kappa = Self::kappa_bps_for(Self::calibrated_count(models));
             let deterrent = with_deterrent(MicroUsd::ZERO, kappa, revenue);
             (
                 deterrent,
@@ -747,13 +790,17 @@ pub mod pallet {
             )
         }
 
-        /// Stake `who` needs now as a provider of `tier`, rounded up.
+        /// Stake `who` needs now as a provider of `tier` serving `models`, rounded up.
         ///
         /// # Errors
         ///
         /// [`PriceError::NotSet`] without a rate; [`PriceError::Overflow`].
-        pub fn required_stake(who: &T::AccountId, tier: Tier) -> Result<Balance, PriceError> {
-            T::Price::to_atc(Self::required_usd(who, tier).1, Rounding::Threshold)
+        pub fn required_stake(
+            who: &T::AccountId,
+            tier: Tier,
+            models: &[ModelPrice],
+        ) -> Result<Balance, PriceError> {
+            T::Price::to_atc(Self::required_usd(who, tier, models).1, Rounding::Threshold)
         }
 
         /// A registered provider.
@@ -768,7 +815,8 @@ pub mod pallet {
             let now = frame_system::Pallet::<T>::block_number();
             let interval = Params::<T>::get().heartbeat_interval;
             record.status == ProviderStatus::Active
-                && Self::required_stake(who, record.tier).is_ok_and(|t| record.stake >= t)
+                && Self::required_stake(who, record.tier, &record.models)
+                    .is_ok_and(|t| record.stake >= t)
                 && Self::blocks_between(record.last_heartbeat, now) <= interval.saturating_mul(2)
         }
 

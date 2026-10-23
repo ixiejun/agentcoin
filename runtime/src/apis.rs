@@ -825,7 +825,8 @@ impl_runtime_apis! {
         )> {
             use ac_primitives::market::traits::SettlementHistory;
             let record = pallet_providers::Providers::<Runtime>::get(&provider)?;
-            let (deterrent, required) = Providers::required_usd(&provider, record.tier);
+            let (deterrent, required) =
+                Providers::required_usd(&provider, record.tier, &record.models);
             Some((deterrent, required, <crate::Work as SettlementHistory<AccountId>>::avg_per_epoch(&provider)))
         }
 

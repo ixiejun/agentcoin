@@ -25,22 +25,30 @@ The stake threshold is set in US dollars — **T1 $1,000, T2 $100** on live chai
 
 A provider's **required stake** is the larger of its tier's threshold and its **deterrent**,
 `κ` times its recent revenue per epoch (`Config::Revenue`, work settlement's average over the
-last 24 epochs). `κ = (g × H − C) / f` epochs (m6-audit-hardening design D3) is computed from
-these values:
+last 24 epochs). `κ = (g × n × H − C) / f` epochs (m6-audit-hardening design D3,
+m6-multi-model-deterrence) is computed from these values:
 
 - `g`, the assumed gain of a cheat as a share of its revenue (50%);
-- `H`, the exposure horizon in epochs (11, from the statistical judgment's simulation);
+- `H`, the exposure horizon in epochs of a provider of one calibrated model (11, from the
+  statistical judgment's simulation);
+- `n`, how many of the provider's models have an audit profile (`Config::Calibration`; at
+  least 1). Auditors pick one of them at random for each audit, so each is found about `n`
+  times later; the simulation shows `n × H` covers it for `n` = 1, 2, 4 and 16. This assumes
+  auditors can re-check every calibrated model a provider lists;
 - `C`, the challenge period (`Config::ChallengeEpochs`, 2);
 - `f`, the share of the stake a confirmed dispute slashes (`Config::ConfirmedSlash`, 10%).
 
-On live chains `κ` is 35 epochs, so a provider settling $100 per epoch needs $3,500. With this
-stake a confirmed cheat loses at least what it gained before being found. `g` and `H` are set at
-genesis (`deterrence`, guardrails 10%–100% and 1–720 epochs). `kappa_bps()`, `required_usd(who,
-tier)` and `required_stake(who, tier)` expose the computation.
+On live chains `κ` is 35 epochs for one calibrated model, so a provider settling $100 per epoch
+needs $3,500; with two it is 90 epochs and $9,000. With this stake a confirmed cheat loses at
+least what it gained before being found. `g` and `H` are set at genesis (`deterrence`,
+guardrails 10%–100% and 1–720 epochs). `kappa_bps_for(n)`, `calibrated_count(models)`,
+`required_usd(who, tier, models)` and `required_stake(who, tier, models)` expose the computation.
 
-Registering and unbonding check the required stake; without a rate both fail. When the rate or
-the revenue moves, a provider whose stake falls below its required stake stays registered but is
-not serviceable until it bonds more.
+Registering and unbonding check the required stake; without a rate both fail. A new model list
+(`update`) that raises the required stake above the stake is refused (`BelowThreshold`); one that
+does not raise it passes even below it. When the rate, the revenue or a model's calibration
+moves, a provider whose stake falls below its required stake stays registered but is not
+serviceable until it bonds more.
 
 ## Serviceable
 
@@ -54,7 +62,7 @@ providers of a model in account order (the runtime exposes it through `MarketApi
 | Call | Effect |
 |---|---|
 | `register(registration)` | Registers the caller with a `Registration { tier, endpoint, kem_pk, models, stake, attestation }` and bonds `stake`; `attestation` must be `None`. |
-| `update(endpoint?, kem_pk?, models?)` | Changes any of them (same rules as registration); not while exiting. The tier cannot change. |
+| `update(endpoint?, kem_pk?, models?)` | Changes any of them (same rules as registration); not while exiting. The tier cannot change. A model list that raises the required stake above the stake fails. |
 | `heartbeat()` | Records a heartbeat. **Free** when at least half an interval passed since the last one; paid otherwise. |
 | `bond_extra(amount)` | Adds stake (not while exiting). |
 | `unbond(amount)` | Moves `amount` to unbonding; what stays bonded must meet the required stake. |
